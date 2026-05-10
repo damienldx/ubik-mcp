@@ -2,11 +2,11 @@
 /**
  * Google Workspace — standalone MCP stdio server.
  *
- * Tools:
- *   - gmail_search  → Search emails
- *   - gmail_read    → Read a specific email by ID
- *   - gmail_send    → Send an email
- *   - gmail_trash   → Move an email to trash
+ * Tools (4):
+ *   - gmail_search_messages  Search emails (Gmail query syntax) and list summaries.
+ *   - gmail_read_message     Read one full email by ID (headers + body).
+ *   - gmail_send_message     Send a plain-text or HTML email.
+ *   - gmail_trash_message    Move one email to the trash by ID.
  *
  * Auth: OAuth2 refresh-token flow against the Google token endpoint, using
  * native fetch. No UBIK-RELEASE dependency. Required env vars (loaded from
@@ -144,12 +144,12 @@ function sleep(ms: number): Promise<void> {
 const server = createMcpServer("ubik-google", "1.0.0");
 
 server.tool(
-  "gmail_search",
-  "Search emails in Gmail. Leave query empty to list latest received emails.",
+  "gmail_search_messages",
+  "Searches emails in Gmail using the standard Gmail query syntax and returns a numbered summary list with message IDs.",
   {
-    query:      z.string().default("").describe("Gmail search query (e.g. 'from:someone subject:hello'). Empty = latest inbox."),
-    labelId:    z.string().optional().describe("Gmail label ID to filter by (e.g. 'INBOX', 'TRASH', or a custom label)."),
-    maxResults: z.number().int().positive().max(100).default(10),
+    query:      z.string().default("").describe("Gmail search query (e.g. 'from:someone subject:hello'). Empty string lists the latest inbox messages."),
+    labelId:    z.string().optional().describe("Gmail label ID to filter by (e.g. 'INBOX', 'TRASH', or a custom label ID)."),
+    maxResults: z.number().int().positive().max(100).default(10).describe("Maximum number of message summaries to return (1-100)."),
   },
   async ({ query, labelId, maxResults }) => {
     let q = query?.trim() ? query.trim() : "in:inbox";
@@ -196,9 +196,9 @@ server.tool(
 );
 
 server.tool(
-  "gmail_read",
-  "Read a specific Gmail email by ID.",
-  { messageId: z.string().describe("Gmail message ID") },
+  "gmail_read_message",
+  "Reads one full Gmail email by message ID and returns headers + decoded body (plain text, falls back to stripped HTML).",
+  { messageId: z.string().describe("Gmail message ID (as returned by gmail_search_messages).") },
   async ({ messageId }) => {
     const msg     = await gapi(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=FULL`);
     const headers = msg.payload?.headers ?? [];
@@ -246,13 +246,13 @@ function extractHtmlBody(payload: any): string {
 }
 
 server.tool(
-  "gmail_send",
-  "Send an email via Gmail.",
+  "gmail_send_message",
+  "Sends an email via the authenticated Gmail account (plain text or HTML).",
   {
-    to:      z.string().describe("Recipient email address"),
-    subject: z.string().describe("Email subject"),
-    body:    z.string().describe("Email body (plain text or HTML)"),
-    isHtml:  z.boolean().optional().describe("True if body is HTML"),
+    to:      z.string().describe("Recipient email address."),
+    subject: z.string().describe("Email subject (UTF-8 supported)."),
+    body:    z.string().describe("Email body — plain text by default, HTML if isHtml=true."),
+    isHtml:  z.boolean().optional().describe("Set to true to send the body as HTML (default: false)."),
   },
   async ({ to, subject, body, isHtml }) => {
     const contentType = isHtml ? "text/html" : "text/plain";
@@ -273,9 +273,9 @@ server.tool(
 );
 
 server.tool(
-  "gmail_trash",
-  "Move a Gmail email to trash.",
-  { messageId: z.string().describe("Gmail message ID") },
+  "gmail_trash_message",
+  "Moves one Gmail email to the trash by message ID (the message is not permanently deleted).",
+  { messageId: z.string().describe("Gmail message ID to move to trash.") },
   async ({ messageId }) => {
     await gapi(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/trash`,
