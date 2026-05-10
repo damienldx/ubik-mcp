@@ -1,504 +1,239 @@
 #!/usr/bin/env node
 /**
- * Standalone MCP server — desktop.ts
+ * ubik-desktop MCP server — standalone, no UBIK-DESKTOP dependency.
  *
- * Port of ubik-desktop-mcp/server.py (~2.5k LOC Python) to TypeScript.
- * Proxies HTTP calls to three local backends:
- *   - UBIK_DESKTOP_URL          (default http://127.0.0.1:7891)  — Tauri sidecar
- *   - UBIK_DESKTOP_SIDECAR_URL  (default http://127.0.0.1:8510)  — desktop-tools sidecar
- *   - PAPERCLIP_API_URL         (default http://127.0.0.1:3100/api) — Paperclip
+ * Two backends only:
+ *   UBIK_URL   (default http://127.0.0.1:8765) — sessions, projects
+ *   RELAY_URL  (default http://127.0.0.1:7892) — agents, activity, messaging
  *
- * Tools registered (40+):
- *   activity_*  · claude_* (PTY) · ide_shortcut_* · ide_memory_*
- *   project_*   · system_*       · ubik_*         · codir_*
- *
- * No UBIK-RELEASE deps. Imports: @modelcontextprotocol/sdk, zod, dotenv, node:*.
- * Each tool defines its zod schema then proxies the call. Logic that lived only
- * in server.py (Unix socket wakeup, ~/.claude.json pre-trust, agent registry
- * file IO) is intentionally NOT ported — it requires the Python sidecar's
- * filesystem state. The TS server stays a pure HTTP-router.
+ * 22 tools:
+ *   ubik_*      (8) — agent/session management
+ *   activity_*  (7) — fleet activity stream
+ *   project_*   (7) — project + fork management
  */
-
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
-import { createMcpServer, runServer } from "../lib/server";
+import { createMcpServer, runServer } from "../lib/server.js";
 
 config({ path: path.join(process.cwd(), ".env") });
 
-// ── Backend URLs ─────────────────────────────────────────────────────────────
-const DESKTOP_URL = process.env.UBIK_DESKTOP_URL ?? "http://127.0.0.1:7891";
-const SIDECAR_URL = process.env.UBIK_DESKTOP_SIDECAR_URL ?? "http://127.0.0.1:8510";
-const PAPERCLIP_URL = process.env.PAPERCLIP_API_URL ?? "http://127.0.0.1:3100/api";
+const UBIK_URL  = (process.env.UBIK_URL  ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+const RELAY_URL = (process.env.RELAY_URL ?? "http://127.0.0.1:7892").replace(/\/$/, "");
+const TIMEOUT   = 15_000;
 
-const HTTP_TIMEOUT_MS = 15_000;
-
-// ── Generic HTTP helper using fetch (Node 20+) ───────────────────────────────
 async function httpJson(
   url: string,
-  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
 ): Promise<unknown> {
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  const tid  = setTimeout(() => ctrl.abort(), TIMEOUT);
   try {
-    const res = await fetch(url, {
+    const res  = await fetch(url, {
       method,
       headers: body !== undefined ? { "Content-Type": "application/json" } : {},
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
+      body:    body !== undefined ? JSON.stringify(body) : undefined,
+      signal:  ctrl.signal,
     });
     const text = await res.text();
     if (!text) return { ok: res.ok, status: res.status };
-    try {
-      return JSON.parse(text);
-    } catch {
-      return { ok: res.ok, status: res.status, raw: text };
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg };
+    try { return JSON.parse(text); } catch { return { ok: res.ok, raw: text }; }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(tid);
   }
 }
 
-const desktopHttp = (method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
-  httpJson(`${DESKTOP_URL}${path}`, method, body);
+const ubik  = (m: "GET"|"POST"|"PUT"|"PATCH"|"DELETE", p: string, b?: unknown) =>
+  httpJson(`${UBIK_URL}${p}`, m, b);
 
-const paperclipHttp = (method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
-  httpJson(`${PAPERCLIP_URL}${path}`, method, body);
+const relay = (m: "GET"|"POST", p: string, b?: unknown) =>
+  httpJson(`${RELAY_URL}${p}`, m, b);
 
-// Sidecar tools call: POST /api/tools/{tool} with {args} body.
-// The sidecar wraps the result as a JSON-encoded string under "result".
-async function sidecarToolCall(tool: string, args: Record<string, unknown>): Promise<unknown> {
-  const payload = await httpJson(`${SIDECAR_URL}/api/tools/${tool}`, "POST", { args });
-  if (typeof payload !== "object" || payload === null) return payload;
-  const p = payload as Record<string, unknown>;
-  if (p.ok === false) return { error: p.error ?? "unknown sidecar error" };
-  const result = p.result;
-  if (typeof result === "string") {
-    try {
-      return JSON.parse(result);
-    } catch {
-      return { raw: result };
-    }
-  }
-  return result ?? p;
-}
+type TR = { content: { type: "text"; text: string }[]; isError?: boolean };
+const ok   = (d: unknown): TR => ({ content: [{ type: "text", text: JSON.stringify(d, null, 2) }] });
+const fail = (e: unknown): TR => ({ content: [{ type: "text", text: JSON.stringify({ error: String(e) }) }], isError: true });
 
-// ── Tool result wrapper ──────────────────────────────────────────────────────
-type ToolReturn = { content: { type: "text"; text: string }[]; isError?: boolean };
+const server = createMcpServer("ubik-desktop", "3.0.0");
 
-function ok(payload: unknown): ToolReturn {
-  const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-  return { content: [{ type: "text", text }] };
-}
+// ═══ ubik_* ══════════════════════════════════════════════════════════════════
 
-function fail(msg: string): ToolReturn {
-  return { content: [{ type: "text", text: msg }], isError: true };
-}
-
-// ── Server ────────────────────────────────────────────────────────────────────
-const server = createMcpServer("ubik-desktop-standalone", "2.0.0");
-
-// ═══ ubik_* (PTY + agents on Tauri sidecar :7891) ═══════════════════════════
-
-server.tool(
-  "ubik_list_agents",
-  "List the agents registered on the UBIK-DESKTOP sidecar (GET /agents).",
+server.tool("ubik_list_agents",
+  "List fleet agents registered on the relay.",
   {},
-  async () => ok(await desktopHttp("GET", "/agents")),
-);
+  async () => { try { return ok(await relay("GET", "/agents")); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_list_sessions",
-  "List active PTY sessions on the UBIK-DESKTOP sidecar (GET /pty/sessions).",
+server.tool("ubik_list_sessions",
+  "List active UBIK sessions.",
   {},
-  async () => ok(await desktopHttp("GET", "/pty/sessions")),
-);
+  async () => { try { return ok(await ubik("GET", "/sessions")); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_create_session",
-  "Create a new PTY session (POST /pty/spawn). Optional Paperclip wiring via `name`.",
+server.tool("ubik_create_session",
+  "Create a UBIK session for an agent.",
   {
-    workspace: z.string().optional().describe("Initial cwd"),
-    cmd: z.string().optional().describe("Command to launch (default: bash)"),
-    name: z.string().optional().describe("Paperclip agent name to wire (e.g. 'ubik-refactor-auth')"),
-    role: z.string().optional().describe("Agent role"),
-    model: z.string().optional().describe("Adapter type / model"),
+    agent_id: z.string().describe("Agent identifier"),
+    cwd:      z.string().optional().describe("Working directory"),
+    provider: z.string().optional().describe("LLM provider"),
   },
-  async (args) => ok(await desktopHttp("POST", "/pty/spawn", args)),
-);
+  async (args) => { try { return ok(await ubik("POST", `/sessions/${encodeURIComponent(args.agent_id)}`, { cwd: args.cwd, provider: args.provider })); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_write",
-  "Write text to a PTY session (POST /pty/write). Caller is responsible for trailing \\r if needed.",
+server.tool("ubik_write",
+  "Send a message to an agent via the relay.",
   {
-    tab_id: z.string(),
-    text: z.string(),
+    to:      z.string().describe("Target agent_id or 'all'"),
+    message: z.string().describe("Message to send"),
+    from:    z.string().optional().describe("Sender agent_id"),
   },
-  async ({ tab_id, text }) => ok(await desktopHttp("POST", "/pty/write", { tab_id, text })),
-);
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_read",
-  "Read pending output from a PTY session (POST /pty/read).",
+server.tool("ubik_read",
+  "Read pending messages for an agent from the relay.",
   {
-    tab_id: z.string(),
-    timeout: z.number().optional().describe("Block until new output, in seconds"),
+    agent_id: z.string().describe("Agent identifier"),
   },
-  async (args) => ok(await desktopHttp("POST", "/pty/read", args)),
-);
+  async (args) => { try { return ok(await relay("GET", `/read/${encodeURIComponent(args.agent_id)}`)); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_kill_session",
-  "Kill a PTY session (DELETE /pty/{tab_id}).",
-  { tab_id: z.string() },
-  async ({ tab_id }) => ok(await desktopHttp("DELETE", `/pty/${encodeURIComponent(tab_id)}`)),
-);
-
-server.tool(
-  "ubik_interrupt",
-  "Send SIGINT then a follow-up message to a PTY session (POST /pty/interrupt/{tab_id} + write).",
+server.tool("ubik_kill_session",
+  "Delete a UBIK session.",
   {
-    tab_id: z.string(),
-    message: z.string().describe("Text to send after the interrupt"),
+    agent_id: z.string().describe("Agent identifier"),
   },
-  async ({ tab_id, message }) => {
-    await desktopHttp("POST", `/pty/interrupt/${encodeURIComponent(tab_id)}`);
-    await desktopHttp("POST", "/pty/write", { tab_id, text: "" });
-    const r = await desktopHttp("POST", "/pty/write", { tab_id, text: message.endsWith("\r") ? message : message + "\r" });
-    return ok(r);
-  },
-);
+  async (args) => { try { return ok(await ubik("DELETE", `/sessions/${encodeURIComponent(args.agent_id)}`)); } catch(e) { return fail(e); } });
 
-server.tool(
-  "ubik_route_agent",
-  "Route a prompt to the best matching agent. Proxies to sidecar /api/route/agent.",
-  { prompt: z.string() },
-  async (args) => ok(await desktopHttp("POST", "/api/route/agent", args)),
-);
-
-// ═══ claude_* (PTY tools tuned for Claude CLI) ═══════════════════════════════
-
-server.tool(
-  "claude_spawn_terminal",
-  "Spawn a terminal pre-configured for Claude CLI (POST /pty/spawn/claude).",
+server.tool("ubik_interrupt",
+  "Send an interrupt signal to an agent via the relay.",
   {
-    workspace: z.string().optional(),
-    name: z.string().optional().describe("Paperclip agent name"),
-    role: z.string().optional(),
-    model: z.string().optional(),
+    agent_id: z.string().describe("Agent to interrupt"),
+    from:     z.string().optional(),
   },
-  async (args) => ok(await desktopHttp("POST", "/pty/spawn/claude", args)),
-);
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.agent_id)}`, { from: args.from ?? "ubik-mcp", message: "__interrupt__" })); } catch(e) { return fail(e); } });
 
-server.tool(
-  "claude_run_task",
-  "Run a one-shot task in a Claude PTY session.",
+server.tool("ubik_route_agent",
+  "Route a task to an agent via the relay.",
   {
-    workspace: z.string(),
-    prompt: z.string(),
-    timeout: z.number().optional(),
+    to:      z.string().describe("Target agent_id"),
+    message: z.string().describe("Task description"),
+    from:    z.string().optional(),
   },
-  async (args) => ok(await desktopHttp("POST", "/pty/claude/run", args)),
-);
-
-server.tool(
-  "claude_list_terminals",
-  "List active Claude PTY terminals.",
-  {},
-  async () => ok(await desktopHttp("GET", "/pty/claude/list")),
-);
-
-server.tool(
-  "claude_write",
-  "Write a prompt to a Claude PTY terminal (POST /pty/claude/write).",
-  { tab_id: z.string(), text: z.string() },
-  async (args) => ok(await desktopHttp("POST", "/pty/claude/write", args)),
-);
-
-server.tool(
-  "claude_read",
-  "Read the latest output from a Claude PTY terminal (POST /pty/claude/read).",
-  { tab_id: z.string(), timeout: z.number().optional() },
-  async (args) => ok(await desktopHttp("POST", "/pty/claude/read", args)),
-);
-
-server.tool(
-  "claude_interrupt",
-  "Interrupt the current Claude operation in a PTY (POST /pty/claude/interrupt).",
-  { tab_id: z.string(), message: z.string().optional() },
-  async (args) => ok(await desktopHttp("POST", "/pty/claude/interrupt", args)),
-);
-
-server.tool(
-  "claude_kill",
-  "Kill a Claude PTY terminal (DELETE /pty/claude/{tab_id}).",
-  { tab_id: z.string() },
-  async ({ tab_id }) => ok(await desktopHttp("DELETE", `/pty/claude/${encodeURIComponent(tab_id)}`)),
-);
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
 // ═══ activity_* ══════════════════════════════════════════════════════════════
 
-server.tool(
-  "activity_emit",
-  "Emit an activity event (POST /activity).",
+server.tool("activity_emit",
+  "Broadcast an activity event to the fleet.",
   {
-    type: z.string(),
-    actor: z.string().optional(),
-    target: z.string().optional(),
-    payload: z.record(z.unknown()).optional(),
+    to:      z.string().default("all").describe("Target agent or 'all'"),
+    message: z.string().describe("Activity message"),
+    from:    z.string().optional(),
   },
-  async (args) => ok(await desktopHttp("POST", "/activity", args)),
-);
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
-server.tool(
-  "activity_read",
-  "Read recent activity events (GET /activity?limit=N).",
-  { limit: z.number().int().min(1).max(500).default(50) },
-  async ({ limit }) => ok(await desktopHttp("GET", `/activity?limit=${limit}`)),
-);
-
-server.tool(
-  "activity_live",
-  "Read live activity stream snapshot (GET /activity/live).",
-  {},
-  async () => ok(await desktopHttp("GET", "/activity/live")),
-);
-
-server.tool(
-  "activity_agents",
-  "List agents seen in the activity stream (GET /activity/agents).",
-  {},
-  async () => ok(await desktopHttp("GET", "/activity/agents")),
-);
-
-server.tool(
-  "activity_sessions",
-  "List sessions visible in activity (GET /activity/sessions).",
-  {},
-  async () => ok(await desktopHttp("GET", "/activity/sessions")),
-);
-
-server.tool(
-  "activity_tasks",
-  "List tasks visible in activity (GET /activity/tasks).",
-  {},
-  async () => ok(await desktopHttp("GET", "/activity/tasks")),
-);
-
-server.tool(
-  "activity_health",
-  "Health check of the activity service (GET /activity/health).",
-  {},
-  async () => ok(await desktopHttp("GET", "/activity/health")),
-);
-
-// ═══ ide_shortcut_* + ide_memory_* (proxied via desktop-tools sidecar :8510) ═
-
-const ideShortcutTools = [
-  "ide_shortcut_invoke",
-  "ide_shortcut_run",
-  "ide_shortcut_status",
-  "ide_shortcut_result",
-  "ide_shortcut_finish",
-  "ide_shortcut_list",
-] as const;
-
-for (const tool of ideShortcutTools) {
-  server.tool(
-    tool,
-    `IDE shortcut tool '${tool}' — proxied to sidecar /api/tools/${tool}. Args are passed through as-is.`,
-    {
-      args: z.record(z.unknown()).optional().describe("Arbitrary tool arguments — see UBIK-DESKTOP sidecar docs"),
-    },
-    async ({ args }) => ok(await sidecarToolCall(tool, args ?? {})),
-  );
-}
-
-const ideMemoryTools = ["ide_memory_get", "ide_memory_list", "ide_memory_search"] as const;
-
-for (const tool of ideMemoryTools) {
-  server.tool(
-    tool,
-    `IDE memory tool '${tool}' — proxied to sidecar /api/tools/${tool}.`,
-    {
-      args: z.record(z.unknown()).optional(),
-    },
-    async ({ args }) => ok(await sidecarToolCall(tool, args ?? {})),
-  );
-}
-
-// ═══ project_* (UBIK-DESKTOP local project store on :7891) ═══════════════════
-
-server.tool(
-  "project_list",
-  "List projects (GET /projects).",
-  {},
-  async () => ok(await desktopHttp("GET", "/projects")),
-);
-
-server.tool(
-  "project_status",
-  "Get full status of one project (GET /projects/{id}).",
-  { project_id: z.string() },
-  async ({ project_id }) => ok(await desktopHttp("GET", `/projects/${encodeURIComponent(project_id)}`)),
-);
-
-server.tool(
-  "project_approve",
-  "Approve a project gating step (POST /projects/{id}/approve).",
+server.tool("activity_read",
+  "Read the relay activity stream.",
   {
-    project_id: z.string(),
-    step: z.string(),
-    note: z.string().optional(),
+    limit: z.number().int().positive().optional().describe("Max events (relay returns last ~100)"),
   },
-  async ({ project_id, ...body }) =>
-    ok(await desktopHttp("POST", `/projects/${encodeURIComponent(project_id)}/approve`, body)),
-);
+  async (args) => {
+    try {
+      const data = await relay("GET", "/activity") as unknown[];
+      const items = Array.isArray(data) ? data : [];
+      return ok(args.limit ? items.slice(-args.limit) : items);
+    } catch(e) { return fail(e); }
+  });
 
-server.tool(
-  "project_link",
-  "Link a project to a repo + branch (POST /projects/{id}/link).",
+server.tool("activity_live",
+  "Get the latest activity events from the relay.",
+  {},
+  async () => {
+    try {
+      const data = await relay("GET", "/activity") as unknown[];
+      const items = Array.isArray(data) ? data : [];
+      return ok(items.slice(-20));
+    } catch(e) { return fail(e); }
+  });
+
+server.tool("activity_agents",
+  "List fleet agents with their status.",
+  {},
+  async () => { try { return ok(await relay("GET", "/agents")); } catch(e) { return fail(e); } });
+
+server.tool("activity_sessions",
+  "List active UBIK sessions.",
+  {},
+  async () => { try { return ok(await ubik("GET", "/sessions")); } catch(e) { return fail(e); } });
+
+server.tool("activity_tasks",
+  "List recent agent events.",
+  {},
+  async () => { try { return ok(await relay("GET", "/agent-events")); } catch(e) { return fail(e); } });
+
+server.tool("activity_health",
+  "Get fleet health status from the relay.",
+  {},
+  async () => { try { return ok(await relay("GET", "/health")); } catch(e) { return fail(e); } });
+
+// ═══ project_* ═══════════════════════════════════════════════════════════════
+
+server.tool("project_list",
+  "List all UBIK projects.",
+  {},
+  async () => { try { return ok(await ubik("GET", "/projects")); } catch(e) { return fail(e); } });
+
+server.tool("project_status",
+  "Get details and forks for a project.",
   {
-    project_id: z.string(),
-    repo: z.string().optional(),
-    branch: z.string().optional(),
-    worktree: z.string().optional(),
+    project_id: z.string().describe("Project UUID"),
   },
-  async ({ project_id, ...body }) =>
-    ok(await desktopHttp("POST", `/projects/${encodeURIComponent(project_id)}/link`, body)),
-);
+  async (args) => { try { return ok(await ubik("GET", `/projects/${encodeURIComponent(args.project_id)}`)); } catch(e) { return fail(e); } });
 
-server.tool(
-  "project_pause",
-  "Pause a project (POST /projects/{id}/pause).",
-  { project_id: z.string(), reason: z.string().optional() },
-  async ({ project_id, ...body }) =>
-    ok(await desktopHttp("POST", `/projects/${encodeURIComponent(project_id)}/pause`, body)),
-);
-
-server.tool(
-  "project_resume",
-  "Resume a paused project (POST /projects/{id}/resume).",
-  { project_id: z.string() },
-  async ({ project_id }) =>
-    ok(await desktopHttp("POST", `/projects/${encodeURIComponent(project_id)}/resume`)),
-);
-
-server.tool(
-  "project_events",
-  "List events for a project (GET /projects/{id}/events?limit=N).",
-  { project_id: z.string(), limit: z.number().int().min(1).max(500).default(50) },
-  async ({ project_id, limit }) =>
-    ok(await desktopHttp("GET", `/projects/${encodeURIComponent(project_id)}/events?limit=${limit}`)),
-);
-
-// ═══ system_* (Paperclip — multi-agent threads on :3100/api) ═════════════════
-
-server.tool(
-  "system_send_to_thread",
-  "Post a message to a Paperclip thread on behalf of an agent (POST /threads/{id}/comments).",
+server.tool("project_approve",
+  "Select a winning fork for a project.",
   {
-    thread_id: z.string(),
-    message: z.string(),
-    agent_id: z.string().optional().describe("Sender agent (default from PAPERCLIP_AGENT_ID env)"),
-    company_id: z.string().optional(),
+    project_id: z.string().describe("Project UUID"),
+    fork_id:    z.string().describe("Fork UUID to approve"),
   },
-  async ({ thread_id, ...body }) =>
-    ok(await paperclipHttp("POST", `/threads/${encodeURIComponent(thread_id)}/comments`, body)),
-);
+  async (args) => { try { return ok(await ubik("POST", `/projects/${encodeURIComponent(args.project_id)}/select/${encodeURIComponent(args.fork_id)}`)); } catch(e) { return fail(e); } });
 
-server.tool(
-  "system_interrupt_agent",
-  "Send an interrupt signal to a Paperclip-wired agent (POST /agents/{id}/interrupt).",
-  { agent_id: z.string(), reason: z.string().optional() },
-  async ({ agent_id, ...body }) =>
-    ok(await paperclipHttp("POST", `/agents/${encodeURIComponent(agent_id)}/interrupt`, body)),
-);
-
-server.tool(
-  "system_stop_agent",
-  "Stop a Paperclip agent and unregister it (POST /agents/{id}/stop).",
-  { agent_id: z.string() },
-  async ({ agent_id }) =>
-    ok(await paperclipHttp("POST", `/agents/${encodeURIComponent(agent_id)}/stop`)),
-);
-
-server.tool(
-  "system_list_agents",
-  "List Paperclip-wired agents (GET /agents).",
-  { company_id: z.string().optional() },
-  async ({ company_id }) => {
-    const qs = company_id ? `?companyId=${encodeURIComponent(company_id)}` : "";
-    return ok(await paperclipHttp("GET", `/agents${qs}`));
-  },
-);
-
-server.tool(
-  "system_react_to_comment",
-  "Add an emoji reaction to a Paperclip comment (POST /comments/{id}/reactions).",
+server.tool("project_link",
+  "Update project metadata (title, description, status, repo).",
   {
-    threadId: z.string(),
-    targetCommentId: z.string(),
-    emoji: z.string(),
+    project_id:  z.string().describe("Project UUID"),
+    title:       z.string().optional(),
+    description: z.string().optional(),
+    status:      z.string().optional(),
+    repo:        z.string().optional(),
   },
-  async ({ threadId, targetCommentId, emoji }) =>
-    ok(
-      await paperclipHttp("POST", `/threads/${encodeURIComponent(threadId)}/comments`, {
-        message: `:reaction:${emoji}:${targetCommentId}`,
-      }),
-    ),
-);
+  async ({ project_id, ...patch }) => { try { return ok(await ubik("PATCH", `/projects/${encodeURIComponent(project_id)}`, patch)); } catch(e) { return fail(e); } });
 
-server.tool(
-  "system_set_topic",
-  "Set the topic of a Paperclip thread (PATCH /threads/{id}).",
-  { thread_id: z.string(), topic: z.string() },
-  async ({ thread_id, topic }) =>
-    ok(await paperclipHttp("PATCH", `/threads/${encodeURIComponent(thread_id)}`, { topic })),
-);
-
-server.tool(
-  "system_create_subthread",
-  "Create a subthread under an existing Paperclip thread (POST /threads).",
+server.tool("project_pause",
+  "Pause a project.",
   {
-    parent_thread_id: z.string(),
-    title: z.string(),
-    topic: z.string().optional(),
-    company_id: z.string().optional(),
+    project_id: z.string().describe("Project UUID"),
   },
-  async ({ parent_thread_id, title, topic, company_id }) =>
-    ok(
-      await paperclipHttp("POST", "/threads", {
-        parentThreadId: parent_thread_id,
-        title,
-        topic,
-        companyId: company_id,
-      }),
-    ),
-);
+  async (args) => { try { return ok(await ubik("PATCH", `/projects/${encodeURIComponent(args.project_id)}`, { status: "paused" })); } catch(e) { return fail(e); } });
 
-// ═══ codir_* (delegate to a CODIR member terminal on the desktop sidecar) ════
+server.tool("project_resume",
+  "Resume a paused project.",
+  {
+    project_id: z.string().describe("Project UUID"),
+  },
+  async (args) => { try { return ok(await ubik("PATCH", `/projects/${encodeURIComponent(args.project_id)}`, { status: "active" })); } catch(e) { return fail(e); } });
 
-const codirMembers = ["cto", "cdo", "ciso", "cpo", "coo"] as const;
-
-for (const member of codirMembers) {
-  server.tool(
-    `codir_${member}`,
-    `Delegate a strategic task to the ${member.toUpperCase()}. Spawns the dedicated terminal on UBIK-DESKTOP sidecar.`,
-    {
-      task: z.string().describe("Strategic brief: context, expected outcome, constraints"),
-      context: z.string().optional().describe("Additional context"),
-      workspace: z.string().optional().describe("Initial workspace dir"),
-    },
-    async (args) => ok(await desktopHttp("POST", `/codir/${member}/spawn`, args)),
-  );
-}
+server.tool("project_events",
+  "Get events/history for a project.",
+  {
+    project_id: z.string().describe("Project UUID"),
+  },
+  async (args) => {
+    try {
+      const p = await ubik("GET", `/projects/${encodeURIComponent(args.project_id)}`) as Record<string, unknown>;
+      return ok((p as Record<string, unknown>).events ?? p);
+    } catch(e) { return fail(e); }
+  });
 
 runServer(server).catch((err) => {
-  process.stderr.write(`[ubik-desktop-standalone] fatal: ${String(err)}\n`);
+  process.stderr.write(`[ubik-desktop] fatal: ${err}\n`);
   process.exit(1);
 });
