@@ -2,7 +2,7 @@
 /**
  * skills MCP server — local SQLite-backed context store + read-only DB inspection.
  *
- * Tools (9):
+ * Tools (11):
  *   - skills_outline_file      Returns a structural outline of a source file.
  *   - skills_save_context      Upserts a (key, content) pair in the local store.
  *   - skills_read_context      Returns content for a given key.
@@ -12,9 +12,12 @@
  *   - skills_search_tools      BM25 keyword search over gateway tool catalog.
  *   - skills_add_skill         Upserts a skill in the local skill library.
  *   - skills_recall            Semantic (or keyword fallback) search over skill library.
+ *   - agent_search             Semantic shortlist of bundled agents (data/agents/*.md).
+ *   - agent_train              Loads the FULL manifest of a chosen agent for adoption.
  *
- * Storage: ~/.ubik-mcp/skills.db — auto-seeded from data/skills-seed.json on first start.
- * Vectors: skill_vectors table populated async on first start via all-MiniLM-L6-v2.
+ * Storage: ~/.ubik-mcp/skills.db — auto-seeded from data/skills-seed.json + data/agents/*.md.
+ * Vectors: skill_vectors table populated async on first start via all-MiniLM-L6-v2 — covers
+ *          BOTH skill/* and agent/* keys so agent_search hits the same semantic engine.
  * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, @xenova/transformers, node:* only.
  */
 import { z } from "zod";
@@ -142,42 +145,153 @@ async function seedVectorsIfEmpty(): Promise<void> {
   const db       = getStore();
   const vecCount = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
   const sklCount = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'skill/%'").get() as { n: number }).n;
-  if (vecCount >= sklCount && sklCount > 0) return;
+  const agtCount = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'agent/%'").get() as { n: number }).n;
+  const targetCount = sklCount + agtCount;
+  if (vecCount >= targetCount && targetCount > 0) return;
 
   const embedder = await loadEmbedder();
   if (!embedder) return;
 
-  const skills = db.prepare("SELECT key, content FROM context WHERE key LIKE 'skill/%'")
-    .all() as { key: string; content: string }[];
+  const rows = db.prepare(
+    "SELECT key, content FROM context WHERE key LIKE 'skill/%' OR key LIKE 'agent/%'"
+  ).all() as { key: string; content: string }[];
 
-  if (skills.length === 0) return;
-  process.stderr.write(`[ubik-skills] generating vectors for ${skills.length} skills...\n`);
+  if (rows.length === 0) return;
+  process.stderr.write(`[ubik-skills] generating vectors for ${rows.length} entries (skills + agents)...\n`);
 
   const insert     = db.prepare("INSERT OR REPLACE INTO skill_vectors (key, vec) VALUES (?, ?)");
-  const batchWrite = db.transaction((rows: Array<{ key: string; vec: Buffer }>) => {
-    for (const r of rows) insert.run(r.key, r.vec);
+  const batchWrite = db.transaction((batch: Array<{ key: string; vec: Buffer }>) => {
+    for (const r of batch) insert.run(r.key, r.vec);
   });
 
   const BATCH = 64;
-  for (let i = 0; i < skills.length; i += BATCH) {
-    const chunk = skills.slice(i, i + BATCH);
-    const rows: Array<{ key: string; vec: Buffer }> = [];
-    for (const s of chunk) {
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const out: Array<{ key: string; vec: Buffer }> = [];
+    for (const r of chunk) {
       try {
-        let parsed: Record<string, unknown> = {};
-        try { parsed = JSON.parse(s.content); } catch { /**/ }
-        const text = [parsed.name ?? "", parsed.description ?? "", (parsed.tags as string[] ?? []).join(" ")]
-          .join(" ").trim();
+        const text = embeddableTextFor(r.key, r.content);
+        if (!text) continue;
         const vec = await embedText(text);
-        if (vec) rows.push({ key: s.key, vec: Buffer.from(vec.buffer) });
+        if (vec) out.push({ key: r.key, vec: Buffer.from(vec.buffer) });
       } catch { /**/ }
     }
-    if (rows.length) batchWrite(rows);
+    if (out.length) batchWrite(out);
     if (i % (BATCH * 8) === 0 && i > 0) {
-      process.stderr.write(`[ubik-skills] vectors: ${i}/${skills.length}\n`);
+      process.stderr.write(`[ubik-skills] vectors: ${i}/${rows.length}\n`);
     }
   }
-  process.stderr.write(`[ubik-skills] vector seed complete (${skills.length} skills)\n`);
+  process.stderr.write(`[ubik-skills] vector seed complete (${rows.length} entries)\n`);
+}
+
+// ── Agent manifest helpers ───────────────────────────────────────────────────
+
+/** Extract the embeddable text for either a skill or an agent entry. */
+function embeddableTextFor(key: string, content: string): string {
+  if (key.startsWith("skill/")) {
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(content); } catch { /**/ }
+    return [
+      parsed.name ?? "",
+      parsed.description ?? "",
+      (parsed.tags as string[] ?? []).join(" "),
+    ].join(" ").trim();
+  }
+  if (key.startsWith("agent/")) {
+    const md = extractAgentMarkdown(content);
+    const fm = parseAgentFrontmatter(md);
+    return [
+      fm.name ?? "",
+      fm.role ?? "",
+      fm.description ?? "",
+    ].filter(Boolean).join(" ").trim() || md.slice(0, 600);
+  }
+  return content.slice(0, 600);
+}
+
+/** Pull the raw markdown out of the JSON-wrapped agent record from seed.py. */
+function extractAgentMarkdown(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as { content?: string };
+    return parsed?.content ?? content;
+  } catch {
+    return content;
+  }
+}
+
+/** Minimal YAML frontmatter parser — only what we need from ubik-agent/v2. */
+type AgentFrontmatter = {
+  id?: string;
+  name?: string;
+  role?: string;
+  description?: string;
+  autonomy?: string;
+  reports_to?: string;
+  version?: string;
+  tools_engine?: string[];
+  tools_client?: string[];
+  guardrails?: Record<string, string | number | string[]>;
+};
+
+function parseAgentFrontmatter(md: string): AgentFrontmatter {
+  const m = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!m) return {};
+  const body = m[1];
+  const out: AgentFrontmatter = {};
+  let section: "tools_engine" | "tools_client" | null = null;
+  let inGuardrails = false;
+  out.guardrails = {};
+  for (const rawLine of body.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line.trim()) continue;
+    // top-level scalar: key: value
+    const scalar = line.match(/^([A-Za-z_]+)\s*:\s*(.*)$/);
+    if (scalar && !line.startsWith(" ") && !line.startsWith("\t")) {
+      const [, k, v] = scalar;
+      if (k === "tools" || k === "guardrails") {
+        section = null;
+        inGuardrails = k === "guardrails";
+        continue;
+      }
+      const val = v.trim().replace(/^"|"$/g, "");
+      if (k === "id") out.id = val;
+      else if (k === "name") out.name = val;
+      else if (k === "role") out.role = val;
+      else if (k === "description") out.description = val;
+      else if (k === "autonomy") out.autonomy = val;
+      else if (k === "reports_to") out.reports_to = val;
+      else if (k === "version") out.version = val;
+      continue;
+    }
+    // tools.engine / tools.client subkey
+    const subkey = line.match(/^\s+(engine|client)\s*:\s*$/);
+    if (subkey) {
+      section = subkey[1] === "engine" ? "tools_engine" : "tools_client";
+      out[section] = [];
+      continue;
+    }
+    // list item under tools.engine / tools.client
+    const item = line.match(/^\s+-\s+(.+)$/);
+    if (item && section) {
+      (out[section] as string[]).push(item[1].trim());
+      continue;
+    }
+    // guardrails sub-keys
+    if (inGuardrails) {
+      const gk = line.match(/^\s+([A-Za-z_]+)\s*:\s*(.*)$/);
+      if (gk) {
+        const [, k, v] = gk;
+        const val = v.trim();
+        if (val.startsWith("[") || val === "") {
+          // skip nested arrays for simplicity
+          continue;
+        }
+        const num = Number(val);
+        out.guardrails![k] = Number.isFinite(num) ? num : val.replace(/^"|"$/g, "");
+      }
+    }
+  }
+  return out;
 }
 
 function ok(data: unknown) {
@@ -628,6 +742,176 @@ server.tool(
     } catch (err) { return fail(err); }
   },
 );
+
+// ─── agent_search ────────────────────────────────────────────────────────────
+server.tool(
+  "agent_search",
+  "Returns a shortlist of bundled agents (data/agents/*.md) matching a mission description. Semantic search via the same vectors as skills_recall (cosine similarity), with keyword fallback. Each hit includes id, name, role, description, autonomy, tools_count and guardrail caps so the caller can choose the right one BEFORE pulling the full manifest with agent_train.",
+  {
+    query:    z.string().min(1).describe("Mission or topic to match — e.g. 'review pull request', 'tune oltp database performance'."),
+    top_k:    z.number().int().min(1).max(20).default(5).describe("How many agents to return (default 5)."),
+    autonomy: z.enum(["supervised", "autonomous"]).optional().describe("Restrict to agents with this autonomy level."),
+  },
+  async ({ query, top_k, autonomy }) => {
+    try {
+      const db = getStore();
+
+      type Hit = {
+        key: string;
+        id: string;
+        name: string;
+        role: string;
+        description: string;
+        autonomy: string;
+        reports_to: string;
+        tools_count: number;
+        guardrails: Record<string, string | number | string[]>;
+        score: number;
+      };
+
+      function rowToHit(key: string, content: string, score: number): Hit {
+        const md  = extractAgentMarkdown(content);
+        const fm  = parseAgentFrontmatter(md);
+        const tools = [...(fm.tools_engine ?? []), ...(fm.tools_client ?? [])];
+        return {
+          key,
+          id:           fm.id ?? key.slice("agent/".length),
+          name:         fm.name ?? "",
+          role:         fm.role ?? "",
+          description:  (fm.description ?? "").slice(0, 280),
+          autonomy:     fm.autonomy ?? "",
+          reports_to:   fm.reports_to ?? "",
+          tools_count:  tools.length,
+          guardrails:   fm.guardrails ?? {},
+          score,
+        };
+      }
+
+      function keep(hit: Hit): boolean {
+        if (autonomy && hit.autonomy && hit.autonomy !== autonomy) return false;
+        return true;
+      }
+
+      // Semantic path (preferred when vectors exist for agents).
+      const vecCount = (db.prepare(
+        "SELECT COUNT(*) AS n FROM skill_vectors WHERE key LIKE 'agent/%'"
+      ).get() as { n: number }).n;
+
+      if (vecCount > 0 && _embedderReady && _embedder) {
+        const qvec = await embedText(query);
+        if (qvec) {
+          const rows = db.prepare(
+            "SELECT sv.key, sv.vec, c.content FROM skill_vectors sv JOIN context c ON c.key = sv.key WHERE sv.key LIKE 'agent/%'"
+          ).all() as { key: string; vec: Buffer; content: string }[];
+
+          const ranked = rows
+            .map((r) => {
+              const v = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4);
+              return { key: r.key, content: r.content, score: cosine(qvec, v) };
+            })
+            .filter((r) => r.score > 0.18)
+            .sort((a, b) => b.score - a.score);
+
+          const hits: Hit[] = [];
+          for (const r of ranked) {
+            const h = rowToHit(r.key, r.content, r.score);
+            if (keep(h)) hits.push(h);
+            if (hits.length >= top_k) break;
+          }
+          return ok({
+            query,
+            mode:         "semantic",
+            result_count: hits.length,
+            results:      hits,
+            next_step:    hits.length ? `Call agent_train(id="${hits[0].id}") to load the top agent's manifest as your operating identity.` : "No semantic matches. Broaden the query or call skills_recall instead.",
+          });
+        }
+      }
+
+      // Keyword fallback.
+      const all = db.prepare("SELECT key, content FROM context WHERE key LIKE 'agent/%'").all() as { key: string; content: string }[];
+      const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+      const scored: Hit[] = [];
+      for (const r of all) {
+        const md  = extractAgentMarkdown(r.content);
+        const fm  = parseAgentFrontmatter(md);
+        const hay = [r.key, fm.name ?? "", fm.role ?? "", fm.description ?? ""].join(" ").toLowerCase();
+        const score = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
+        if (score === 0) continue;
+        const h = rowToHit(r.key, r.content, score);
+        if (keep(h)) scored.push(h);
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const hits = scored.slice(0, top_k);
+      return ok({
+        query,
+        mode:         vecCount === 0 ? "keyword (vectors not seeded yet)" : "keyword",
+        result_count: hits.length,
+        results:      hits,
+        next_step:    hits.length ? `Call agent_train(id="${hits[0].id}") to load the top agent's manifest.` : "No keyword matches. Try broader terms.",
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+// ─── agent_train ─────────────────────────────────────────────────────────────
+server.tool(
+  "agent_train",
+  "Loads the FULL manifest of one bundled agent and returns it as text the caller should adopt as its operating identity for the duration of the current mission. Use AFTER agent_search to pick a specific id. Returns a stable revoke_token so the caller can later signal mission end (audit only — no server-side state). Idempotent: calling twice with the same id returns the same manifest plus an `already_trained: true` hint based on revoke_token reuse.",
+  {
+    id: z.string().min(1).describe("Agent id from a previous agent_search hit (without the 'agent/' prefix)."),
+  },
+  async ({ id }) => {
+    try {
+      const db   = getStore();
+      const key  = id.startsWith("agent/") ? id : `agent/${id}`;
+      const row  = db.prepare("SELECT content FROM context WHERE key = ?").get(key) as { content: string } | undefined;
+      if (!row) {
+        return fail(new Error(`agent not found: ${key}. Use agent_search to discover available ids.`));
+      }
+      const md  = extractAgentMarkdown(row.content);
+      const fm  = parseAgentFrontmatter(md);
+      // revoke_token is just a stable hash, useful for audit / future revoke endpoint.
+      const revokeToken = simpleHash(`${key}|${md.length}`);
+
+      const usageHint = [
+        `You have just been TRAINED on agent '${fm.id ?? id}' (${fm.name ?? "?"}).`,
+        `For the next mission, treat the manifest below as your operating identity:`,
+        ` • role: ${fm.role ?? "?"}`,
+        ` • autonomy: ${fm.autonomy ?? "?"} (reports_to: ${fm.reports_to ?? "?"})`,
+        ` • tools allowed: ${[...(fm.tools_engine ?? []), ...(fm.tools_client ?? [])].length}`,
+        ` • guardrails: ${JSON.stringify(fm.guardrails ?? {})}`,
+        ``,
+        `When the mission ends, call agent_train(id="${fm.id ?? id}") again with the same id to confirm conclusion (audit). The revoke_token below is stable across calls.`,
+      ].join("\n");
+
+      return ok({
+        id:               fm.id ?? id,
+        name:             fm.name ?? "",
+        role:             fm.role ?? "",
+        autonomy:         fm.autonomy ?? "",
+        reports_to:       fm.reports_to ?? "",
+        version:          fm.version ?? "",
+        tools_engine:     fm.tools_engine ?? [],
+        tools_client:     fm.tools_client ?? [],
+        guardrails:       fm.guardrails ?? {},
+        manifest:         md,
+        manifest_chars:   md.length,
+        revoke_token:     revokeToken,
+        usage_hint:       usageHint,
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+function simpleHash(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h).toString(36);
+}
 
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
