@@ -47,18 +47,15 @@ interface UpstreamServer {
 // Resolve absolute paths to subprocess servers. tsx is invoked so .ts files
 // can be run without a separate compile step (matches package.json scripts).
 const SERVERS: UpstreamServer[] = [
-  {
-    name: "skills",
-    command: "npx",
-    args: ["-y", "tsx", path.join(__dirname, "servers", "skills.ts")],
-    tools: [],
-  },
-  {
-    name: "system",
-    command: "npx",
-    args: ["-y", "tsx", path.join(__dirname, "servers", "system.ts")],
-    tools: [],
-  },
+  { name: "skills",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "skills.ts")],    tools: [] },
+  { name: "system",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "system.ts")],    tools: [] },
+  { name: "crawl",     command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "crawl.ts")],     tools: [] },
+  { name: "review",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "review.ts")],    tools: [] },
+  { name: "formation", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "formation.ts")], tools: [] },
+  { name: "github",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "github.ts")],    tools: [] },
+  { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
+  { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
+  { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
 ];
 
 async function connectUpstream(srv: UpstreamServer): Promise<void> {
