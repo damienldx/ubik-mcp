@@ -193,6 +193,23 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/tools/call") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const { tool, args } = JSON.parse(body) as { tool: string; args: Record<string, unknown> };
+        const srv = SERVERS.find((s) => s.client && s.tools.some((t) => t.name === tool));
+        if (!srv?.client) { sendJson(res, 404, { ok: false, error: `tool not found: ${tool}` }); return; }
+        const result = await srv.client.callTool({ name: tool, arguments: args ?? {} });
+        sendJson(res, 200, { ok: true, result });
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: describeError(err) });
+      }
+    });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/mcp") {
     if (!aggServer) {
       sendJson(res, 503, { ok: false, error: "aggregator not ready" });
