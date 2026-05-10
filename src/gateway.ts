@@ -179,6 +179,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/tools") {
+    const tools = SERVERS.flatMap((s) =>
+      s.client
+        ? s.tools.map((t) => ({ server: s.name, name: t.name, description: t.description ?? "" }))
+        : []
+    );
+    sendJson(res, 200, { totalTools: tools.length, tools });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/mcp") {
     if (!aggServer) {
       sendJson(res, 503, { ok: false, error: "aggregator not ready" });

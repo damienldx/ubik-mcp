@@ -288,6 +288,62 @@ server.tool(
   },
 );
 
+// ─── skills_search_tools ─────────────────────────────────────────────────────
+server.tool(
+  "skills_search_tools",
+  "Searches the ubik-mcp gateway tool catalog by keyword. Returns the most relevant tools with their server and description. Useful for discovering which tool to use for a given task.",
+  {
+    query:   z.string().min(1).describe("Space-separated keywords to search across tool names and descriptions"),
+    limit:   z.number().int().positive().optional().describe("Max results returned (default 10)"),
+    gateway: z.string().optional().describe("Gateway base URL (default http://127.0.0.1:8902)"),
+  },
+  async (args) => {
+    try {
+      const base  = (args.gateway ?? "http://127.0.0.1:8902").replace(/\/$/, "");
+      const res   = await fetch(`${base}/tools`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return fail(new Error(`Gateway /tools returned ${res.status}`));
+
+      const catalog = await res.json() as {
+        totalTools: number;
+        tools: Array<{ server: string; name: string; description: string }>;
+      };
+
+      const terms = args.query.toLowerCase().split(/\s+/).filter(Boolean);
+      const limit = args.limit ?? 10;
+
+      type Hit = { server: string; name: string; description: string; score: number };
+      const hits: Hit[] = [];
+
+      for (const tool of catalog.tools) {
+        const score = terms.reduce((acc, t) => {
+          // name match = weight 2, description match = weight 1
+          const inName = tool.name.toLowerCase().includes(t) ? 2 : 0;
+          const inDesc = tool.description.toLowerCase().includes(t) ? 1 : 0;
+          return acc + inName + inDesc;
+        }, 0);
+        if (score > 0) hits.push({ server: tool.server, name: tool.name, description: tool.description, score });
+      }
+
+      hits.sort((a, b) => b.score - a.score);
+
+      return ok({
+        query:       args.query,
+        totalTools:  catalog.totalTools,
+        resultCount: Math.min(hits.length, limit),
+        results:     hits.slice(0, limit).map(h => ({
+          server:      h.server,
+          name:        h.name,
+          description: h.description,
+          score:       h.score,
+        })),
+        tip: hits.length === 0
+          ? "No matches found. Try broader terms or use skills_list_context with prefix 'tools/' to browse the catalog."
+          : undefined,
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
   process.exit(1);
