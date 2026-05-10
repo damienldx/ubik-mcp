@@ -57,11 +57,11 @@ async function pickScreenshotTool(): Promise<{ bin: string; args: (out: string) 
 }
 
 // ── Server ────────────────────────────────────────────────────────────────────
-const server = createMcpServer("ubik-formation-standalone");
+const server = createMcpServer("ubik-formation");
 
 server.tool(
   "formation_screenshot",
-  "Take a fullscreen PNG screenshot and save it to a file. Tries gnome-screenshot, then scrot, then ImageMagick `import`, then `grim` (Wayland).",
+  "Capture a fullscreen PNG and write it to disk. Auto-detects the available tool (gnome-screenshot, scrot, ImageMagick import, or grim on Wayland).",
   {
     out_path: z.string().describe("Absolute path where the PNG will be written"),
   },
@@ -97,14 +97,11 @@ server.tool(
 
 server.tool(
   "formation_key",
-  "Press a single key (X11 / xwayland via xdotool). Examples: 'Return', 'Escape', 'Tab', 'a', 'F5'.",
+  "Press a single key on the focused window. Examples: 'Return', 'Escape', 'Tab', 'a', 'F5'. Requires xdotool.",
   {
-    key: z
-      .string()
-      .min(1)
-      .describe("X keysym name accepted by xdotool key (no spaces, no modifiers)"),
-    repeat: z.number().int().positive().max(50).default(1).describe("How many times to press"),
-    delay_ms: z.number().int().min(0).max(2_000).default(0).describe("Delay between repeats"),
+    key:      z.string().min(1).describe("X keysym name (no spaces, no modifiers — use formation_hotkey for combos)"),
+    repeat:   z.number().int().positive().max(50).default(1).describe("Number of times to press the key"),
+    delay_ms: z.number().int().min(0).max(2_000).default(0).describe("Delay in milliseconds between repeats"),
   },
   async ({ key, repeat, delay_ms }) => {
     try {
@@ -137,9 +134,9 @@ server.tool(
 
 server.tool(
   "formation_hotkey",
-  "Press a key combination such as ctrl+shift+t. xdotool joins keys with '+'. Modifiers: ctrl, shift, alt, super.",
+  "Press a modifier key combination on the focused window. Modifiers: ctrl, shift, alt, super. Requires xdotool.",
   {
-    combo: z.string().min(1).describe("xdotool combo, e.g. 'ctrl+shift+t'"),
+    combo: z.string().min(1).describe("Combo joined by '+', e.g. 'ctrl+shift+t' or 'alt+F4'"),
   },
   async ({ combo }) => {
     try {
@@ -167,10 +164,10 @@ server.tool(
 
 server.tool(
   "formation_scroll",
-  "Scroll up or down at the current pointer position. Uses xdotool click (button 4 = up, 5 = down) repeated `notches` times.",
+  "Scroll the window under the pointer. Each notch maps to one mouse-wheel click. Requires xdotool.",
   {
     direction: z.enum(["up", "down"]).describe("Scroll direction"),
-    notches: z.number().int().min(1).max(50).default(3).describe("How many scroll notches"),
+    notches:   z.number().int().min(1).max(50).default(3).describe("Number of scroll-wheel notches"),
   },
   async ({ direction, notches }) => {
     try {
@@ -195,6 +192,6 @@ server.tool(
 );
 
 runServer(server).catch((err) => {
-  process.stderr.write(`[ubik-formation-standalone] fatal: ${String(err)}\n`);
+  process.stderr.write(`[ubik-formation] fatal: ${String(err)}\n`);
   process.exit(1);
 });

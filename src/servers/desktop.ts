@@ -14,7 +14,7 @@
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
-import { createMcpServer, runServer } from "../lib/server.js";
+import { createMcpServer, runServer } from "../lib/server";
 
 config({ path: path.join(process.cwd(), ".env") });
 
@@ -106,7 +106,7 @@ server.tool("ubik_interrupt",
   "Send an interrupt signal to an agent via the relay.",
   {
     agent_id: z.string().describe("Agent to interrupt"),
-    from:     z.string().optional(),
+    from:     z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
   async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.agent_id)}`, { from: args.from ?? "ubik-mcp", message: "__interrupt__" })); } catch(e) { return fail(e); } });
 
@@ -115,7 +115,7 @@ server.tool("ubik_route_agent",
   {
     to:      z.string().describe("Target agent_id"),
     message: z.string().describe("Task description"),
-    from:    z.string().optional(),
+    from:    z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
   async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
@@ -126,7 +126,7 @@ server.tool("activity_emit",
   {
     to:      z.string().default("all").describe("Target agent or 'all'"),
     message: z.string().describe("Activity message"),
-    from:    z.string().optional(),
+    from:    z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
   async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
@@ -155,22 +155,22 @@ server.tool("activity_live",
   });
 
 server.tool("activity_agents",
-  "List fleet agents with their status.",
+  "List fleet agents with their status (alias of ubik_list_agents).",
   {},
   async () => { try { return ok(await relay("GET", "/agents")); } catch(e) { return fail(e); } });
 
 server.tool("activity_sessions",
-  "List active UBIK sessions.",
+  "List active UBIK sessions (alias of ubik_list_sessions).",
   {},
   async () => { try { return ok(await ubik("GET", "/sessions")); } catch(e) { return fail(e); } });
 
 server.tool("activity_tasks",
-  "List recent agent events.",
+  "List recent agent task events from the relay.",
   {},
   async () => { try { return ok(await relay("GET", "/agent-events")); } catch(e) { return fail(e); } });
 
 server.tool("activity_health",
-  "Get fleet health status from the relay.",
+  "Return fleet health status reported by the relay.",
   {},
   async () => { try { return ok(await relay("GET", "/health")); } catch(e) { return fail(e); } });
 
@@ -197,13 +197,13 @@ server.tool("project_approve",
   async (args) => { try { return ok(await ubik("POST", `/projects/${encodeURIComponent(args.project_id)}/select/${encodeURIComponent(args.fork_id)}`)); } catch(e) { return fail(e); } });
 
 server.tool("project_link",
-  "Update project metadata (title, description, status, repo).",
+  "Update project metadata. Pass only the fields to change.",
   {
     project_id:  z.string().describe("Project UUID"),
-    title:       z.string().optional(),
-    description: z.string().optional(),
-    status:      z.string().optional(),
-    repo:        z.string().optional(),
+    title:       z.string().optional().describe("New project title"),
+    description: z.string().optional().describe("New project description"),
+    status:      z.string().optional().describe("New status (e.g. 'active', 'paused', 'archived')"),
+    repo:        z.string().optional().describe("Linked git repository (owner/name or URL)"),
   },
   async ({ project_id, ...patch }) => { try { return ok(await ubik("PATCH", `/projects/${encodeURIComponent(project_id)}`, patch)); } catch(e) { return fail(e); } });
 
