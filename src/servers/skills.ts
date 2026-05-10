@@ -264,7 +264,8 @@ server.tool(
         ).all() as { name: string }[];
 
         const result = tables.map((t) => {
-          const columns = db.prepare(`PRAGMA table_info(${t.name})`).all() as Array<{
+          const tn = `"${t.name.replace(/"/g, '""')}"`;
+          const columns = db.prepare(`PRAGMA table_info(${tn})`).all() as Array<{
             cid: number;
             name: string;
             type: string;
@@ -272,13 +273,13 @@ server.tool(
             dflt_value: unknown;
             pk: number;
           }>;
-          const indexes = db.prepare(`PRAGMA index_list(${t.name})`).all() as Array<{
+          const indexes = db.prepare(`PRAGMA index_list(${tn})`).all() as Array<{
             name: string;
             unique: number;
           }>;
           let rowCount: number | null = null;
           try {
-            const r = db.prepare(`SELECT COUNT(*) AS c FROM ${t.name}`).get() as { c: number } | undefined;
+            const r = db.prepare(`SELECT COUNT(*) AS c FROM ${tn}`).get() as { c: number } | undefined;
             rowCount = r?.c ?? null;
           } catch { /* table unreadable */ }
           return { table: t.name, columns, indexes, rowCount };
