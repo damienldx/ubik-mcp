@@ -164,8 +164,9 @@ Un fichier JSON par agent dans `~/.ubik-memory/gps/<agent_id>.json` :
 ### Tools livrés
 
 - **`gps_record_usage(fork_id, agent_id, tools_called[], tools_recommended[])`** — append entry, refresh `tools_actually_used`, recompute `low_hit_classes`. Atomic write (tmp + rename) pour éviter les fichiers corrompus si 2 forks clôturent en parallèle pour le même agent.
-- **`gps_get_contract(agent_id, message?, top_k=6)`** — au réveil. Retourne le track record. Si `message` fourni : passe par le gate `shouldSkip` (contrat inter-PR), puis lookup persona + tools, applique le filter `low_hit_classes` et l'enrichissement de label.
+- **`gps_get_track_record(agent_id, message?, top_k=6)`** — au réveil. Retourne le track record. Si `message` fourni : passe par le gate `shouldSkip` (contrat inter-PR), puis lookup persona + tools, applique le filter `low_hit_classes` et l'enrichissement de label. *Renommé depuis `gps_get_contract` pour ne pas écraser le tool homonyme livré par Étape 1 (Fidele) qui retourne le fork lock.* Les deux sont composables : un agent peut appeler `gps_get_contract(fork_id)` pour le lock + `gps_get_track_record(agent_id)` pour son historique.
 - **`gps_lookup`** modifié non-breaking : quand `agent_id` est fourni, charge le track record best-effort, filtre les recommandations dans `low_hit_classes`, enrichit le persona name. Ajoute `pruned_by_track_record?` (champ optionnel) au shape de retour. Sur erreur de chargement → log stderr et continue avec le résultat non filtré (jamais bloquant).
+- **`gps_stats`** étendu : ajoute un bloc `track_records: { agent_count, avg_hit_rate, total_pruned_classes, last_updated_max }` agrégé depuis `~/.ubik-memory/gps/*.json`. Best-effort : un fichier corrompu est silently skip pour ne pas casser le dashboard.
 
 ### Logique de calibration `low_hit_classes`
 

@@ -244,6 +244,62 @@ export function enrichPersonaLabel(record: TrackRecord, baseName: string): strin
   return `${baseName} (${recent.length} catches, semaine ${stamp})`;
 }
 
+/**
+ * Scans `~/.ubik-memory/gps/*.json` and returns aggregate observability
+ * metrics for `gps_stats`. Best-effort: any unreadable / corrupt file is
+ * silently skipped (a single bad file must not break the dashboard).
+ */
+export async function computeTrackRecordStats(): Promise<{
+  agent_count: number;
+  avg_hit_rate: number;
+  total_pruned_classes: number;
+  last_updated_max: number;
+}> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(TRACK_DIR);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { agent_count: 0, avg_hit_rate: 0, total_pruned_classes: 0, last_updated_max: 0 };
+    }
+    throw err;
+  }
+
+  let agentCount = 0;
+  let rateSum = 0;
+  let rateSamples = 0;
+  let prunedSum = 0;
+  let lastUpdatedMax = 0;
+
+  for (const file of entries) {
+    if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
+    try {
+      const raw = await fs.readFile(path.join(TRACK_DIR, file), "utf8");
+      const parsed = JSON.parse(raw) as Partial<TrackRecord>;
+      agentCount += 1;
+      const history = parsed.hit_rate_history ?? [];
+      for (const h of history) {
+        if (typeof h.rate === "number" && Number.isFinite(h.rate)) {
+          rateSum += h.rate;
+          rateSamples += 1;
+        }
+      }
+      prunedSum += (parsed.low_hit_classes ?? []).length;
+      const lu = parsed.last_updated ? Date.parse(parsed.last_updated) : NaN;
+      if (Number.isFinite(lu) && lu > lastUpdatedMax) lastUpdatedMax = lu;
+    } catch {
+      // skip unreadable/corrupt file
+    }
+  }
+
+  return {
+    agent_count: agentCount,
+    avg_hit_rate: rateSamples === 0 ? 0 : rateSum / rateSamples,
+    total_pruned_classes: prunedSum,
+    last_updated_max: lastUpdatedMax,
+  };
+}
+
 function isoWeekStart(d: Date): Date {
   const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const day = utc.getUTCDay() || 7;

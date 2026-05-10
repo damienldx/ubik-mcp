@@ -28,6 +28,7 @@ import {
   recordUsage,
   filterByLowHitClasses,
   enrichPersonaLabel,
+  computeTrackRecordStats,
   type TrackRecord,
 } from "../lib/gps-track-record";
 
@@ -367,11 +368,16 @@ server.tool(
   },
 );
 
+// Renamed from gps_get_contract → gps_get_track_record to avoid collision with
+// Fidele's fork-contract gps_get_contract (Étape 1, branche gps-v2/fork-contract,
+// signature `(fork_id?, agent_id?)` → returns lock contract). Both tools are
+// composable: an agent can call gps_get_contract for the fork lock + the
+// gps_get_track_record for its own historical hit_rate.
 server.tool(
-  "gps_get_contract",
-  "Returns the persistent GPS contract for an agent: its track record (tools_actually_used, hit_rate_history, low_hit_classes) and, when a message is supplied, an enriched persona + filtered recommended_tools. Use this AT WAKE-UP rather than gps_lookup so persona reflects past catches and recommendations exclude classes the agent never uses. The same shouldSkip gate as `gps_should_enrich` is applied internally when a message is provided.",
+  "gps_get_track_record",
+  "Returns the persistent track record for an agent (tools_actually_used, hit_rate_history, low_hit_classes, catches) and, when a message is supplied, an enriched persona + filtered recommended_tools. Use this AT WAKE-UP rather than gps_lookup so persona reflects past catches and recommendations exclude classes the agent never uses. The same shouldSkip gate as `gps_should_enrich` is applied internally when a message is provided.",
   {
-    agent_id: z.string().min(1).describe("Agent whose contract to read."),
+    agent_id: z.string().min(1).describe("Agent whose track record to read."),
     message: z.string().optional().describe("Optional current message — when provided, runs a full lookup and returns persona + filtered tools enriched by the track record."),
     from: z.string().optional().describe("Optional sender id (used by the shouldSkip gate to bypass meca/bridge senders)."),
     to: z.string().optional().describe("Optional recipient id (used by the shouldSkip gate to bypass meca/bridge recipients)."),
@@ -480,9 +486,15 @@ server.tool(
 
 server.tool(
   "gps_stats",
-  "Returns cache stats (entry count, TTL, max size) for observability.",
+  "Returns cache stats (entry count, TTL, max size) and track-record aggregates (agent_count, avg_hit_rate, total_pruned_classes, last_updated_max ms) for observability.",
   {},
   async () => {
+    const trackRecords = await computeTrackRecordStats().catch(() => ({
+      agent_count: 0,
+      avg_hit_rate: 0,
+      total_pruned_classes: 0,
+      last_updated_max: 0,
+    }));
     return {
       content: [
         {
@@ -493,6 +505,7 @@ server.tool(
               max_entries: CACHE_MAX,
               ttl_ms: CACHE_TTL_MS,
               gateway_url: GATEWAY_URL,
+              track_records: trackRecords,
             },
             null,
             2,
