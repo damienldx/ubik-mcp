@@ -2,16 +2,20 @@
 /**
  * skills MCP server — local SQLite-backed context store + read-only DB inspection.
  *
- * Tools (6):
+ * Tools (9):
  *   - skills_outline_file      Returns a structural outline of a source file.
  *   - skills_save_context      Upserts a (key, content) pair in the local store.
  *   - skills_read_context      Returns content for a given key.
  *   - skills_list_context      Lists keys, optionally filtered by prefix.
  *   - skills_query_database    Runs a read-only SELECT against an external SQLite file.
  *   - skills_analyze_schema    Returns tables, columns, and indexes of an external SQLite file.
+ *   - skills_search_tools      BM25 keyword search over gateway tool catalog.
+ *   - skills_add_skill         Upserts a skill in the local skill library.
+ *   - skills_recall            Semantic (or keyword fallback) search over skill library.
  *
  * Storage: ~/.ubik-mcp/skills.db — auto-seeded from data/skills-seed.json on first start.
- * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, node:* only.
+ * Vectors: skill_vectors table populated async on first start via all-MiniLM-L6-v2.
+ * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, @xenova/transformers, node:* only.
  */
 import { z } from "zod";
 import { config } from "dotenv";
@@ -70,9 +74,109 @@ function getStore(): Database.Database {
       updated_at TEXT NOT NULL
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_vectors (
+      key TEXT PRIMARY KEY,
+      vec BLOB NOT NULL
+    )
+  `);
   seedIfEmpty(db);
   _store = db;
   return db;
+}
+
+// ─── Vector helpers ───────────────────────────────────────────────────────────
+
+const EMBED_MODEL = "Xenova/all-MiniLM-L6-v2";
+const EMBED_DIM   = 384;
+
+type EmbedFn = (text: string, opts: Record<string, unknown>) => Promise<{ data: Float32Array }>;
+let _embedder: EmbedFn | null = null;
+let _embedderReady             = false;
+let _embedderLoading           = false;
+
+async function loadEmbedder(): Promise<EmbedFn | null> {
+  if (_embedder) return _embedder;
+  if (_embedderLoading) return null;
+  _embedderLoading = true;
+  try {
+    const { pipeline, env } = await import("@xenova/transformers");
+    env.allowLocalModels = false;
+    env.useBrowserCache  = false;
+    const pipe    = await pipeline("feature-extraction", EMBED_MODEL);
+    _embedder      = pipe as unknown as EmbedFn;
+    _embedderReady = true;
+    process.stderr.write(`[ubik-skills] embedder ready (${EMBED_MODEL})\n`);
+    return _embedder;
+  } catch (err) {
+    process.stderr.write(`[ubik-skills] embedder unavailable: ${err}\n`);
+    return null;
+  } finally {
+    _embedderLoading = false;
+  }
+}
+
+async function embedText(text: string): Promise<Float32Array | null> {
+  const fn = await loadEmbedder();
+  if (!fn) return null;
+  try {
+    const out = await fn(text, { pooling: "mean", normalize: true });
+    return out.data;
+  } catch {
+    return null;
+  }
+}
+
+function cosine(a: Float32Array, b: Float32Array): number {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < EMBED_DIM; i++) {
+    dot += a[i] * b[i];
+    na  += a[i] * a[i];
+    nb  += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+async function seedVectorsIfEmpty(): Promise<void> {
+  const db    = getStore();
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
+  if (count > 0) return;
+
+  const embedder = await loadEmbedder();
+  if (!embedder) return;
+
+  const skills = db.prepare("SELECT key, content FROM context WHERE key LIKE 'skill/%'")
+    .all() as { key: string; content: string }[];
+
+  if (skills.length === 0) return;
+  process.stderr.write(`[ubik-skills] generating vectors for ${skills.length} skills...\n`);
+
+  const insert     = db.prepare("INSERT OR REPLACE INTO skill_vectors (key, vec) VALUES (?, ?)");
+  const batchWrite = db.transaction((rows: Array<{ key: string; vec: Buffer }>) => {
+    for (const r of rows) insert.run(r.key, r.vec);
+  });
+
+  const BATCH = 64;
+  for (let i = 0; i < skills.length; i += BATCH) {
+    const chunk = skills.slice(i, i + BATCH);
+    const rows: Array<{ key: string; vec: Buffer }> = [];
+    for (const s of chunk) {
+      try {
+        let parsed: Record<string, unknown> = {};
+        try { parsed = JSON.parse(s.content); } catch { /**/ }
+        const text = [parsed.name ?? "", parsed.description ?? "", (parsed.tags as string[] ?? []).join(" ")]
+          .join(" ").trim();
+        const vec = await embedText(text);
+        if (vec) rows.push({ key: s.key, vec: Buffer.from(vec.buffer) });
+      } catch { /**/ }
+    }
+    if (rows.length) batchWrite(rows);
+    if (i % (BATCH * 8) === 0 && i > 0) {
+      process.stderr.write(`[ubik-skills] vectors: ${i}/${skills.length}\n`);
+    }
+  }
+  process.stderr.write(`[ubik-skills] vector seed complete (${skills.length} skills)\n`);
 }
 
 function ok(data: unknown) {
@@ -91,6 +195,8 @@ const server = createMcpServer("ubik-skills");
 
 // Eager init — triggers auto-seed on first install before any tool call.
 getStore();
+// Background: load embedder + generate skill vectors (non-blocking).
+seedVectorsIfEmpty().catch(() => {});
 
 server.tool(
   "skills_outline_file",
@@ -425,63 +531,93 @@ server.tool(
   },
   async (args) => {
     try {
-      const db    = getStore();
-      const limit = args.limit ?? 5;
+      const db     = getStore();
+      const limit  = args.limit ?? 5;
       const prefix = args.domain ? `skill/${args.domain}/` : "skill/";
-
-      const rows = db.prepare(
-        "SELECT key, content, updated_at FROM context WHERE key LIKE ? ORDER BY updated_at DESC LIMIT 500"
-      ).all(`${prefix}%`) as { key: string; content: string; updated_at: string }[];
-
-      if (rows.length === 0) {
-        return ok({
-          query:       args.query,
-          resultCount: 0,
-          results:     [],
-          tip: "Skill library is empty. Populate it with skills_add_skill.",
-        });
-      }
-
-      const terms = args.query.toLowerCase().split(/\s+/).filter(Boolean);
 
       type Hit = {
         key: string; name: string; domain: string;
         description: string; system_prompt: string;
         tools: string[]; tags: string[]; score: number;
       };
-      const hits: Hit[] = [];
 
-      for (const row of rows) {
-        let parsed: Record<string, unknown> = {};
-        try { parsed = JSON.parse(row.content); } catch { parsed = { description: row.content }; }
+      function parseSkill(key: string, content: string): Record<string, unknown> {
+        try { return JSON.parse(content); } catch { return { description: content }; }
+      }
 
-        const hay = [
-          row.key,
-          parsed.name        ?? "",
-          parsed.domain      ?? "",
-          parsed.description ?? "",
-          JSON.stringify(parsed.tags ?? []),
-        ].join(" ").toLowerCase();
-
-        const score = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
-        if (score === 0) continue;
-
-        hits.push({
-          key:           row.key,
-          name:          String(parsed.name          ?? row.key),
+      function toHit(key: string, parsed: Record<string, unknown>, score: number): Hit {
+        return {
+          key,
+          name:          String(parsed.name          ?? key),
           domain:        String(parsed.domain        ?? ""),
           description:   String(parsed.description   ?? "").slice(0, 300),
           system_prompt: String(parsed.system_prompt ?? "").slice(0, 600),
           tools:         (parsed.tools as string[])  ?? [],
           tags:          (parsed.tags  as string[])  ?? [],
           score,
-        });
+        };
+      }
+
+      // ── Semantic path ────────────────────────────────────────────────────────
+      const vecCount = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
+      if (vecCount > 0 && _embedderReady && _embedder) {
+        const qvec = await embedText(args.query);
+        if (qvec) {
+          const vecRows = db.prepare(
+            "SELECT sv.key, sv.vec, c.content FROM skill_vectors sv JOIN context c ON c.key = sv.key WHERE sv.key LIKE ?"
+          ).all(`${prefix}%`) as { key: string; vec: Buffer; content: string }[];
+
+          const ranked = vecRows
+            .map((r) => {
+              const vec  = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4);
+              const sim  = cosine(qvec, vec);
+              return { key: r.key, content: r.content, score: sim };
+            })
+            .filter((r) => r.score > 0.2)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+
+          const hits = ranked.map((r) => toHit(r.key, parseSkill(r.key, r.content), r.score));
+
+          return ok({
+            query:       args.query,
+            mode:        "semantic",
+            resultCount: hits.length,
+            results:     hits.map(({ score: _s, ...h }) => h),
+            tip: hits.length === 0
+              ? "No semantic matches. Try different keywords or broaden your query."
+              : undefined,
+          });
+        }
+      }
+
+      // ── Keyword fallback ─────────────────────────────────────────────────────
+      const rows = db.prepare(
+        "SELECT key, content FROM context WHERE key LIKE ? ORDER BY updated_at DESC LIMIT 500"
+      ).all(`${prefix}%`) as { key: string; content: string }[];
+
+      if (rows.length === 0) {
+        return ok({ query: args.query, mode: "keyword", resultCount: 0, results: [],
+          tip: "Skill library is empty. Populate it with skills_add_skill." });
+      }
+
+      const terms = args.query.toLowerCase().split(/\s+/).filter(Boolean);
+      const hits: Hit[] = [];
+
+      for (const row of rows) {
+        const parsed = parseSkill(row.key, row.content);
+        const hay    = [row.key, parsed.name ?? "", parsed.domain ?? "",
+                        parsed.description ?? "", JSON.stringify(parsed.tags ?? [])].join(" ").toLowerCase();
+        const score  = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
+        if (score === 0) continue;
+        hits.push(toHit(row.key, parsed, score));
       }
 
       hits.sort((a, b) => b.score - a.score);
 
       return ok({
         query:       args.query,
+        mode:        vecCount === 0 ? "keyword (vectors not ready yet)" : "keyword",
         resultCount: Math.min(hits.length, limit),
         results:     hits.slice(0, limit).map(({ score: _s, ...h }) => h),
         tip: hits.length === 0
