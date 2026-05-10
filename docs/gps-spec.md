@@ -133,3 +133,80 @@ Si on veut un GPS "personnalisé par destinataire" (un même brief enrichi diff�
 - **Standalone server, pas de modif `skills.ts`** — la migration est non destructive : skills_recall et skills_search_tools restent intacts, gps.ts les compose.
 
 — 2683a72c-agent-0
+
+---
+
+## v2 · Fork contract layer (Fidele — gps-v2/fork-contract)
+
+> Author: 6388a209-agent-0 (Fidele) · Branche: `gps-v2/fork-contract` · Date: 2026-05-10
+
+### Why this exists
+
+Enrich-on-send + cache LRU (the v1 above) cuts cost when a single message is broadcast to many agents. It does *not* address the harder failure mode observed in production: **persona drift**. During a multi-message mission an agent receives N personas because each `relay_send` re-embeds a new message that may surface a different top-1 skill. The agent's identity flickers across the mission, none of the personas is specifically tied to the work, and the inference cost is paid for ~5 useful matches out of ~30 calls.
+
+The fork contract layer pins an agent's persona for the duration of a fork. One signature at fork entry, stable identity until close.
+
+### Tools added in `src/servers/gps.ts`
+
+| Tool | Role |
+|---|---|
+| `gps_lock(fork_id, agent_id, mission_brief, top_k?, budget_hint?, tools_allowlist?)` | Run gps_lookup once on the brief, persist the result as a contract at `${MEMORY_DIR}/forks/<fork_id>/gps_contract.json`. Idempotent on identical brief+agent. |
+| `gps_relock(fork_id, new_mission_brief, …)` | Replace an existing contract with one computed from a new brief. Errors if no contract exists. |
+| `gps_get_contract(fork_id?, agent_id?)` | Read by fork_id (preferred) or agent_id (most-recently-signed). Returns null when none exists. |
+| `gps_unlock(fork_id)` | Delete a contract. Use at fork close. |
+
+Existing tools extended (back-compat — all new params optional):
+
+- `gps_should_enrich({…, agent_id?})` — when `agent_id` is set and an active contract exists, returns `skip:true reason="fork_contract_active"` with `fork_id`, `persona_id`, `signed_at`. Caller should serve the contract instead of computing fresh.
+- `gps_lookup({…, fork_id?})` — when `fork_id` is set and a contract exists, short-circuits to the contract's persona+tools (`from_contract: true`, no embedding cost).
+
+### Storage
+
+```
+${MEMORY_DIR:-~/.ubik-memory}/forks/
+└── <fork_id>/
+    └── gps_contract.json    # {fork_id, agent_id, persona, recommended_tools,
+                              #  tools_allowlist, mission_brief, budget_hint, signed_at}
+```
+
+Atomic writes via tempfile + rename so concurrent readers never see torn JSON. Reverse index `findActiveContractByAgent(agent_id)` is a `readdirSync` + `JSON.parse` scan — acceptable for the fleet's cardinality (tens of forks max). If we cross 100+ active forks, swap for a `.index/by-agent.json` cache invalidated by mtime.
+
+### How this composes with v1 (enrich-on-send)
+
+The contract is consulted **before** the v1 cache. Decision tree at `relay_send` (pseudo-code in the ubik-fleet PR):
+
+```python
+verdict = mcp_call("gps_should_enrich", {message, from, to, agent_id: to})
+if verdict["skip"]:
+    if verdict.get("reason") == "fork_contract_active":
+        # Use the contract — fast path, no embedding
+        gps = mcp_call("gps_lookup", {message, fork_id: verdict["fork_id"]})
+        queue_store({"original": message, **gps, "from_contract": True})
+    else:
+        queue_store({"original": message})  # plain ack/bridge skip
+else:
+    # No active contract — fall back to v1 cache+lookup
+    gps = mcp_call("gps_lookup", {message, agent_id: to})
+    queue_store({"original": message, **gps})
+```
+
+**Cost model**: one `gps_lock` per fork → N free contract reads for the mission. v1 cache still amortizes broadcast, v2 contract amortizes the entire mission.
+
+### GpsResult schema — back-compat preserved
+
+The contract path adds 3 optional fields to the JSON `gps_lookup` returns: `from_contract?`, `fork_id?`, `signed_at?`, plus `cache_key` is now `string | null` (null when serving from contract). All 4 stable fields (`persona`, `recommended_tools`, `agent_training`, `cached`) keep their shape — existing relay code that reads these continues to work without change.
+
+### Wiring next steps (out of this PR)
+
+- `project_fork_register` (UBIK backend) should call `gps_lock` after writing the fork → automatic contract at dispatch time.
+- `project_fork_complete` should call `gps_unlock` → contract released at fork close.
+- A sidecar UI panel could surface active contracts (one row per agent: persona, signed_at, mission_brief preview) as observability.
+
+### Distinctif vs v1
+
+- **v1 = cost optimization on the same persona-per-message model**. Cache neutralizes broadcast cost.
+- **v2 = paradigm shift to persona-per-mission**. The agent has *one* identity for the duration of the work; per-message lookups become exception cases (no contract / explicit pivot).
+
+The two layers compose cleanly: v2 short-circuits before v1 does its job, and v1 still handles the no-contract case.
+
+— 6388a209-agent-0 (Fidele)
