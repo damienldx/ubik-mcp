@@ -138,46 +138,107 @@ function cosine(a: Float32Array, b: Float32Array): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+// ── Agent manifest helpers ───────────────────────────────────────────────────
+
+function extractAgentMarkdown(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as { content?: string };
+    return parsed?.content ?? content;
+  } catch { return content; }
+}
+
+type AgentFrontmatter = {
+  id?: string; name?: string; role?: string; description?: string;
+  autonomy?: string; reports_to?: string;
+  tools_engine?: string[]; tools_client?: string[];
+  guardrails?: Record<string, string | number | string[]>;
+  tags?: string[];
+};
+
+function parseAgentFrontmatter(md: string): AgentFrontmatter {
+  const out: AgentFrontmatter = {};
+  const fm = md.match(/^---\s*\n([\s\S]*?)\n---/)?.[1];
+  if (!fm) return out;
+  const scalar = (key: string) => fm.match(new RegExp(`^${key}\\s*:\\s*(?:"([^"]*)"|(.+?))\\s*$`, "m"))?.[1] ?? fm.match(new RegExp(`^${key}\\s*:\\s*(?:"([^"]*)"|(.+?))\\s*$`, "m"))?.[2];
+  const strList = (key: string): string[] => {
+    const block = fm.match(new RegExp(`^${key}\\s*:\\s*\\n((?:\\s+-[^\\n]+\\n?)+)`, "m"))?.[1];
+    if (block) return block.match(/- (.+)/g)?.map((s) => s.slice(2).trim()) ?? [];
+    const inline = fm.match(new RegExp(`^${key}\\s*:\\s*\\[([^\\]]+)\\]`, "m"))?.[1];
+    if (inline) return inline.split(",").map((s) => s.trim().replace(/^["']|["']$/g, ""));
+    return [];
+  };
+  out.id          = scalar("id");
+  out.name        = scalar("name");
+  out.role        = scalar("role");
+  out.autonomy    = scalar("autonomy");
+  out.reports_to  = scalar("reports_to");
+  out.tags        = strList("tags");
+  out.tools_engine = strList("tools_engine");
+  out.tools_client = strList("tools_client");
+  const descBlock = fm.match(/^description\s*:\s*>\s*\n((?:\s+.+\n?)+)/m)?.[1];
+  out.description = descBlock
+    ? descBlock.split("\n").map((s) => s.trim()).filter(Boolean).join(" ")
+    : scalar("description");
+  return out;
+}
+
+function embeddableTextFor(key: string, content: string): string {
+  if (key.startsWith("skill/")) {
+    let p: Record<string, unknown> = {};
+    try { p = JSON.parse(content); } catch { /**/ }
+    return [p.name ?? "", p.description ?? "", ((p.tags as string[]) ?? []).join(" ")].join(" ").trim();
+  }
+  if (key.startsWith("agent/")) {
+    const md = extractAgentMarkdown(content);
+    const fm = parseAgentFrontmatter(md);
+    return [fm.name ?? "", fm.role ?? "", fm.description ?? ""].filter(Boolean).join(" ").trim() || md.slice(0, 600);
+  }
+  return content.slice(0, 600);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function seedVectorsIfEmpty(): Promise<void> {
   const db       = getStore();
   const vecCount = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
   const sklCount = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'skill/%'").get() as { n: number }).n;
-  if (vecCount >= sklCount && sklCount > 0) return;
+  const agtCount = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'agent/%'").get() as { n: number }).n;
+  const target   = sklCount + agtCount;
+  if (vecCount >= target && target > 0) return;
 
   const embedder = await loadEmbedder();
   if (!embedder) return;
 
-  const skills = db.prepare("SELECT key, content FROM context WHERE key LIKE 'skill/%'")
-    .all() as { key: string; content: string }[];
+  const rows = db.prepare(
+    "SELECT key, content FROM context WHERE key LIKE 'skill/%' OR key LIKE 'agent/%'"
+  ).all() as { key: string; content: string }[];
 
-  if (skills.length === 0) return;
-  process.stderr.write(`[ubik-skills] generating vectors for ${skills.length} skills...\n`);
+  if (rows.length === 0) return;
+  process.stderr.write(`[ubik-skills] generating vectors for ${rows.length} entries (skills + agents)...\n`);
 
   const insert     = db.prepare("INSERT OR REPLACE INTO skill_vectors (key, vec) VALUES (?, ?)");
-  const batchWrite = db.transaction((rows: Array<{ key: string; vec: Buffer }>) => {
-    for (const r of rows) insert.run(r.key, r.vec);
+  const batchWrite = db.transaction((batch: Array<{ key: string; vec: Buffer }>) => {
+    for (const r of batch) insert.run(r.key, r.vec);
   });
 
   const BATCH = 64;
-  for (let i = 0; i < skills.length; i += BATCH) {
-    const chunk = skills.slice(i, i + BATCH);
-    const rows: Array<{ key: string; vec: Buffer }> = [];
-    for (const s of chunk) {
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const out: Array<{ key: string; vec: Buffer }> = [];
+    for (const r of chunk) {
       try {
-        let parsed: Record<string, unknown> = {};
-        try { parsed = JSON.parse(s.content); } catch { /**/ }
-        const text = [parsed.name ?? "", parsed.description ?? "", (parsed.tags as string[] ?? []).join(" ")]
-          .join(" ").trim();
+        const text = embeddableTextFor(r.key, r.content);
+        if (!text) continue;
         const vec = await embedText(text);
-        if (vec) rows.push({ key: s.key, vec: Buffer.from(vec.buffer) });
+        if (vec) out.push({ key: r.key, vec: Buffer.from(vec.buffer) });
       } catch { /**/ }
     }
-    if (rows.length) batchWrite(rows);
+    if (out.length) batchWrite(out);
     if (i % (BATCH * 8) === 0 && i > 0) {
-      process.stderr.write(`[ubik-skills] vectors: ${i}/${skills.length}\n`);
+      process.stderr.write(`[ubik-skills] vectors: ${i}/${rows.length}\n`);
     }
   }
-  process.stderr.write(`[ubik-skills] vector seed complete (${skills.length} skills)\n`);
+  process.stderr.write(`[ubik-skills] vector seed complete (${rows.length} entries)\n`);
 }
 
 function ok(data: unknown) {
@@ -624,6 +685,180 @@ server.tool(
         tip: hits.length === 0
           ? "No matches. Try broader keywords or list domains with skills_list_context(prefix='skill/')."
           : undefined,
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+// ── agent_search ─────────────────────────────────────────────────────────────
+
+server.tool(
+  "agent_search",
+  "Returns a shortlist of bundled agents (data/agents/*.md) matching a mission description. Semantic search via vectors (same table as skills_recall) when available, keyword fallback otherwise. Each result includes autonomy, tools_count, guardrails, and a recommended_action so the caller can pick without reading every manifest.",
+  {
+    mission:  z.string().min(1).describe("What you're about to do — free-form, e.g. 'review a GitHub PR', 'tune database performance'."),
+    top_k:    z.number().int().min(1).max(20).default(5).describe("Max candidates to return (default 5)."),
+    autonomy: z.enum(["supervised", "autonomous"]).optional().describe("Filter by autonomy level."),
+  },
+  async (args) => {
+    try {
+      const db    = getStore();
+      const top_k = args.top_k ?? 5;
+
+      type Hit = {
+        id: string; name: string; role: string; description: string;
+        autonomy: string; tools_count: number;
+        guardrails: Record<string, string | number | string[]>;
+        score: number; recommended_action: "train_now" | "explore" | "skip_train";
+      };
+
+      function rowToHit(key: string, content: string, score: number): Hit {
+        const md   = extractAgentMarkdown(content);
+        const fm   = parseAgentFrontmatter(md);
+        const tools = [...(fm.tools_engine ?? []), ...(fm.tools_client ?? [])];
+        return {
+          id:           fm.id ?? key.slice("agent/".length),
+          name:         fm.name ?? "",
+          role:         fm.role ?? "",
+          description:  (fm.description ?? "").slice(0, 280),
+          autonomy:     fm.autonomy ?? "",
+          tools_count:  tools.length,
+          guardrails:   fm.guardrails ?? {},
+          score,
+          recommended_action: "explore",
+        };
+      }
+
+      function computeRecommended(hits: Hit[]): void {
+        if (hits.length === 0) return;
+        const top  = hits[0].score;
+        const sum3 = hits.slice(0, 3).reduce((a, h) => a + h.score, 0);
+        const ratio = sum3 > 0 ? top / sum3 : 0;
+        hits[0].recommended_action = ratio >= 0.45 ? "train_now" : ratio >= 0.30 ? "explore" : "skip_train";
+      }
+
+      // Semantic path
+      const vecCount = (db.prepare(
+        "SELECT COUNT(*) AS n FROM skill_vectors WHERE key LIKE 'agent/%'"
+      ).get() as { n: number }).n;
+
+      if (vecCount > 0 && _embedderReady && _embedder) {
+        const qvec = await embedText(args.mission);
+        if (qvec) {
+          const rows = db.prepare(
+            "SELECT sv.key, sv.vec, c.content FROM skill_vectors sv JOIN context c ON c.key = sv.key WHERE sv.key LIKE 'agent/%'"
+          ).all() as { key: string; vec: Buffer; content: string }[];
+
+          const ranked = rows
+            .map((r) => {
+              const v = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4);
+              return { key: r.key, content: r.content, score: cosine(qvec, v) };
+            })
+            .filter((r) => r.score > 0.18)
+            .sort((a, b) => b.score - a.score);
+
+          const hits: Hit[] = [];
+          for (const r of ranked) {
+            const h = rowToHit(r.key, r.content, r.score);
+            if (args.autonomy && h.autonomy && h.autonomy !== args.autonomy) continue;
+            hits.push(h);
+            if (hits.length >= top_k) break;
+          }
+          computeRecommended(hits);
+          return ok({
+            mission: args.mission, mode: "semantic", result_count: hits.length, results: hits,
+            tip: hits[0]?.recommended_action === "train_now"
+              ? `Top match is strong — call agent_train(id="${hits[0].id}") to load the manifest.`
+              : hits.length ? "Multiple candidates — review the shortlist before training." : "No matches. Broaden the query.",
+          });
+        }
+      }
+
+      // Keyword fallback
+      const all   = db.prepare("SELECT key, content FROM context WHERE key LIKE 'agent/%'").all() as { key: string; content: string }[];
+      const terms = args.mission.toLowerCase().split(/\s+/).filter((t) => t.length >= 3);
+      const scored: Hit[] = [];
+      for (const r of all) {
+        const md  = extractAgentMarkdown(r.content);
+        const fm  = parseAgentFrontmatter(md);
+        const hay = [r.key, fm.name ?? "", fm.role ?? "", fm.description ?? ""].join(" ").toLowerCase();
+        const score = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
+        if (score === 0) continue;
+        const h = rowToHit(r.key, r.content, score);
+        if (args.autonomy && h.autonomy && h.autonomy !== args.autonomy) continue;
+        scored.push(h);
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const hits = scored.slice(0, top_k);
+      computeRecommended(hits);
+      return ok({
+        mission: args.mission, mode: "keyword (agent vectors not ready yet)",
+        result_count: hits.length, results: hits,
+        tip: hits[0]?.recommended_action === "train_now"
+          ? `Call agent_train(id="${hits[0].id}") to load the manifest.`
+          : hits.length ? "Multiple candidates — review before training." : "No matches.",
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+// ── agent_train ───────────────────────────────────────────────────────────────
+
+server.tool(
+  "agent_train",
+  "Loads the full markdown manifest of a bundled agent by id (from agent_search). Returns the raw manifest, parsed metadata, adoption instructions, and exit criteria. Inject the manifest body as your operating identity for the current mission.",
+  {
+    id:      z.string().min(1).describe("Agent id — from agent_search results."),
+    mission: z.string().optional().describe("Optional mission echo included in the activation banner."),
+  },
+  async (args) => {
+    try {
+      const db  = getStore();
+      const key = `agent/${args.id}`;
+      const row = db.prepare("SELECT content FROM context WHERE key = ?").get(key) as { content: string } | undefined;
+
+      if (!row) {
+        const available = (db.prepare("SELECT key FROM context WHERE key LIKE 'agent/%' LIMIT 10").all() as { key: string }[])
+          .map((r) => r.key.slice("agent/".length));
+        return fail(`Agent "${args.id}" not found. Available (sample): ${available.join(", ")}`);
+      }
+
+      const md = extractAgentMarkdown(row.content);
+      const fm = parseAgentFrontmatter(md);
+
+      const title = fm.name ?? fm.role ?? args.id;
+      const missionLine = args.mission ? `\nMission: ${args.mission}` : "";
+
+      const output = [
+        `🧠 Agent activation — ${title}${missionLine}`,
+        `Autonomy: ${fm.autonomy ?? "unspecified"} | Tools: ${[...(fm.tools_engine ?? []), ...(fm.tools_client ?? [])].length}`,
+        "",
+        "--- MANIFEST BEGIN ---",
+        md,
+        "--- MANIFEST END ---",
+        "",
+        "📋 Adoption instructions:",
+        "1. Treat the manifest body as your operating system prompt for this mission.",
+        "2. Respect guardrail limits (max_steps, scope, escalation rules) as hard constraints.",
+        "3. Route tool calls through the declared engine/client channels.",
+        "4. Follow any workflow steps defined in the manifest body in order.",
+        "",
+        "🚪 Exit criteria (when to release this persona):",
+        "• Mission delivered and acknowledged.",
+        "• Domain drift detected for ≥ 2 consecutive turns — retag explicitly.",
+        "• Explicit retag instruction from orchestrator.",
+      ].join("\n");
+
+      return ok({
+        id:       args.id,
+        name:     fm.name,
+        role:     fm.role,
+        autonomy: fm.autonomy,
+        tags:     fm.tags,
+        tools:    { engine: fm.tools_engine ?? [], client: fm.tools_client ?? [] },
+        guardrails: fm.guardrails ?? {},
+        manifest: output,
+        raw_md:   md,
       });
     } catch (err) { return fail(err); }
   },
