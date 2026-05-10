@@ -105,9 +105,15 @@ type RecommendedTool = {
   score: number;
 };
 
+type AgentTraining = {
+  hint: string;
+  tools: ["agent_search", "agent_train"];
+};
+
 type GpsResult = {
   persona: Persona;
   recommended_tools: RecommendedTool[];
+  agent_training: AgentTraining;
   cache_key: string;
   cached: boolean;
 };
@@ -264,6 +270,10 @@ server.tool(
     const result: GpsResult = {
       persona: pickFirstSkill(skillsRaw),
       recommended_tools: pickTools(toolsRaw, top_k),
+      agent_training: {
+        hint: "Call agent_search(mission) for a ranked shortlist of specialist agents, then agent_train(id) to inject the chosen manifest as your operating identity.",
+        tools: ["agent_search", "agent_train"],
+      },
       cache_key: key,
       cached: false,
     };
