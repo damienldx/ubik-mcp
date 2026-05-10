@@ -250,7 +250,7 @@ server.tool(
   "Review a GitHub PR by number. Uses the gh CLI to fetch the diff + commit list. Runs review_diff logic on the diff and lists commits + authors.",
   {
     pr_number: z.number().int().positive().describe("PR number (in current repo)"),
-    repo: z.string().optional().describe("owner/name slug (default: current repo from gh)"),
+    repo: z.string().regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/, "Must be owner/name format").optional().describe("owner/name slug (default: current repo from gh)"),
   },
   async ({ pr_number, repo }) => {
     try {
