@@ -137,8 +137,95 @@ function pickTools(raw: unknown, topK: number): RecommendedTool[] {
   }));
 }
 
+// ── Skip rules ───────────────────────────────────────────────────────────────
+// Heuristics to decide whether a message is GPS-worthy. Returns the reason
+// when skipping, or null when the message should be enriched. Order matters:
+// cheaper checks first.
+
+const ACK_PREFIXES = [
+  "ack", "ok ", "ok.", "ok,", "ok !", "ok !",
+  "noté", "note ", "merci", "thanks",
+  "[ack]", "[result]", "[livré]", "[done]",
+];
+const ACK_TOKENS = new Set([
+  "ok", "ack", "noté", "merci", "thanks", "ty", "👍", "✅", "🤝", "🙌", "+1",
+]);
+const ACK_LEAD_EMOJI = /^[\p{Extended_Pictographic}\s\p{P}]{1,12}/u;
+const PR_OR_COMMIT_TAIL = /(https?:\/\/github\.com\/[^\s]+|commit\s+[a-f0-9]{7,40}|PR\s*#\d+)$/i;
+const QUOTE_PREFIX = /^(re:|>|\[bridge\])/i;
+const MECA_SUFFIX = /-meca\b|^bridge:/i;
+
+function shouldSkip(opts: {
+  message: string;
+  from?: string;
+  to?: string;
+  min_chars?: number;
+}): { skip: boolean; reason: string | null } {
+  const msg = (opts.message || "").trim();
+  const from = (opts.from || "").trim();
+  const to = (opts.to || "").trim();
+  const minChars = opts.min_chars ?? 80;
+
+  // Rule 1 — sender or recipient is a meca / bridge → skip.
+  if (MECA_SUFFIX.test(from)) return { skip: true, reason: `sender_is_meca:${from}` };
+  if (MECA_SUFFIX.test(to)) return { skip: true, reason: `recipient_is_meca:${to}` };
+
+  // Rule 2 — empty or trivially short message.
+  if (!msg) return { skip: true, reason: "empty_message" };
+  if (msg.length < minChars) return { skip: true, reason: `short_message:${msg.length}<${minChars}` };
+
+  // Rule 3 — quotation / forward / bridge prefix.
+  if (QUOTE_PREFIX.test(msg)) return { skip: true, reason: "quote_or_bridge_prefix" };
+
+  // Rule 4 — single-token ack.
+  const lower = msg.toLowerCase();
+  if (ACK_TOKENS.has(lower)) return { skip: true, reason: `single_ack_token:${lower}` };
+
+  // Rule 5 — known ack prefixes (case-insensitive, after optional emoji lead).
+  const stripped = lower.replace(ACK_LEAD_EMOJI, "").trimStart();
+  for (const p of ACK_PREFIXES) {
+    if (stripped.startsWith(p)) {
+      return { skip: true, reason: `ack_prefix:${p.trim()}` };
+    }
+  }
+
+  // Rule 6 — PR / commit / GitHub URL trailing : likely a delivery report.
+  if (PR_OR_COMMIT_TAIL.test(msg)) {
+    return { skip: true, reason: "delivery_report_tail" };
+  }
+
+  // Rule 7 — emoji-heavy social reaction (>30% of chars are emoji).
+  const emojiCount = (msg.match(/\p{Extended_Pictographic}/gu) || []).length;
+  if (emojiCount > 0 && emojiCount * 3 > msg.length) {
+    return { skip: true, reason: `emoji_heavy:${emojiCount}/${msg.length}` };
+  }
+
+  // Rule 8 — almost-only digits / JSON.
+  const alphaCount = (msg.match(/\p{L}/gu) || []).length;
+  if (alphaCount * 4 < msg.length) {
+    return { skip: true, reason: `alpha_sparse:${alphaCount}/${msg.length}` };
+  }
+
+  return { skip: false, reason: null };
+}
+
 // ── Server ───────────────────────────────────────────────────────────────────
 const server = createMcpServer("ubik-gps", "0.1.0");
+
+server.tool(
+  "gps_should_enrich",
+  "Returns whether a message warrants a full GPS lookup, with the skip reason when not. Cheap (regex + length checks), call this first to avoid paying the upstream lookup on acks, deliveries, bridge forwards, single-emoji reactions, etc.",
+  {
+    message: z.string().describe("The message text to evaluate."),
+    from: z.string().optional().describe("Sender id (used to skip when source is a meca/bridge)."),
+    to: z.string().optional().describe("Recipient id (used to skip when destination is a meca/bridge)."),
+    min_chars: z.number().int().min(0).max(2000).default(80).describe("Below this length the message is considered too short for GPS (default 80)."),
+  },
+  async (args) => {
+    const verdict = shouldSkip(args);
+    return { content: [{ type: "text" as const, text: JSON.stringify(verdict, null, 2) }] };
+  },
+);
 
 server.tool(
   "gps_lookup",

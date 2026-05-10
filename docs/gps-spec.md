@@ -47,6 +47,48 @@ L'enrichissement vit côté `relay/server.py` dans le repo **ubik-fleet** — ho
 
 5. **`gps_stats` observability** — telemetry gratuite. Le relay peut interroger `gps_stats()` pour exposer un panel "GPS health" (entries cached, hit ratio si on rajoute un compteur, ttl effectif).
 
+## Skip rules — `gps_should_enrich`
+
+Damien a tranché : GPS s'applique à *tous* les flux (humain↔agent, agent↔agent, agent↔humain). Sans filtrage, on enrichirait des acks, des reactions emoji, des forwards bridge et des rapports de livraison — gaspillage de cycle CPU/réseau et pollution de la queue.
+
+Le tool `gps_should_enrich({message, from?, to?, min_chars?})` retourne en O(1) un verdict `{skip: bool, reason: string|null}`. Pattern d'usage côté relay :
+
+```python
+verdict = mcp_call("ubik-gps", "gps_should_enrich",
+                   {"message": msg, "from": sender, "to": recipient})
+if verdict["skip"]:
+    log("gps.skip", reason=verdict["reason"])
+    queue_store({"original": msg})
+else:
+    enriched = mcp_call("ubik-gps", "gps_lookup", {"message": msg, "agent_id": recipient})
+    queue_store({"original": msg, **enriched})
+```
+
+### 8 règles, ordre du moins coûteux au plus coûteux
+
+| # | Règle | Reason emis | Couvre |
+|---|---|---|---|
+| 1 | `from` ou `to` finit par `-meca` ou commence par `bridge:` | `sender_is_meca:X` / `recipient_is_meca:X` | Forwards `bridge:ledger-turn`, méca → méca |
+| 2 | message vide ou `< min_chars` (default 80) | `empty_message` / `short_message:N<80` | "ok", "ack", "👍", micro-replies |
+| 3 | préfixe `re:`, `>`, `[bridge]` | `quote_or_bridge_prefix` | Quotation, forward |
+| 4 | message = unique token ack (`ok`, `ack`, `noté`, `merci`, `👍`, `✅`, `🤝`, `+1`...) | `single_ack_token:X` | Acks one-word même au-dessus de min_chars (rare mais possible) |
+| 5 | préfixe ack (`ack`, `ok …`, `noté`, `merci`, `[ack]`, `[result]`, `[livré]`, `[done]`) après emoji optionnel en tête | `ack_prefix:X` | "ok je prends", "merci pour la review", "[livré] commit ABC" |
+| 6 | URL GitHub PR / `commit <sha>` / `PR #N` en queue de message | `delivery_report_tail` | Rapports de livraison "PR prête : https://github.com/..." |
+| 7 | >30% des chars sont des emoji | `emoji_heavy:N/M` | Réactions sociales "🎉🚀🤝❤️" |
+| 8 | <25% des chars sont alphabétiques (digits / JSON / structures) | `alpha_sparse:N/M` | Payload de données, snapshots JSON |
+
+### Ce que ces règles ne filtrent PAS (par design)
+
+- Messages techniques courts mais substantifs (`min_chars=80` ajustable)
+- Discussions architecturales avec emoji ponctuel ("Pour la sécurité 🔒 je propose…" — pas emoji-heavy)
+- Critiques structurées même sous forme de bullet points (alphas dominent)
+
+Ces messages reçoivent le full GPS lookup. C'est le comportement souhaité.
+
+### Calibrage
+
+Les seuils (`min_chars=80`, `emoji_heavy >30%`, `alpha_sparse <25%`) sont *paramétrables par appel*. Démarrage suggéré : valeurs ci-dessus. Ajustement par observabilité après une semaine de données fleet (combien de skip / lookup, quelles raisons dominent, faux positifs reportés).
+
 ## Failsafe côté relay (rappel pour la PR ubik-fleet)
 
 Pseudo-code que la PR sur ubik-fleet implémentera :
