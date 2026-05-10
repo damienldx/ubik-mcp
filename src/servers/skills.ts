@@ -629,6 +629,221 @@ server.tool(
   },
 );
 
+// ─── agent_search & agent_train ──────────────────────────────────────────────
+// Self-training pull-based protocol: an agent picks (search) then loads
+// (train) a full agent manifest at runtime to acquire a persona + workflow
+// + guardrails. Distinct from skills_recall which only returns a persona.
+//
+// Both tools read the bundled agents seeded under key "agent/<id>" in the
+// local skills.db (see scripts/seed.py seed_agents).
+//
+// Distinctive choices in this implementation:
+//   1. agent_search ranks on the YAML frontmatter (role, name, description,
+//      domain, tags) with weight 4× over the body text. This favours
+//      manifests whose stated purpose matches the mission, not those whose
+//      body coincidentally mentions a keyword.
+//   2. The shortlist returned by agent_search includes a one-line
+//      structured "card" (role, autonomy, max_steps) extracted from the
+//      manifest, so the calling agent can pick on operational fit, not
+//      just description prose.
+//   3. agent_train returns BOTH the raw manifest body AND the parsed
+//      metadata + a short directive ("integrate as your operating
+//      protocol") so the agent has unambiguous guidance on how to absorb
+//      the injection.
+
+interface AgentEntry {
+  id:      string;
+  content: string;   // raw .md text
+}
+
+interface AgentMeta {
+  id:           string;
+  name?:        string;
+  role?:        string;
+  description?: string;
+  autonomy?:    string;
+  max_steps?:   number;
+  domain?:      string;
+  tags?:        string[];
+}
+
+function parseAgentFrontmatter(md: string): AgentMeta {
+  const out: AgentMeta = { id: "" };
+  // frontmatter delimited by --- on its own line
+  const fmMatch = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!fmMatch) return out;
+  const fm = fmMatch[1];
+
+  const pickScalar = (key: string): string | undefined => {
+    const re = new RegExp(`^${key}\\s*:\\s*(?:"([^"]*)"|>?\\s*(.+?))\\s*$`, "m");
+    const m = fm.match(re);
+    return m ? (m[1] ?? m[2])?.trim() : undefined;
+  };
+  const pickNumber = (key: string): number | undefined => {
+    const v = pickScalar(key);
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  out.id          = pickScalar("id") ?? "";
+  out.name        = pickScalar("name");
+  out.role        = pickScalar("role");
+  out.autonomy    = pickScalar("autonomy");
+  out.max_steps   = pickNumber("max_steps");
+
+  // Description can be folded scalar (>) over multiple lines
+  const descMatch = fm.match(/^description\s*:\s*>?\s*\n((?:\s+.*\n?)+?)(?=^\S|\Z)/m);
+  if (descMatch) {
+    out.description = descMatch[1].split("\n").map((s) => s.trim()).filter(Boolean).join(" ").trim();
+  } else {
+    out.description = pickScalar("description");
+  }
+
+  // Domain inside metadata: block
+  const dom = fm.match(/metadata:\s*\n(?:\s+[^\n]*\n)*\s+domain:\s*(.+)/);
+  if (dom) out.domain = dom[1].trim();
+
+  return out;
+}
+
+function loadAllAgents(): AgentEntry[] {
+  const db = getStore();
+  const rows = db.prepare("SELECT key, content FROM context WHERE key LIKE 'agent/%'").all() as
+    { key: string; content: string }[];
+  const out: AgentEntry[] = [];
+  for (const r of rows) {
+    try {
+      const parsed = JSON.parse(r.content) as { id?: string; content?: string };
+      if (parsed?.content) {
+        out.push({ id: parsed.id || r.key.slice("agent/".length), content: parsed.content });
+      }
+    } catch {
+      // ignore malformed rows
+    }
+  }
+  return out;
+}
+
+const AGENT_STOPWORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "from", "into", "your", "you",
+  "le", "la", "les", "des", "un", "une", "de", "du", "et", "ou",
+  "dans", "pour", "avec", "sur", "par", "ce", "cette", "ces",
+]);
+
+function tokenizeMission(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^a-z0-9_]+/)
+    .filter((t) => t.length >= 3 && !AGENT_STOPWORDS.has(t));
+}
+
+function scoreAgent(meta: AgentMeta, body: string, tokens: string[]): number {
+  if (!tokens.length) return 0;
+  const fmHay = [
+    meta.id ?? "",
+    meta.name ?? "",
+    meta.role ?? "",
+    meta.description ?? "",
+    meta.domain ?? "",
+    (meta.tags ?? []).join(" "),
+  ].join(" ").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const bodyHay = body.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+  let score = 0;
+  for (const t of tokens) {
+    if (fmHay.includes(t))   score += 4;   // frontmatter weighted strongly
+    if (bodyHay.includes(t)) score += 1;
+  }
+  return score;
+}
+
+server.tool(
+  "agent_search",
+  "Searches the bundled agent manifests by mission keywords. Returns a shortlist of candidate agents with their operating card (role, autonomy, max_steps) so the caller can pick on operational fit. Pull-based companion to agent_train.",
+  {
+    mission: z.string().min(1).describe("Mission description or message — keywords are extracted automatically"),
+    limit:   z.number().int().positive().max(10).optional().describe("Max shortlist size (default 5)"),
+  },
+  async ({ mission, limit }) => {
+    try {
+      const cap    = limit ?? 5;
+      const tokens = tokenizeMission(mission);
+      if (!tokens.length) return ok({ count: 0, results: [] });
+
+      const agents = loadAllAgents();
+      const scored: Array<{ meta: AgentMeta; score: number }> = [];
+      for (const a of agents) {
+        const meta = parseAgentFrontmatter(a.content);
+        meta.id = meta.id || a.id;
+        const sc = scoreAgent(meta, a.content, tokens);
+        if (sc > 0) scored.push({ meta, score: sc });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const top = scored.slice(0, cap);
+
+      return ok({
+        mission_tokens: tokens,
+        catalog_size:   agents.length,
+        count:          top.length,
+        results: top.map(({ meta, score }) => ({
+          id:          meta.id,
+          name:        meta.name ?? null,
+          role:        meta.role ?? null,
+          autonomy:    meta.autonomy ?? null,
+          max_steps:   meta.max_steps ?? null,
+          domain:      meta.domain ?? null,
+          description: meta.description ? meta.description.slice(0, 200) : null,
+          score,
+        })),
+        next_step: "Call agent_train(id=<one of the above>) to load the full manifest as your operating protocol.",
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+server.tool(
+  "agent_train",
+  "Loads a full agent manifest from the bundled library and returns it for in-context injection. The caller integrates the manifest as its operating protocol (persona + workflow + guardrails) for the duration of the mission. Companion to agent_search.",
+  {
+    id: z.string().min(1).describe("Agent id (e.g. 'orchestrateur-de-pipelines-ci-cd')"),
+  },
+  async ({ id }) => {
+    try {
+      const db  = getStore();
+      const row = db.prepare("SELECT content FROM context WHERE key = ?").get(`agent/${id}`) as
+        | { content: string } | undefined;
+      if (!row) return fail(new Error(`Agent manifest not found: agent/${id}. Run scripts/seed.py if the bundle is fresh, or call agent_search to find a valid id.`));
+      let parsed: { id?: string; content?: string };
+      try {
+        parsed = JSON.parse(row.content);
+      } catch {
+        return fail(new Error(`Stored manifest for agent/${id} is not valid JSON envelope`));
+      }
+      const md = parsed?.content ?? "";
+      if (!md) return fail(new Error(`Manifest content is empty for agent/${id}`));
+      const meta = parseAgentFrontmatter(md);
+      meta.id = meta.id || parsed.id || id;
+
+      return ok({
+        id:        meta.id,
+        meta: {
+          name:      meta.name ?? null,
+          role:      meta.role ?? null,
+          autonomy:  meta.autonomy ?? null,
+          max_steps: meta.max_steps ?? null,
+          domain:    meta.domain ?? null,
+        },
+        manifest:  md,
+        directive: "Integrate the manifest above as your operating protocol for this mission. Adopt the role, follow the workflow, respect the guardrails (max_steps, forbidden_patterns, scope). Stay in character until the mission is reported_to its supervisor.",
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
   process.exit(1);
