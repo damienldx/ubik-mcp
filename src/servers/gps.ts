@@ -24,13 +24,12 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createMcpServer, runServer } from "../lib/server";
 import {
-  OPERATION_CLASSES,
-  TARGET_DOMAINS,
-  buildToolkit,
-  tagTool,
-  type MissionMatrix,
-} from "../lib/tool-taxonomy.js";
-import { loadAgentManifest } from "../lib/agent-manifest.js";
+  loadTrackRecord,
+  recordUsage,
+  filterByLowHitClasses,
+  enrichPersonaLabel,
+  type TrackRecord,
+} from "../lib/gps-track-record";
 
 config({ path: path.join(process.cwd(), ".env") });
 
@@ -124,6 +123,7 @@ type GpsResult = {
   agent_training: AgentTraining;
   cache_key: string;
   cached: boolean;
+  pruned_by_track_record?: Array<{ tool: string; class: string }>;
 };
 
 function pickFirstSkill(raw: unknown): Persona {
@@ -270,26 +270,186 @@ server.tool(
       };
     }
 
+    // Over-fetch when an agent_id is provided so post-filter still leaves top_k.
+    const fetchK = agent_id ? Math.min(top_k * 2, 20) : top_k;
     const [skillsRaw, toolsRaw] = await Promise.all([
       gatewayCall("skills_recall", { query: message, top_k: 1 }),
-      gatewayCall("skills_search_tools", { query: message, top_k }),
+      gatewayCall("skills_search_tools", { query: message, top_k: fetchK }),
     ]);
 
+    const rawTools = pickTools(toolsRaw, fetchK);
+    const persona = pickFirstSkill(skillsRaw);
+
+    let trackRecord: TrackRecord | null = null;
+    let pruned: Array<{ tool: string; class: string }> | undefined;
+    let finalTools = rawTools.slice(0, top_k);
+    let finalPersona = persona;
+
+    if (agent_id) {
+      try {
+        trackRecord = await loadTrackRecord(agent_id);
+        const filterOutcome = filterByLowHitClasses(
+          rawTools.map((t) => t.name),
+          trackRecord.low_hit_classes,
+        );
+        if (filterOutcome.pruned.length > 0) {
+          const keepSet = new Set(filterOutcome.kept);
+          finalTools = rawTools.filter((t) => keepSet.has(t.name)).slice(0, top_k);
+          pruned = filterOutcome.pruned;
+        }
+        if (persona) {
+          finalPersona = { ...persona, name: enrichPersonaLabel(trackRecord, persona.name) };
+        }
+      } catch (err) {
+        // Track record is best-effort: never fail the lookup because of it.
+        process.stderr.write(`[ubik-gps] track-record load failed: ${String(err)}\n`);
+      }
+    }
+
     const result: GpsResult = {
-      persona: pickFirstSkill(skillsRaw),
-      recommended_tools: pickTools(toolsRaw, top_k),
+      persona: finalPersona,
+      recommended_tools: finalTools,
       agent_training: {
         hint: "Call agent_search(mission) for a ranked shortlist of specialist agents, then agent_train(id) to inject the chosen manifest as your operating identity.",
         tools: ["agent_search", "agent_train"],
       },
       cache_key: key,
       cached: false,
+      pruned_by_track_record: pruned,
     };
 
     cacheSet(key, { ...result, cached: false });
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.tool(
+  "gps_record_usage",
+  "Records the recommended-vs-called tool usage for a fork. Builds the agent's hit_rate_history, refreshes `tools_actually_used` counters, and recomputes `low_hit_classes` (operation classes whose hit rate fell below 20% over the last 5 forks). Call this in fin de fork — claude-main hook ou agent qui clôture sa session.",
+  {
+    fork_id: z.string().min(1).describe("Identifier of the fork / mission instance whose usage is being recorded."),
+    agent_id: z.string().min(1).describe("Agent that performed the work."),
+    tools_called: z.array(z.string()).default([]).describe("Tools actually invoked during the fork (names, deduped or not — the helper handles repeats)."),
+    tools_recommended: z.array(z.string()).default([]).describe("Tools that GPS had recommended at the start of the fork (names). Empty allowed but yields a 0%% hit rate for this entry."),
+  },
+  async ({ fork_id, agent_id, tools_called, tools_recommended }) => {
+    try {
+      const updated = await recordUsage(agent_id, fork_id, tools_recommended, tools_called);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                ok: true,
+                fork_id,
+                agent_id,
+                hit_rate: updated.hit_rate_history.at(-1)?.rate ?? 0,
+                low_hit_classes: updated.low_hit_classes,
+                history_size: updated.hit_rate_history.length,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }, null, 2) },
+        ],
+      };
+    }
+  },
+);
+
+server.tool(
+  "gps_get_contract",
+  "Returns the persistent GPS contract for an agent: its track record (tools_actually_used, hit_rate_history, low_hit_classes) and, when a message is supplied, an enriched persona + filtered recommended_tools. Use this AT WAKE-UP rather than gps_lookup so persona reflects past catches and recommendations exclude classes the agent never uses. The same shouldSkip gate as `gps_should_enrich` is applied internally when a message is provided.",
+  {
+    agent_id: z.string().min(1).describe("Agent whose contract to read."),
+    message: z.string().optional().describe("Optional current message — when provided, runs a full lookup and returns persona + filtered tools enriched by the track record."),
+    from: z.string().optional().describe("Optional sender id (used by the shouldSkip gate to bypass meca/bridge senders)."),
+    to: z.string().optional().describe("Optional recipient id (used by the shouldSkip gate to bypass meca/bridge recipients)."),
+    top_k: z.number().int().min(1).max(20).default(6).describe("How many recommended tools to return when message is provided."),
+  },
+  async ({ agent_id, message, from, to, top_k }) => {
+    let record: TrackRecord;
+    try {
+      record = await loadTrackRecord(agent_id);
+    } catch (err) {
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }, null, 2) }],
+      };
+    }
+
+    if (!message) {
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify({ ok: true, agent_id, track_record: record }, null, 2) },
+        ],
+      };
+    }
+
+    // Cross-PR contract: every new GPS call site must honor the shouldSkip
+    // gate. We bypass the upstream lookup but still return the track record
+    // so the caller can inspect persona history and low_hit_classes.
+    const verdict = shouldSkip({ message, from, to });
+    if (verdict.skip) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              { ok: true, agent_id, skipped: true, skip_reason: verdict.reason, track_record: record },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    }
+
+    const fetchK = Math.min(top_k * 2, 20);
+    const [skillsRaw, toolsRaw] = await Promise.all([
+      gatewayCall("skills_recall", { query: message, top_k: 1 }),
+      gatewayCall("skills_search_tools", { query: message, top_k: fetchK }),
+    ]);
+    const persona = pickFirstSkill(skillsRaw);
+    const rawTools = pickTools(toolsRaw, fetchK);
+
+    const filterOutcome = filterByLowHitClasses(
+      rawTools.map((t) => t.name),
+      record.low_hit_classes,
+    );
+    const keepSet = new Set(filterOutcome.kept);
+    const finalTools = rawTools.filter((t) => keepSet.has(t.name)).slice(0, top_k);
+    const finalPersona = persona
+      ? { ...persona, name: enrichPersonaLabel(record, persona.name) }
+      : null;
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            {
+              ok: true,
+              agent_id,
+              persona: finalPersona,
+              recommended_tools: finalTools,
+              pruned_by_track_record: filterOutcome.pruned,
+              track_record: record,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     };
   },
 );
@@ -333,100 +493,6 @@ server.tool(
               max_entries: CACHE_MAX,
               ttl_ms: CACHE_TTL_MS,
               gateway_url: GATEWAY_URL,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-    };
-  },
-);
-
-// ── GPS v2 — taxonomic toolkit assembly ──────────────────────────────────────
-//
-// New surface (additive, non-breaking on `gps_lookup`). The legacy embedding
-// pipeline keeps working untouched; agents and projects can opt into the
-// taxonomic builder by calling `gps_build_toolkit` with an explicit mission
-// matrix. The matrix itself is computed elsewhere (Fidele's fork — fork
-// contract entry hook). The tools here are deterministic and pure — no
-// gateway round-trip, no embedding — so they can be called freely.
-
-const operationClassEnum = z.enum(OPERATION_CLASSES);
-const targetDomainEnum = z.enum(TARGET_DOMAINS);
-
-server.tool(
-  "gps_tag_tool",
-  "Returns the taxonomic tag (operation_classes × target_domains) for a tool name. Uses a static catalog of known UBIK tools, with naming-convention heuristics for unknowns. Pure, no I/O.",
-  {
-    tool_name: z.string().min(1).describe("Tool name to tag, e.g. `github_create_pr` or `relay_send`."),
-  },
-  async ({ tool_name }) => {
-    const tag = tagTool(tool_name);
-    return { content: [{ type: "text" as const, text: JSON.stringify({ tool_name, ...tag }, null, 2) }] };
-  },
-);
-
-server.tool(
-  "gps_load_manifest",
-  "Reads `~/.ubik-desktop/agents/<agent_id>.{yaml,yml,json}` and returns the validated manifest (or null when absent). The manifest declares per-agent overrides that affect `gps_build_toolkit`: `exclude_classes`, `exclude_domains`, `exclude_tools`, `always_include`. Cached at the filesystem layer only — no in-process cache, so editing the manifest takes effect on the next call.",
-  {
-    agent_id: z.string().min(1).describe("Agent identifier (e.g. `b5aeb927-agent-0`)."),
-  },
-  async ({ agent_id }) => {
-    const manifest = loadAgentManifest(agent_id);
-    return { content: [{ type: "text" as const, text: JSON.stringify({ agent_id, manifest }, null, 2) }] };
-  },
-);
-
-server.tool(
-  "gps_build_toolkit",
-  "Deterministic toolkit assembly from a mission matrix (operations × domains). Filters candidate tools by tag intersection with the matrix, applies the agent manifest if `agent_id` is provided, and returns the top-K ranked items. Use this AT FORK ENTRY to lock the toolkit for the whole mission, instead of re-ranking on every message.",
-  {
-    candidates: z
-      .array(
-        z.object({
-          name: z.string().min(1),
-          server: z.string().optional(),
-        }),
-      )
-      .min(1)
-      .describe("Candidate tools — typically the full list of available MCP tools (`name` + optional `server`)."),
-    mission: z
-      .object({
-        operations: z.array(operationClassEnum).min(1).describe("Operation classes the mission needs (e.g. ['read','write','search'])."),
-        domains: z.array(targetDomainEnum).min(1).describe("Target domains the mission acts on (e.g. ['filesystem','git','http_api'])."),
-      })
-      .describe("Mission matrix — typically computed at fork entry from the brief."),
-    agent_id: z
-      .string()
-      .optional()
-      .describe("Optional agent identifier — when provided, the agent's manifest YAML is layered on top (exclude_* drop tools, always_include force them in)."),
-    top_k: z.number().int().min(1).max(50).default(8).describe("Max number of matrix-matched tools (default 8). `always_include` items are added on top, not counted in this cap."),
-  },
-  async ({ candidates, mission, agent_id, top_k }) => {
-    const manifest = agent_id ? loadAgentManifest(agent_id) : null;
-    const items = buildToolkit({
-      candidates,
-      mission: mission as MissionMatrix,
-      manifest: manifest ?? undefined,
-      top_k,
-    });
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            {
-              mission,
-              agent_id: agent_id ?? null,
-              manifest_applied: manifest !== null,
-              toolkit: items,
-              counts: {
-                candidates: candidates.length,
-                returned: items.length,
-                forced: items.filter((i) => i.reason === "always_include").length,
-              },
             },
             null,
             2,

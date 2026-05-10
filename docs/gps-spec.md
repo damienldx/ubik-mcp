@@ -132,6 +132,67 @@ Si on veut un GPS "personnalisé par destinataire" (un même brief enrichi diff�
 - **`gps_stats` observabilité** — inclu dès la v0 pour mesurer adoption et coût réel. Sans observabilité, on optimise à l'aveugle.
 - **Standalone server, pas de modif `skills.ts`** — la migration est non destructive : skills_recall et skills_search_tools restent intacts, gps.ts les compose.
 
+---
+
+## Étape 3 — Hit-rate + track record agent (auteur : b5aeb927-agent-1 / Albert)
+
+Branche : `gps-v2/hit-rate-tracking` · Date : 2026-05-10
+
+### Objectif
+
+Fermer la boucle de feedback GPS : observer **ce que l'agent appelle réellement** vs **ce que GPS recommande**, et utiliser cet écart pour calibrer les recommandations futures par agent.
+
+### Schema de stockage
+
+Un fichier JSON par agent dans `~/.ubik-memory/gps/<agent_id>.json` :
+
+```json
+{
+  "agent_id": "b5aeb927-agent-1",
+  "tools_actually_used": { "Bash": 12, "relay_read": 8, "Edit": 5 },
+  "hit_rate_history": [
+    { "fork_id": "1199735b08ff", "rate": 0.66, "date": "2026-05-10T20:30:00Z",
+      "recommended": ["review_diff", "review_pr", "gmail_get_attachment"],
+      "called":      ["review_diff", "review_pr"] }
+  ],
+  "low_hit_classes": ["email", "social"],
+  "catches": [{ "date": "2026-05-10", "type": "runtime", "desc": "tuple-unpack ValueError" }],
+  "last_updated": "2026-05-10T20:31:00Z"
+}
+```
+
+### Tools livrés
+
+- **`gps_record_usage(fork_id, agent_id, tools_called[], tools_recommended[])`** — append entry, refresh `tools_actually_used`, recompute `low_hit_classes`. Atomic write (tmp + rename) pour éviter les fichiers corrompus si 2 forks clôturent en parallèle pour le même agent.
+- **`gps_get_contract(agent_id, message?, top_k=6)`** — au réveil. Retourne le track record. Si `message` fourni : passe par le gate `shouldSkip` (contrat inter-PR), puis lookup persona + tools, applique le filter `low_hit_classes` et l'enrichissement de label.
+- **`gps_lookup`** modifié non-breaking : quand `agent_id` est fourni, charge le track record best-effort, filtre les recommandations dans `low_hit_classes`, enrichit le persona name. Ajoute `pruned_by_track_record?` (champ optionnel) au shape de retour. Sur erreur de chargement → log stderr et continue avec le résultat non filtré (jamais bloquant).
+
+### Logique de calibration `low_hit_classes`
+
+- Calculée sur les **5 dernières entrées** d'`hit_rate_history`.
+- Une **operation_class** (mappée depuis le préfixe de tool name : `gmail_*` → `email`, `linkedin_*` → `social`, …) doit apparaître dans **les 5 entrées** ET avoir un hit-rate cumulé **< 20 %** pour être considérée low-hit.
+- Une class low-hit est exclue par `filterByLowHitClasses` ; les tools écartés sont remontés dans `pruned_by_track_record` pour observabilité (l'agent voit *pourquoi* un tool n'apparaît plus).
+
+### Enrichissement persona
+
+`enrichPersonaLabel(record, baseName)` lit `catches[]` filtré sur la semaine ISO en cours et concatène : `"Albert — Reviewer Backend (4 catches, semaine 2026-05-10)"`. Aucun catch dans la semaine → label inchangé. Le champ `catches` peut être alimenté par un hook clôture session (out of scope ici) ou directement par un `gps_record_catch` futur.
+
+### Contrat inter-PR respecté
+
+- `cacheKey()` non modifiée (Fidele owner).
+- Tous les nouveaux champs de `GpsResult` sont optionnels (`pruned_by_track_record?`).
+- `gps_get_contract` honore le gate `shouldSkip` quand un message est fourni.
+- Aucun changement à `lib/db/` (storage filesystem JSON, pas SQLite — l'écriture atomique tmp+rename neutralise les races simples).
+
+### Risques connus
+
+| Risque | Mitigation |
+|---|---|
+| Race write si 2 forks clôturent simultanément pour le même agent | tmp + rename POSIX atomic ; last-writer-wins acceptable car les hit_rate_history des forks parallèles sont indépendantes |
+| Cold start (pas d'historique) → low_hit_classes vide | Fonction `computeLowHitClasses` exige `appeared_in === window` — pas de pruning prématuré |
+| `tools_recommended` vide à l'appel `record_usage` | Hit rate stocké à 0 — n'impacte pas low_hit_classes (qui regarde les classes, pas les rates globaux) |
+| Mapping operation_class manqué pour de nouveaux tools | Fallback : préfixe avant `_` ; à enrichir au cas par cas si une class importante émerge |
+
 — 2683a72c-agent-0
 
 ---
