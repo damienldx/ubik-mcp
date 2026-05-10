@@ -14,7 +14,7 @@
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
-import { createMcpServer, runServer } from "../lib/server";
+import { createMcpServer, runServer } from "../lib/server.js";
 
 config({ path: path.join(process.cwd(), ".env") });
 
