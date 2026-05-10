@@ -153,11 +153,11 @@ function formatIssues(issues: Issue[]): string {
 }
 
 // ── Server ────────────────────────────────────────────────────────────────────
-const server = createMcpServer("ubik-review-standalone");
+const server = createMcpServer("ubik-review");
 
 server.tool(
   "review_file",
-  "Static analysis of a single source file. Detects eval, exec shell, weak hashes, hardcoded secrets, console.log, long lines, TODO markers. Reports complexity stats. No external LLM call.",
+  "Run static analysis on a single source file. Detects eval, shell exec, weak hashes, hardcoded secrets, console.log, long lines, TODO markers, and reports nesting/branching stats. No external LLM call.",
   {
     file_path: z.string().describe("Absolute or workspace-relative path to the file"),
   },
@@ -199,7 +199,7 @@ server.tool(
 
 server.tool(
   "review_diff",
-  "Parse a unified git diff and summarise changes per file (additions, deletions, risky patterns spotted in added lines).",
+  "Parse a unified git diff and summarise changes per file. Reports additions/deletions and risky patterns spotted in added lines.",
   {
     diff: z.string().describe("Unified diff text (output of `git diff` or similar)"),
   },
@@ -247,10 +247,10 @@ server.tool(
 
 server.tool(
   "review_pr",
-  "Review a GitHub PR by number. Uses the gh CLI to fetch the diff + commit list. Runs review_diff logic on the diff and lists commits + authors.",
+  "Review a GitHub pull request by number. Fetches diff + commit list via the gh CLI, then runs static analysis on added lines.",
   {
-    pr_number: z.number().int().positive().describe("PR number (in current repo)"),
-    repo: z.string().regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/, "Must be owner/name format").optional().describe("owner/name slug (default: current repo from gh)"),
+    pr_number: z.number().int().positive().describe("Pull request number"),
+    repo:      z.string().regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/, "Must be owner/name format").optional().describe("owner/name slug (defaults to current repo detected by gh)"),
   },
   async ({ pr_number, repo }) => {
     try {
@@ -332,6 +332,6 @@ server.tool(
 );
 
 runServer(server).catch((err) => {
-  process.stderr.write(`[ubik-review-standalone] fatal: ${String(err)}\n`);
+  process.stderr.write(`[ubik-review] fatal: ${String(err)}\n`);
   process.exit(1);
 });
