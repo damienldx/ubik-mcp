@@ -139,9 +139,10 @@ function cosine(a: Float32Array, b: Float32Array): number {
 }
 
 async function seedVectorsIfEmpty(): Promise<void> {
-  const db    = getStore();
-  const count = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
-  if (count > 0) return;
+  const db       = getStore();
+  const vecCount = (db.prepare("SELECT COUNT(*) AS n FROM skill_vectors").get() as { n: number }).n;
+  const sklCount = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'skill/%'").get() as { n: number }).n;
+  if (vecCount >= sklCount && sklCount > 0) return;
 
   const embedder = await loadEmbedder();
   if (!embedder) return;
