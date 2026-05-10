@@ -25,6 +25,8 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { jsonSchemaToZodShape } from "./lib/jsonschema-to-zod";
+
 config({ path: path.join(process.cwd(), ".env") });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -110,16 +112,17 @@ function buildAggregator(): McpServer {
     if (!srv.client) continue;
     for (const tool of srv.tools) {
       const exposedName = `${srv.name}.${tool.name}`;
-      // Register a passthrough — the inputSchema is what the upstream
-      // declared, so we pass the raw arguments object back through.
-      // The MCP SDK's `tool()` helper accepts a name + description and an
-      // async handler returning {content,...}. We route to upstream.callTool.
+      // Forward the upstream tool's input schema so clients see real param
+      // requirements — and so the MCP SDK doesn't strip args before they
+      // reach the handler. An empty shape would advertise no params AND
+      // reject every property under strict validation, breaking any tool
+      // that requires arguments (gps_lookup, github_*, gmail_*, …). The
+      // handler still routes raw args to upstream.callTool.
+      const shape = jsonSchemaToZodShape(tool.inputSchema);
       agg.tool(
         exposedName,
         tool.description || `Routed to ${srv.name}.${tool.name}`,
-        // No fine-grained zod schema here — MCP SDK accepts a raw shape or
-        // a free-form handler. We use a permissive shape so any args pass.
-        {} as Record<string, never>,
+        shape,
         async (args: Record<string, unknown>) => {
           if (!srv.client) {
             return { content: [{ type: "text" as const, text: JSON.stringify({ error: `upstream ${srv.name} not connected` }) }], isError: true };
