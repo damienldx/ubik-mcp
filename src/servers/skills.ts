@@ -89,6 +89,9 @@ function fail(err: unknown) {
 
 const server = createMcpServer("ubik-skills");
 
+// Eager init — triggers auto-seed on first install before any tool call.
+getStore();
+
 server.tool(
   "skills_outline_file",
   "Returns a structural outline of a source file: top-level functions, classes, exports, and imports. Heuristic regex-based — best on JS, TS, Python, Go.",
