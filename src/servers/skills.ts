@@ -629,6 +629,257 @@ server.tool(
   },
 );
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  agent_search + agent_train — fleet self-training via manifest injection
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  Two-step "express training" flow:
+//    1. agent_search(mission)  → ranked shortlist of agent candidates,
+//                                each with a *fit summary* explaining
+//                                where the match is strong and where it
+//                                isn't (decision-aid, not just a score).
+//    2. agent_train(id)        → returns the full markdown manifest of
+//                                the chosen agent, framed by an
+//                                activation banner + exit criteria so
+//                                the calling agent has clear "in/out"
+//                                signals.
+//
+//  Both tools read the same `context` rows seeded by `scripts/seed.py`
+//  under the key prefix `agent/`. The store layout matches:
+//    key     = "agent/<id>"
+//    content = JSON { id, source, content }   // content = raw markdown
+//
+//  No new dependencies; no remote calls. Vector embeddings are not yet
+//  produced for agents — keyword scoring with title/intro boosting is
+//  used here, easy to swap to cosine-similarity once `agent_vectors`
+//  exists (mirrors the `skills_recall` semantic path).
+
+interface AgentRow {
+  key:     string;
+  id:      string;
+  content: string; // raw markdown
+  source:  string;
+}
+
+function parseAgentRow(key: string, raw: string): AgentRow | null {
+  try {
+    const obj = JSON.parse(raw) as { id?: string; content?: string; source?: string };
+    if (typeof obj.content !== "string") return null;
+    return {
+      key,
+      id:      obj.id     ?? key.replace(/^agent\//, ""),
+      content: obj.content,
+      source:  obj.source ?? "",
+    };
+  } catch {
+    // Tolerate non-JSON content (older seeds may store the markdown directly).
+    return { key, id: key.replace(/^agent\//, ""), content: raw, source: "" };
+  }
+}
+
+function agentSummary(content: string): { title: string; intro: string } {
+  const lines = content.split(/\r?\n/);
+  let title = "";
+  let intro = "";
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!title && /^#\s+/.test(line)) {
+      title = line.replace(/^#\s+/, "").trim();
+      continue;
+    }
+    if (title && line && !line.startsWith("#") && !intro) {
+      intro = line.slice(0, 240);
+      break;
+    }
+  }
+  if (!title) title = (lines[0] ?? "").slice(0, 120).trim();
+  return { title, intro };
+}
+
+function tokenize(s: string): string[] {
+  return s.toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]+/gu, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 3);
+}
+
+server.tool(
+  "agent_search",
+  "Searches the bundled agent library (data/agents) and returns a ranked shortlist with a fit summary for each candidate. Use before agent_train when you want to pick a manifest yourself instead of accepting the top match blindly.",
+  {
+    mission: z.string().min(1).describe("Free-form description of what you're about to do — keywords, the briefing message, or both."),
+    limit:   z.number().int().positive().optional().describe("Max candidates to return (default 5)."),
+  },
+  async (args) => {
+    try {
+      const db    = getStore();
+      const limit = Math.min(args.limit ?? 5, 20);
+
+      const rows = db.prepare(
+        "SELECT key, content FROM context WHERE key LIKE 'agent/%' ORDER BY updated_at DESC LIMIT 5000"
+      ).all() as { key: string; content: string }[];
+
+      if (rows.length === 0) {
+        return ok({
+          mission:     args.mission,
+          resultCount: 0,
+          results:     [],
+          tip: "Agent library empty — run `python3 scripts/seed.py --agents-only` to seed data/agents into ~/.ubik-mcp/skills.db.",
+        });
+      }
+
+      const terms = tokenize(args.mission);
+      if (terms.length === 0) {
+        return ok({
+          mission:     args.mission,
+          resultCount: 0,
+          results:     [],
+          tip: "Mission text yielded no usable keywords (≥3 chars). Be more verbose.",
+        });
+      }
+
+      type Hit = {
+        key:     string;
+        id:      string;
+        title:   string;
+        intro:   string;
+        score:   number;
+        matched_terms: string[];
+        missing_terms: string[];
+        title_hits: number;
+        body_hits: number;
+        size:    number;
+        fit_summary: string;
+      };
+
+      const hits: Hit[] = [];
+      for (const row of rows) {
+        const ag = parseAgentRow(row.key, row.content);
+        if (!ag) continue;
+        const sum   = agentSummary(ag.content);
+        const lcAll = (sum.title + " " + ag.id + " " + ag.content).toLowerCase();
+        const lcTitle = (sum.title + " " + ag.id).toLowerCase();
+
+        let titleHits = 0;
+        let bodyHits  = 0;
+        const matched: string[] = [];
+        const missing: string[] = [];
+        for (const t of terms) {
+          if (lcTitle.includes(t)) {
+            titleHits++;
+            matched.push(t);
+          } else if (lcAll.includes(t)) {
+            bodyHits++;
+            matched.push(t);
+          } else {
+            missing.push(t);
+          }
+        }
+        if (titleHits + bodyHits === 0) continue;
+
+        // Score: title hits weighted ×3, body hits ×1.
+        // Coverage bonus when all terms matched (×1.5).
+        const base     = titleHits * 3 + bodyHits;
+        const coverage = matched.length === terms.length ? 1.5 : 1.0;
+        const score    = base * coverage;
+
+        const summary =
+          missing.length === 0
+            ? `Strong match (${titleHits} term${titleHits === 1 ? "" : "s"} in title/id, ${bodyHits} in body) — covers every keyword.`
+            : titleHits > 0
+              ? `Partial match (${titleHits} title hit${titleHits === 1 ? "" : "s"}, missing: ${missing.join(", ")}) — fits the topic but doesn't cover ${missing.length} term${missing.length === 1 ? "" : "s"}.`
+              : `Loose match (body-only, missing: ${missing.join(", ")}) — same vocabulary, different focus.`;
+
+        hits.push({
+          key:           ag.key,
+          id:            ag.id,
+          title:         sum.title,
+          intro:         sum.intro,
+          score,
+          matched_terms: matched,
+          missing_terms: missing,
+          title_hits:    titleHits,
+          body_hits:     bodyHits,
+          size:          ag.content.length,
+          fit_summary:   summary,
+        });
+      }
+
+      hits.sort((a, b) => b.score - a.score);
+      const top = hits.slice(0, limit);
+
+      return ok({
+        mission:     args.mission,
+        resultCount: top.length,
+        candidates:  rows.length,
+        terms,
+        results:     top.map(({ score: _s, ...h }) => h),
+        next_step: top.length > 0
+          ? `Pick an id and call agent_train(id="${top[0].id}") to inject the full manifest. Use agent_search again with different keywords if none of these fit.`
+          : "No candidate matched. Reformulate your mission with more domain words, or fall back to skills_recall for persona-only enrichment.",
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
+server.tool(
+  "agent_train",
+  "Loads the full markdown manifest of a bundled agent and returns it framed by an activation banner + exit criteria. The calling agent should treat the manifest as 'who I am for this mission' and follow the workflow until the exit criteria fire.",
+  {
+    id:      z.string().min(1).describe("Agent id (slug, no extension), as returned by agent_search."),
+    mission: z.string().optional().describe("Optional one-line description of the calling mission, echoed in the activation banner for traceability."),
+  },
+  async (args) => {
+    try {
+      const db = getStore();
+      const key = args.id.startsWith("agent/") ? args.id : `agent/${args.id}`;
+      const row = db.prepare("SELECT key, content FROM context WHERE key = ?").get(key) as
+        | { key: string; content: string }
+        | undefined;
+
+      if (!row) {
+        return ok({
+          found: false,
+          requested_id: args.id,
+          tip: `No agent with id "${args.id}". Use agent_search first to discover available ids.`,
+        });
+      }
+
+      const ag  = parseAgentRow(row.key, row.content);
+      if (!ag) {
+        return fail(new Error(`Agent ${args.id} payload is malformed (cannot parse).`));
+      }
+      const sum = agentSummary(ag.content);
+
+      const banner =
+        `🧠 **Agent activation — ${sum.title || ag.id}**\n` +
+        (args.mission ? `Mission: ${args.mission.slice(0, 200)}\n` : "") +
+        `From now on you operate under this manifest. Follow the workflow it ` +
+        `prescribes; when in doubt, prefer the manifest over your default ` +
+        `behaviour.\n` +
+        `\n--- MANIFEST BEGIN ---\n`;
+
+      const exit =
+        `\n--- MANIFEST END ---\n\n` +
+        `🚪 **Exit criteria** (release the persona when any of these are true):\n` +
+        `  - the mission output is delivered (PR, report, decision posted);\n` +
+        `  - the conversation drifts to an unrelated domain for ≥ 2 turns;\n` +
+        `  - the user/operator explicitly retags you with a different role.\n` +
+        `\nUntil one of those fires, stay in character.\n`;
+
+      return ok({
+        found:        true,
+        id:           ag.id,
+        title:        sum.title,
+        size_chars:   ag.content.length,
+        source:       ag.source,
+        activation:   banner + ag.content + exit,
+        raw_manifest: ag.content,
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
   process.exit(1);
