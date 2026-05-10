@@ -10,7 +10,7 @@
  *   - skills_query_database    Runs a read-only SELECT against an external SQLite file.
  *   - skills_analyze_schema    Returns tables, columns, and indexes of an external SQLite file.
  *
- * Storage: ~/.ubik-mcp/skills.db (created on first save).
+ * Storage: ~/.ubik-mcp/skills.db — auto-seeded from data/skills-seed.json on first start.
  * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, node:* only.
  */
 import { z } from "zod";
@@ -26,7 +26,36 @@ config({ path: path.join(process.cwd(), ".env") });
 const STORE_DIR  = path.join(os.homedir(), ".ubik-mcp");
 const STORE_PATH = path.join(STORE_DIR, "skills.db");
 
+// Seed file bundled in the repo — resolved relative to this source file.
+const SEED_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), "../../data/skills-seed.json");
+
 let _store: Database.Database | null = null;
+
+function seedIfEmpty(db: Database.Database): void {
+  if (!fs.existsSync(SEED_PATH)) return;
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'skill/%'").get() as { n: number }).n;
+  if (count > 0) return;
+
+  try {
+    const raw   = fs.readFileSync(SEED_PATH, "utf-8");
+    const data  = JSON.parse(raw) as { skills: Array<{ id: string; domain: string; name: string; description: string; system_prompt: string; tools: string[]; tags: string[] }> };
+    const now   = new Date().toISOString();
+    const upsert = db.prepare(
+      "INSERT INTO context (key, content, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO NOTHING"
+    );
+    const seedAll = db.transaction((skills: typeof data.skills) => {
+      for (const s of skills) {
+        const key     = `skill/${s.domain}/${s.id}`;
+        const content = JSON.stringify({ name: s.name, domain: s.domain, description: s.description, system_prompt: s.system_prompt, tools: s.tools, tags: s.tags });
+        upsert.run(key, content, now, now);
+      }
+    });
+    seedAll(data.skills);
+    process.stderr.write(`[ubik-skills] seeded ${data.skills.length} skills from bundled data\n`);
+  } catch {
+    // Non-fatal: seed failure doesn't break the server
+  }
+}
 
 function getStore(): Database.Database {
   if (_store) return _store;
@@ -41,6 +70,7 @@ function getStore(): Database.Database {
       updated_at TEXT NOT NULL
     )
   `);
+  seedIfEmpty(db);
   _store = db;
   return db;
 }
