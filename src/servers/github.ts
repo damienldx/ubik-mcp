@@ -105,7 +105,7 @@ server.tool(
   async ({ owner, type, sort, per_page }) => {
     try {
       const endpoint = owner
-        ? `/users/${owner}/repos?type=${type}&sort=${sort}&per_page=${per_page}`
+        ? `/users/${encodeURIComponent(owner)}/repos?type=${type}&sort=${sort}&per_page=${per_page}`
         : `/user/repos?type=${type}&sort=${sort}&per_page=${per_page}`;
       const repos = await ghApi(endpoint);
       if (!repos.length) return { content: [{ type: "text", text: "No repositories found." }] };
