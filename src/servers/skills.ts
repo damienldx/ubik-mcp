@@ -344,6 +344,121 @@ server.tool(
   },
 );
 
+// ─── skills_add_skill ────────────────────────────────────────────────────────
+server.tool(
+  "skills_add_skill",
+  "Adds or updates a skill in the local skill library (~/.ubik-mcp/skills.db). Skills define specialist personas that agents can adopt for specific mission types. No external dependency.",
+  {
+    id:            z.string().min(1).describe("Unique skill identifier, e.g. 'api-security-auditor'"),
+    domain:        z.string().min(1).describe("Skill domain, e.g. 'security', 'devops', 'frontend'"),
+    name:          z.string().min(1).describe("Human-readable skill name"),
+    description:   z.string().describe("What this skill does and when to use it (1-3 sentences)"),
+    system_prompt: z.string().describe("Persona instructions for the agent adopting this skill"),
+    tools:         z.array(z.string()).optional().describe("MCP tool names this skill relies on"),
+    tags:          z.array(z.string()).optional().describe("Searchable tags"),
+  },
+  async (args) => {
+    try {
+      const db  = getStore();
+      const key = `skill/${args.domain}/${args.id}`;
+      const content = JSON.stringify({
+        name:          args.name,
+        domain:        args.domain,
+        description:   args.description,
+        system_prompt: args.system_prompt,
+        tools:         args.tools ?? [],
+        tags:          args.tags  ?? [],
+      });
+      const now      = new Date().toISOString();
+      const existing = db.prepare("SELECT key FROM context WHERE key = ?").get(key);
+      if (existing) {
+        db.prepare("UPDATE context SET content = ?, updated_at = ? WHERE key = ?").run(content, now, key);
+      } else {
+        db.prepare("INSERT INTO context (key, content, created_at, updated_at) VALUES (?, ?, ?, ?)").run(key, content, now, now);
+      }
+      return ok({ saved: true, key, name: args.name, domain: args.domain, replaced: !!existing });
+    } catch (err) { return fail(err); }
+  },
+);
+
+// ─── skills_recall ────────────────────────────────────────────────────────────
+server.tool(
+  "skills_recall",
+  "Searches the local skill library by keyword. Returns matching skills with name, description, system_prompt, and tools list. Use at mission start to adopt a specialist persona and multiply output quality.",
+  {
+    query:  z.string().min(1).describe("Keywords describing what you're about to do, e.g. 'security audit api' or 'github pull request review'"),
+    domain: z.string().optional().describe("Restrict search to a domain, e.g. 'security', 'devops'"),
+    limit:  z.number().int().positive().optional().describe("Max results (default 5)"),
+  },
+  async (args) => {
+    try {
+      const db    = getStore();
+      const limit = args.limit ?? 5;
+      const prefix = args.domain ? `skill/${args.domain}/` : "skill/";
+
+      const rows = db.prepare(
+        "SELECT key, content, updated_at FROM context WHERE key LIKE ? ORDER BY updated_at DESC LIMIT 500"
+      ).all(`${prefix}%`) as { key: string; content: string; updated_at: string }[];
+
+      if (rows.length === 0) {
+        return ok({
+          query:       args.query,
+          resultCount: 0,
+          results:     [],
+          tip: "Skill library is empty. Populate it with skills_add_skill.",
+        });
+      }
+
+      const terms = args.query.toLowerCase().split(/\s+/).filter(Boolean);
+
+      type Hit = {
+        key: string; name: string; domain: string;
+        description: string; system_prompt: string;
+        tools: string[]; tags: string[]; score: number;
+      };
+      const hits: Hit[] = [];
+
+      for (const row of rows) {
+        let parsed: Record<string, unknown> = {};
+        try { parsed = JSON.parse(row.content); } catch { parsed = { description: row.content }; }
+
+        const hay = [
+          row.key,
+          parsed.name        ?? "",
+          parsed.domain      ?? "",
+          parsed.description ?? "",
+          JSON.stringify(parsed.tags ?? []),
+        ].join(" ").toLowerCase();
+
+        const score = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
+        if (score === 0) continue;
+
+        hits.push({
+          key:           row.key,
+          name:          String(parsed.name          ?? row.key),
+          domain:        String(parsed.domain        ?? ""),
+          description:   String(parsed.description   ?? "").slice(0, 300),
+          system_prompt: String(parsed.system_prompt ?? "").slice(0, 600),
+          tools:         (parsed.tools as string[])  ?? [],
+          tags:          (parsed.tags  as string[])  ?? [],
+          score,
+        });
+      }
+
+      hits.sort((a, b) => b.score - a.score);
+
+      return ok({
+        query:       args.query,
+        resultCount: Math.min(hits.length, limit),
+        results:     hits.slice(0, limit).map(({ score: _s, ...h }) => h),
+        tip: hits.length === 0
+          ? "No matches. Try broader keywords or list domains with skills_list_context(prefix='skill/')."
+          : undefined,
+      });
+    } catch (err) { return fail(err); }
+  },
+);
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
   process.exit(1);
