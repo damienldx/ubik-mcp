@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * system MCP server — minimal status + local skill search.
+ * system MCP server — runtime status + local skill catalog search.
  *
  * Tools (2):
- *   ubik_system_status   — uptime, version, node version, key env vars, cwd, working memory
- *   ubik_skill_search    — search a local JSON skill catalog (default: ~/.ubik-mcp/skills.json)
+ *   - system_status         Returns runtime status (uptime, version, memory, env subset).
+ *   - system_search_skills  Searches a local JSON skill catalog by keyword.
  *
- * Skills JSON format (array of {id, name, description, tags[]}) is detected
- * tolerantly: also accepts {skills: [...]} or {entries: [...]}.
+ * Skill catalog format: an array of {id, name, description, tags[]}, or
+ * {skills: [...]}, or {entries: [...]}. Path defaults to UBIK_SKILLS_JSON
+ * (env) or ~/.ubik-mcp/skills.json.
  *
- * No dependency on UBIK-RELEASE. Imports limited to @modelcontextprotocol/sdk,
- * zod, dotenv, and node built-ins.
+ * Imports: @modelcontextprotocol/sdk, zod, dotenv, node:* only.
  */
 import { z } from "zod";
 import { config } from "dotenv";
@@ -28,7 +28,9 @@ const PKG_VERSION = (() => {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
       return pkg.version || "unknown";
     }
-  } catch { /* ignore */ }
+  } catch {
+    return "unknown";
+  }
   return "unknown";
 })();
 
@@ -58,10 +60,9 @@ function fail(err: unknown) {
 
 const server = createMcpServer("ubik-system");
 
-// ─── ubik_system_status ──────────────────────────────────────────────────────
 server.tool(
-  "ubik_system_status",
-  "Return runtime status: uptime, version, node version, cwd, memory usage, and a curated subset of env vars (no secrets).",
+  "system_status",
+  "Returns runtime status: uptime, version, node version, memory usage, and a curated subset of env vars (no secrets).",
   {
     includeEnv: z.boolean().optional().describe("Include the curated env-var subset (default true)"),
   },
@@ -76,26 +77,24 @@ server.tool(
         }
       }
       return ok({
-        version:      PKG_VERSION,
-        node:         process.version,
-        platform:     process.platform,
-        arch:         process.arch,
-        pid:          process.pid,
-        uptimeSec:    Math.round(process.uptime()),
-        cwd:          process.cwd(),
+        version:   PKG_VERSION,
+        node:      process.version,
+        platform:  process.platform,
+        arch:      process.arch,
+        pid:       process.pid,
+        uptimeSec: Math.round(process.uptime()),
+        cwd:       process.cwd(),
         memoryMB: {
-          rss:          Math.round(mem.rss / (1024 * 1024)),
-          heapTotal:    Math.round(mem.heapTotal / (1024 * 1024)),
-          heapUsed:     Math.round(mem.heapUsed / (1024 * 1024)),
-          external:     Math.round(mem.external / (1024 * 1024)),
+          rss:       Math.round(mem.rss / (1024 * 1024)),
+          heapTotal: Math.round(mem.heapTotal / (1024 * 1024)),
+          heapUsed:  Math.round(mem.heapUsed / (1024 * 1024)),
+          external:  Math.round(mem.external / (1024 * 1024)),
         },
         env,
       });
     } catch (err) { return fail(err); }
   },
 );
-
-// ─── ubik_skill_search ───────────────────────────────────────────────────────
 
 interface SkillEntry {
   id?:          string;
@@ -127,12 +126,12 @@ function loadCatalog(filePath: string): SkillEntry[] {
 }
 
 server.tool(
-  "ubik_skill_search",
-  "Search the local skill catalog (JSON file) by keyword. All terms must match (AND) across name/description/tags/domain.",
+  "system_search_skills",
+  "Searches the local skill catalog by keyword. All terms must match (AND) across name, description, tags, and domain. Matches in name are scored higher.",
   {
     query:   z.string().min(1).describe("Whitespace-separated keywords (case-insensitive AND match)"),
     catalog: z.string().optional().describe(`Override catalog path (default: ${DEFAULT_SKILL_CATALOG})`),
-    limit:   z.number().int().positive().optional().describe("Max results (default 20)"),
+    limit:   z.number().int().positive().optional().describe("Max results returned (default 20)"),
   },
   async (args) => {
     try {
@@ -156,7 +155,6 @@ server.tool(
         let matches = 0;
         for (const t of terms) if (haystack.includes(t)) matches++;
         if (matches === terms.length) {
-          // Score: matches in name boost over matches in description.
           const nameHay = `${entry.name ?? ""} ${entry.id ?? ""}`.toLowerCase();
           const nameBoost = terms.filter((t) => nameHay.includes(t)).length;
           hits.push({ entry, score: matches + nameBoost });
@@ -170,15 +168,15 @@ server.tool(
         catalogSize: entries.length,
         query:       args.query,
         count:       hits.length,
-        results:     hits.slice(0, limit).map((h) => ({
+        results: hits.slice(0, limit).map((h) => ({
           id:          h.entry.id ?? null,
           name:        h.entry.name ?? null,
           domain:      h.entry.domain ?? null,
           description: typeof h.entry.description === "string"
             ? h.entry.description.slice(0, 240)
             : null,
-          tags:        Array.isArray(h.entry.tags) ? h.entry.tags.slice(0, 8) : [],
-          score:       h.score,
+          tags:  Array.isArray(h.entry.tags) ? h.entry.tags.slice(0, 8) : [],
+          score: h.score,
         })),
       });
     } catch (err) { return fail(err); }

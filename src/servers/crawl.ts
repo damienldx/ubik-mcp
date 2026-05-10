@@ -1,26 +1,24 @@
 #!/usr/bin/env node
 /**
- * Standalone MCP server — crawl.ts
+ * crawl MCP server — Puppeteer-backed page fetching and structured extraction.
  *
- * Tools:
- *   - crawl_url           Fetch a web page via Puppeteer, return clean markdown.
- *   - extract_structured  Fetch a page, run user-defined CSS selectors, return JSON.
+ * Tools (2):
+ *   - crawl_fetch_page         Fetches a web page and returns its main content as clean markdown.
+ *   - crawl_extract_fields     Fetches a page and extracts structured data via CSS selectors.
  *
- * No UBIK-RELEASE deps. Imports: @modelcontextprotocol/sdk, zod, dotenv, puppeteer, node:*.
- * Pattern: createMcpServer + runServer from src/lib/server.ts.
+ * Imports: @modelcontextprotocol/sdk, zod, dotenv, puppeteer, node:* only.
  */
 
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
-import { createMcpServer, runServer } from "../lib/server";
+import { createMcpServer, runServer } from "../lib/server.js";
 
 config({ path: path.join(process.cwd(), ".env") });
 
 const MAX_CONTENT_LENGTH = 80_000;
 const DEFAULT_TIMEOUT = 30_000;
 
-// ── HTML → Markdown (compact converter) ──────────────────────────────────────
 function htmlToMarkdown(html: string): string {
   let s = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -66,7 +64,6 @@ function htmlToMarkdown(html: string): string {
     .trim();
 }
 
-// ── Puppeteer page fetch ─────────────────────────────────────────────────────
 async function fetchPage(
   url: string,
   options: { waitFor?: string; timeout?: number; javascript?: boolean } = {},
@@ -101,16 +98,15 @@ async function fetchPage(
   }
 }
 
-// ── Server ────────────────────────────────────────────────────────────────────
-const server = createMcpServer("ubik-crawl-standalone");
+const server = createMcpServer("ubik-crawl");
 
 server.tool(
-  "crawl_url",
-  "Fetch a web page and return its main content as clean markdown. Strips nav/scripts/style. Truncates at ~80KB.",
+  "crawl_fetch_page",
+  "Fetches a web page via Puppeteer and returns its main content as clean markdown. Strips nav, scripts, and styles; truncates at 80KB.",
   {
-    url: z.string().url().describe("URL to crawl"),
-    wait_for: z.string().optional().describe("CSS selector to wait for before extracting"),
-    javascript: z.boolean().optional().describe("Execute page JS before extracting (default: true)"),
+    url:        z.string().url().describe("URL to fetch"),
+    wait_for:   z.string().optional().describe("CSS selector to wait for before extracting"),
+    javascript: z.boolean().optional().describe("Execute page JavaScript before extracting (default true)"),
   },
   async ({ url, wait_for, javascript }) => {
     try {
@@ -132,20 +128,20 @@ server.tool(
 );
 
 server.tool(
-  "extract_structured",
-  "Fetch a page and extract structured data via user-defined CSS selectors. Returns a JSON object keyed by field name.",
+  "crawl_extract_fields",
+  "Fetches a web page and extracts structured data via user-defined CSS selectors. Returns a JSON object keyed by field name.",
   {
-    url: z.string().url().describe("URL to extract from"),
+    url: z.string().url().describe("URL to fetch and extract from"),
     fields: z
       .array(
         z.object({
-          name: z.string().describe("Field key in the returned JSON"),
-          selector: z.string().describe("CSS selector to match"),
-          attribute: z.string().optional().describe("HTML attribute to read (default: text)"),
-          multiple: z.boolean().optional().describe("Return array of all matches (default: first only)"),
+          name:      z.string().describe("Field key in the returned JSON"),
+          selector:  z.string().describe("CSS selector to match"),
+          attribute: z.string().optional().describe("HTML attribute to read (default: text content)"),
+          multiple:  z.boolean().optional().describe("Return array of all matches instead of the first (default false)"),
         }),
       )
-      .describe("Fields to extract"),
+      .describe("Field definitions to extract from the page"),
     wait_for: z.string().optional().describe("CSS selector to wait for before extracting"),
   },
   async ({ url, fields, wait_for }) => {
@@ -199,6 +195,6 @@ server.tool(
 );
 
 runServer(server).catch((err) => {
-  process.stderr.write(`[ubik-crawl-standalone] fatal: ${String(err)}\n`);
+  process.stderr.write(`[ubik-crawl] fatal: ${String(err)}\n`);
   process.exit(1);
 });

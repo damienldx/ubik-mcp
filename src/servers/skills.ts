@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
- * skills MCP server — local SQLite-backed context + read-only DB inspection.
+ * skills MCP server — local SQLite-backed context store + read-only DB inspection.
  *
  * Tools (6):
- *   file_outline        — structural outline of a source file (functions, classes, exports).
- *   save_context        — persist a (key, content) pair in the local SQLite store.
- *   read_context        — read content for a key from the local store.
- *   list_context        — list keys, optionally filtered by prefix.
- *   read_database       — run a read-only SELECT against an external SQLite file.
- *   analyze_db_schema   — list tables + columns of an external SQLite file.
+ *   - skills_outline_file      Returns a structural outline of a source file.
+ *   - skills_save_context      Upserts a (key, content) pair in the local store.
+ *   - skills_read_context      Returns content for a given key.
+ *   - skills_list_context      Lists keys, optionally filtered by prefix.
+ *   - skills_query_database    Runs a read-only SELECT against an external SQLite file.
+ *   - skills_analyze_schema    Returns tables, columns, and indexes of an external SQLite file.
  *
- * Storage: ~/.ubik-mcp/skills.db (created on first save_context).
- * No dependency on UBIK-RELEASE. Imports limited to @modelcontextprotocol/sdk,
- * zod, dotenv, better-sqlite3, and node built-ins.
+ * Storage: ~/.ubik-mcp/skills.db (created on first save).
+ * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, node:* only.
  */
 import { z } from "zod";
 import { config } from "dotenv";
@@ -60,10 +59,9 @@ function fail(err: unknown) {
 
 const server = createMcpServer("ubik-skills");
 
-// ─── file_outline ────────────────────────────────────────────────────────────
 server.tool(
-  "file_outline",
-  "Return a structural outline of a source file: top-level functions, classes, exports, and import lines. Heuristic regex-based — best on JS/TS/Python/Go.",
+  "skills_outline_file",
+  "Returns a structural outline of a source file: top-level functions, classes, exports, and imports. Heuristic regex-based — best on JS, TS, Python, Go.",
   {
     path: z.string().describe("Absolute or workspace-relative path to the file"),
     maxLines: z.number().int().positive().optional().describe("Hard cap on lines scanned (default 5000)"),
@@ -91,13 +89,13 @@ server.tool(
       const fnPatterns: RegExp[] = [
         /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/,
         /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>/,
-        /^\s*def\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)\s*:/,        // python
-        /^\s*func\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)/,           // go
+        /^\s*def\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)\s*:/,
+        /^\s*func\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)/,
       ];
       const classPatterns: RegExp[] = [
         /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/,
-        /^\s*class\s+([A-Za-z_][\w]*)/,                        // python (already covered)
-        /^\s*type\s+([A-Za-z_][\w]*)\s+struct\b/,              // go
+        /^\s*class\s+([A-Za-z_][\w]*)/,
+        /^\s*type\s+([A-Za-z_][\w]*)\s+struct\b/,
       ];
 
       lines.forEach((raw, i) => {
@@ -142,10 +140,9 @@ server.tool(
   },
 );
 
-// ─── save_context ────────────────────────────────────────────────────────────
 server.tool(
-  "save_context",
-  "Persist a (key, content) pair in the local SQLite context store. Upsert — replaces existing key.",
+  "skills_save_context",
+  "Upserts a (key, content) pair in the local SQLite context store.",
   {
     key:     z.string().min(1).describe("Unique key. Convention: namespace/identifier (e.g. 'project/ubik-mcp/notes')"),
     content: z.string().describe("Free-form content (markdown, JSON, raw text). Stored as-is."),
@@ -167,10 +164,9 @@ server.tool(
   },
 );
 
-// ─── read_context ────────────────────────────────────────────────────────────
 server.tool(
-  "read_context",
-  "Read content for a key from the local SQLite context store.",
+  "skills_read_context",
+  "Returns content for a given key from the local SQLite context store.",
   {
     key: z.string().min(1).describe("Key to read"),
   },
@@ -186,13 +182,12 @@ server.tool(
   },
 );
 
-// ─── list_context ────────────────────────────────────────────────────────────
 server.tool(
-  "list_context",
-  "List keys in the local SQLite context store, optionally filtered by prefix.",
+  "skills_list_context",
+  "Lists keys in the local SQLite context store, optionally filtered by prefix.",
   {
-    prefix: z.string().optional().describe("Optional prefix filter (matches at start of key)"),
-    limit:  z.number().int().positive().optional().describe("Max entries (default 100)"),
+    prefix: z.string().optional().describe("Prefix filter applied to the start of the key"),
+    limit:  z.number().int().positive().optional().describe("Max entries returned (default 100)"),
   },
   async (args) => {
     try {
@@ -213,21 +208,20 @@ server.tool(
   },
 );
 
-// ─── read_database ───────────────────────────────────────────────────────────
 server.tool(
-  "read_database",
-  "Run a read-only SELECT against an external SQLite file. Refuses any non-SELECT statement.",
+  "skills_query_database",
+  "Runs a read-only SELECT against an external SQLite file. Refuses non-SELECT statements and multiple statements.",
   {
-    path:  z.string().describe("Absolute path to the SQLite database file"),
-    query: z.string().describe("SQL query (SELECT only)"),
-    params: z.array(z.union([z.string(), z.number(), z.null()])).optional().describe("Bound parameters"),
-    limit:  z.number().int().positive().optional().describe("Hard cap on rows returned (default 200)"),
+    path:   z.string().describe("Absolute path to the SQLite database file"),
+    query:  z.string().describe("Single SELECT statement"),
+    params: z.array(z.union([z.string(), z.number(), z.null()])).optional().describe("Bound parameters for the SELECT"),
+    limit:  z.number().int().positive().optional().describe("Max rows returned (default 200)"),
   },
   async (args) => {
     try {
       const trimmed = args.query.trim().replace(/;+\s*$/, "");
       if (!/^select\b/i.test(trimmed)) {
-        return fail(new Error("read_database refuses non-SELECT statements"));
+        return fail(new Error("skills_query_database refuses non-SELECT statements"));
       }
       if (/;/.test(trimmed)) {
         return fail(new Error("Only a single statement is allowed"));
@@ -247,10 +241,9 @@ server.tool(
   },
 );
 
-// ─── analyze_db_schema ───────────────────────────────────────────────────────
 server.tool(
-  "analyze_db_schema",
-  "List tables, columns, and indexes of an external SQLite file. Read-only.",
+  "skills_analyze_schema",
+  "Returns tables, columns, indexes, and row counts of an external SQLite file. Read-only.",
   {
     path: z.string().describe("Absolute path to the SQLite database file"),
   },
@@ -281,7 +274,9 @@ server.tool(
           try {
             const r = db.prepare(`SELECT COUNT(*) AS c FROM ${tn}`).get() as { c: number } | undefined;
             rowCount = r?.c ?? null;
-          } catch { /* table unreadable */ }
+          } catch {
+            rowCount = null;
+          }
           return { table: t.name, columns, indexes, rowCount };
         });
 
