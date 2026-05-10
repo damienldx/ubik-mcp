@@ -136,77 +136,78 @@ Si on veut un GPS "personnalisé par destinataire" (un même brief enrichi diff�
 
 ---
 
-## v2 · Fork contract layer (Fidele — gps-v2/fork-contract)
+# GPS v2 — Étape 2 · Taxonomic tool tagging
 
-> Author: 6388a209-agent-0 (Fidele) · Branche: `gps-v2/fork-contract` · Date: 2026-05-10
+> Section author: b5aeb927-agent-0 (Jules)
+> Branche: `gps-v2/taxonomic-tools`
+> Date: 2026-05-10
 
-### Why this exists
+## Constat (issu de l'audit GPS du 2026-05-10)
 
-Enrich-on-send + cache LRU (the v1 above) cuts cost when a single message is broadcast to many agents. It does *not* address the harder failure mode observed in production: **persona drift**. During a multi-message mission an agent receives N personas because each `relay_send` re-embeds a new message that may surface a different top-1 skill. The agent's identity flickers across the mission, none of the personas is specifically tied to the work, and the inference cost is paid for ~5 useful matches out of ~30 calls.
+Le pipeline actuel ranke les tools via `skills_search_tools` — embedding sémantique sur le texte du message. Sur une mission backend Python (PRISMA + endpoints REST), le top-K retourné contenait `linkedin_get_company`, `gmail_get_attachment`, `crawl_get_links`, `google_drive_get_file`. Persona pertinente, tools quasi totalement off-topic (~30-50% bruit observé).
 
-The fork contract layer pins an agent's persona for the duration of a fork. One signature at fork entry, stable identity until close.
+Le défaut est structurel : la persona est un objet **sémantique** (le sens du message désigne son label), les tools sont un objet **taxonomique** (l'opération à effectuer désigne leur pertinence). Un seul pipeline d'embedding écrase cette différence.
 
-### Tools added in `src/servers/gps.ts`
+## Ce que cette PR (Étape 2) livre
 
-| Tool | Role |
+Trois changements additifs (zéro breaking sur `gps_lookup`) :
+
+### `src/lib/tool-taxonomy.ts` (nouveau)
+
+Définit deux axes orthogonaux :
+
+- **`OperationClass`** : `read | write | network | search | social | spawn | review`
+- **`TargetDomain`** : `filesystem | git | http_api | db | browser | agent_relay`
+
+Et trois fonctions pures :
+
+- `tagTool(name)` — retourne `{operation_classes[], target_domains[]}` pour un tool. Catalogue statique des servers UBIK connus (github, google, linkedin, microsoft, crawl, review, formation, skills, system, desktop, gps, paperclip, relay, ubik, agent, project, activity, inbox), avec fallback heuristique sur les conventions de nommage (`*_get_*` → read, `*_create_*` → write, etc.).
+- `matchScore(tag, mission)` — score déterministe (op_hits × 10 + dom_hits) ; 0 si pas d'intersection.
+- `buildToolkit({candidates, mission, manifest, top_k})` — assembleur déterministe : filtre par exclusion manifest → score par matrix → trie → top_k → préfixe les `always_include` du manifest.
+
+### `src/lib/agent-manifest.ts` (nouveau)
+
+Charge `~/.ubik-desktop/agents/<id>.{yaml,yml,json}` à la demande (pas de cache in-process — l'éditer prend effet au prochain call). Schéma :
+
+```yaml
+exclude_classes: [social]
+exclude_domains: [browser]
+exclude_tools:   [github_create_repo]
+always_include:  [relay_send, github_get_repo]
+```
+
+Mini-parser YAML inline (~30 lignes, gère uniquement nos 4 keys × inline arrays) — pas de nouvelle dépendance npm. JSON également supporté pour les schémas plus complexes.
+
+Repurpose le manifest YAML qui existait déjà mais n'était lu nulle part (test E2E 2026-05-10 : marqueur "BANANE-CRYPTO-7421" déposé dans `~/.ubik-desktop/agents/<id>.md`, jamais retourné par GPS — manifest mort).
+
+### `src/servers/gps.ts` (3 nouveaux MCP tools, zéro breaking change)
+
+| Tool | Rôle |
 |---|---|
-| `gps_lock(fork_id, agent_id, mission_brief, top_k?, budget_hint?, tools_allowlist?)` | Run gps_lookup once on the brief, persist the result as a contract at `${MEMORY_DIR}/forks/<fork_id>/gps_contract.json`. Idempotent on identical brief+agent. |
-| `gps_relock(fork_id, new_mission_brief, …)` | Replace an existing contract with one computed from a new brief. Errors if no contract exists. |
-| `gps_get_contract(fork_id?, agent_id?)` | Read by fork_id (preferred) or agent_id (most-recently-signed). Returns null when none exists. |
-| `gps_unlock(fork_id)` | Delete a contract. Use at fork close. |
+| `gps_tag_tool(tool_name)` | Introspection : tag d'un tool selon le catalogue + heuristiques. |
+| `gps_load_manifest(agent_id)` | Lit + valide le manifest d'un agent. Renvoie `null` si absent. |
+| `gps_build_toolkit({candidates, mission, agent_id?, top_k?})` | Toolkit déterministe pour la mission. Manifest appliqué automatiquement si `agent_id` fourni. |
 
-Existing tools extended (back-compat — all new params optional):
+Le pipeline existant (`gps_lookup`, `gps_should_enrich`, `gps_invalidate`, `gps_stats`) est **inchangé**. La couche taxonomique est opt-in : à terme le `gps_lookup` enrich-on-send peut appeler `gps_build_toolkit` quand un `mission_matrix` est fourni dans le contexte (Étape 1 fork contract — Fidele).
 
-- `gps_should_enrich({…, agent_id?})` — when `agent_id` is set and an active contract exists, returns `skip:true reason="fork_contract_active"` with `fork_id`, `persona_id`, `signed_at`. Caller should serve the contract instead of computing fresh.
-- `gps_lookup({…, fork_id?})` — when `fork_id` is set and a contract exists, short-circuits to the contract's persona+tools (`from_contract: true`, no embedding cost).
+## Coordination inter-PRs (cf. checklist Felix)
 
-### Storage
+- ✅ Pas de modification de `cacheKey()` (réservé Fidele).
+- ✅ `GpsResult` shape inchangée (mes nouveaux tools renvoient leurs propres types, distincts).
+- ✅ `gps_should_enrich` non bypassé : mes tools sont des utilitaires explicites (pas du message-enrichment automatique), donc ils ne sont pas un *call site GPS* au sens de la règle.
+- ✅ Section gps-spec.md ajoutée à la fin (distincte de la spec 2683a72c).
+- ✅ Pas de SQLite, pas de race condition.
 
-```
-${MEMORY_DIR:-~/.ubik-memory}/forks/
-└── <fork_id>/
-    └── gps_contract.json    # {fork_id, agent_id, persona, recommended_tools,
-                              #  tools_allowlist, mission_brief, budget_hint, signed_at}
-```
+## Distinctif vs autres forks gps-v2
 
-Atomic writes via tempfile + rename so concurrent readers never see torn JSON. Reverse index `findActiveContractByAgent(agent_id)` is a `readdirSync` + `JSON.parse` scan — acceptable for the fleet's cardinality (tens of forks max). If we cross 100+ active forks, swap for a `.index/by-agent.json` cache invalidated by mtime.
+- **Découpler tools de persona** — les autres forks restent dans le pipeline embedding. Cette PR sort les tools du pipeline sémantique pour les remettre dans un pipeline taxonomique déterministe.
+- **Repurpose le manifest YAML** — donne aux agents une **agency** explicite sur leur GPS (`exclude_*` / `always_include`) qu'ils n'avaient pas. Leverage un mécanisme existant qui était mort.
+- **Mesurabilité** — `gps_build_toolkit` étant déterministe, "% des tools effectivement utilisés par l'agent" devient un signal mesurable. Le pipeline embedding est opaque à cette mesure.
 
-### How this composes with v1 (enrich-on-send)
+## Limites et follow-up
 
-The contract is consulted **before** the v1 cache. Decision tree at `relay_send` (pseudo-code in the ubik-fleet PR):
+- Le catalogue statique couvre les servers UBIK connus aujourd'hui. Quand un nouveau server est ajouté, il faut mettre à jour `CATALOG`. L'heuristique fallback rattrape les tools inconnus mais avec moins de précision.
+- La `MissionMatrix` est consommée par cette PR mais **calculée ailleurs** (Étape 1 — Fidele, fork contract entry hook).
+- Le track-record agent (Étape 3 — Albert) peut affiner les choix : un agent qui n'utilise jamais les tools de domaine X verrait ce domaine baisser dans les futurs choix de matrix.
 
-```python
-verdict = mcp_call("gps_should_enrich", {message, from, to, agent_id: to})
-if verdict["skip"]:
-    if verdict.get("reason") == "fork_contract_active":
-        # Use the contract — fast path, no embedding
-        gps = mcp_call("gps_lookup", {message, fork_id: verdict["fork_id"]})
-        queue_store({"original": message, **gps, "from_contract": True})
-    else:
-        queue_store({"original": message})  # plain ack/bridge skip
-else:
-    # No active contract — fall back to v1 cache+lookup
-    gps = mcp_call("gps_lookup", {message, agent_id: to})
-    queue_store({"original": message, **gps})
-```
-
-**Cost model**: one `gps_lock` per fork → N free contract reads for the mission. v1 cache still amortizes broadcast, v2 contract amortizes the entire mission.
-
-### GpsResult schema — back-compat preserved
-
-The contract path adds 3 optional fields to the JSON `gps_lookup` returns: `from_contract?`, `fork_id?`, `signed_at?`, plus `cache_key` is now `string | null` (null when serving from contract). All 4 stable fields (`persona`, `recommended_tools`, `agent_training`, `cached`) keep their shape — existing relay code that reads these continues to work without change.
-
-### Wiring next steps (out of this PR)
-
-- `project_fork_register` (UBIK backend) should call `gps_lock` after writing the fork → automatic contract at dispatch time.
-- `project_fork_complete` should call `gps_unlock` → contract released at fork close.
-- A sidecar UI panel could surface active contracts (one row per agent: persona, signed_at, mission_brief preview) as observability.
-
-### Distinctif vs v1
-
-- **v1 = cost optimization on the same persona-per-message model**. Cache neutralizes broadcast cost.
-- **v2 = paradigm shift to persona-per-mission**. The agent has *one* identity for the duration of the work; per-message lookups become exception cases (no contract / explicit pivot).
-
-The two layers compose cleanly: v2 short-circuits before v1 does its job, and v1 still handles the no-contract case.
-
-— 6388a209-agent-0 (Fidele)
+— b5aeb927-agent-0 (Jules), 2026-05-10
