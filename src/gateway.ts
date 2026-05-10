@@ -35,6 +35,22 @@ const PORT = Number(process.env.UBIK_GATEWAY_PORT || 8902);
 
 const STARTED_AT = Date.now();
 
+// ── Logging helper ───────────────────────────────────────────────────────────
+//  All gateway logs go through `log()` so they share a consistent shape:
+//    [<ISO timestamp>] [gateway] [<level>] <message>
+//  Levels: info | warn | error. No logic — just structure.
+type LogLevel = "info" | "warn" | "error";
+function log(level: LogLevel, msg: string): void {
+  const stamp = new Date().toISOString();
+  process.stderr.write(`[${stamp}] [gateway] [${level}] ${msg}\n`);
+}
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.stack && process.env.UBIK_DEBUG ? err.stack : `${err.name}: ${err.message}`;
+  }
+  return String(err);
+}
+
 interface UpstreamServer {
   name:    string;
   command: string;
@@ -79,10 +95,10 @@ async function connectUpstream(srv: UpstreamServer): Promise<void> {
       description: t.description,
       inputSchema: t.inputSchema,
     }));
-    process.stderr.write(`[gateway] upstream "${srv.name}" connected — ${srv.tools.length} tools\n`);
+    log("info", `upstream "${srv.name}" connected — ${srv.tools.length} tool(s)`);
   } catch (err) {
     srv.error = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[gateway] upstream "${srv.name}" failed: ${srv.error}\n`);
+    log("error", `upstream "${srv.name}" failed to connect: ${describeError(err)}`);
   }
 }
 
@@ -170,11 +186,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     }
     const transport = new SSEServerTransport("/mcp", res);
     sessions.set(transport.sessionId, { transport });
-    transport.onclose = () => { sessions.delete(transport.sessionId); };
+    log("info", `SSE session opened (sessionId=${transport.sessionId}, total=${sessions.size})`);
+    transport.onclose = () => {
+      sessions.delete(transport.sessionId);
+      log("info", `SSE session closed (sessionId=${transport.sessionId}, remaining=${sessions.size})`);
+    };
     try {
       await aggServer.connect(transport);
     } catch (err) {
-      process.stderr.write(`[gateway] SSE connect failed: ${err}\n`);
+      log("error", `SSE connect failed (sessionId=${transport.sessionId}): ${describeError(err)}`);
     }
     return;
   }
@@ -187,7 +207,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     try {
       await session.transport.handlePostMessage(req, res);
     } catch (err) {
-      process.stderr.write(`[gateway] SSE post failed: ${err}\n`);
+      log("error", `SSE post failed (sessionId=${sessionId}): ${describeError(err)}`);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: "post handler failed" });
     }
     return;
@@ -197,35 +217,51 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 }
 
 async function main(): Promise<void> {
-  process.stderr.write(`[gateway] starting on http://${HOST}:${PORT}\n`);
+  log("info", `starting on http://${HOST}:${PORT} (pid=${process.pid}, node=${process.version})`);
+  log("info", `connecting ${SERVERS.length} upstream server(s) in parallel…`);
   await Promise.all(SERVERS.map(connectUpstream));
+
+  const connected = SERVERS.filter((s) => s.client);
+  const failed    = SERVERS.filter((s) => !s.client);
+  log("info", `upstream connect summary: ${connected.length} ok, ${failed.length} failed` +
+              (failed.length > 0 ? ` (failed: ${failed.map((s) => s.name).join(", ")})` : ""));
+
   aggServer = buildAggregator();
 
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
-      process.stderr.write(`[gateway] handler error: ${err}\n`);
+      log("error", `unhandled request error (${req.method} ${req.url}): ${describeError(err)}`);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: "internal" });
     });
   });
 
   server.listen(PORT, HOST, () => {
     const total = SERVERS.reduce((acc, s) => acc + (s.client ? s.tools.length : 0), 0);
-    process.stderr.write(`[gateway] ready — ${total} aggregated tools, ${SERVERS.length} upstreams\n`);
+    const breakdown = connected
+      .map((s) => `${s.name}=${s.tools.length}`)
+      .join(" ");
+    log("info", `ready on http://${HOST}:${PORT} — ${total} aggregated tool(s) across ${connected.length} upstream(s) [${breakdown}]`);
   });
 
-  const shutdown = async () => {
-    process.stderr.write("[gateway] shutting down\n");
+  const shutdown = async (signal: string) => {
+    log("info", `shutdown requested (signal=${signal}), closing ${SERVERS.length} upstream(s)`);
     for (const srv of SERVERS) {
       try { await srv.client?.close(); } catch { /* ignore */ }
     }
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 3000).unref();
+    server.close(() => {
+      log("info", "shutdown complete, exiting");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      log("warn", "shutdown timeout (3s) — forcing exit");
+      process.exit(1);
+    }, 3000).unref();
   };
-  process.on("SIGINT",  shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT",  () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {
-  process.stderr.write(`[gateway] fatal: ${err}\n`);
+  log("error", `fatal: ${describeError(err)}`);
   process.exit(1);
 });

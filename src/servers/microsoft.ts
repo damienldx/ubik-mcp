@@ -2,11 +2,11 @@
 /**
  * Microsoft 365 (Outlook) — standalone MCP stdio server.
  *
- * Tools:
- *   - outlook_search → Search emails
- *   - outlook_read   → Read a specific email by ID
- *   - outlook_send   → Send an email
- *   - outlook_draft  → Create a draft email
+ * Tools (4) — naming convention `microsoft_<verb>_<object>`:
+ *   - microsoft_search_emails  — Search the user's Outlook inbox.
+ *   - microsoft_read_email     — Read a single email by message ID.
+ *   - microsoft_send_email     — Send an email from the user's account.
+ *   - microsoft_create_draft   — Create a draft email without sending.
  *
  * Auth: OAuth2 refresh-token flow against Microsoft identity platform, using
  * native fetch. No UBIK-RELEASE dependency. Required env vars (loaded from
@@ -155,11 +155,11 @@ function sleep(ms: number): Promise<void> {
 const server = createMcpServer("ubik-microsoft", "1.0.0");
 
 server.tool(
-  "outlook_search",
-  "Search emails in Outlook. Leave query empty to list latest received emails.",
+  "microsoft_search_emails",
+  "Searches emails in the user's Outlook mailbox; an empty query returns the latest received messages.",
   {
     query:      z.string().default("").describe("Search query (e.g. 'from:someone subject:hello'). Empty = latest emails."),
-    maxResults: z.number().int().positive().max(100).default(10),
+    maxResults: z.number().int().positive().max(100).default(10).describe("Maximum number of messages to return (1–100, default 10)."),
   },
   async ({ query, maxResults }) => {
     // $orderby is not supported alongside $search on Graph API.
@@ -181,15 +181,15 @@ server.tool(
       return `${i + 1}. ${from} — ${m.subject}${unread} (${date})`;
     });
     const idMap: string[]   = data.value.map((m: any, i: number) => `#${i + 1}=${m.id}`);
-    const text = lines.join("\n") + "\n\n[IDs pour outlook_read: " + idMap.join(", ") + "]";
+    const text = lines.join("\n") + "\n\n[IDs for microsoft_read_email: " + idMap.join(", ") + "]";
     return { content: [{ type: "text", text }] };
   },
 );
 
 server.tool(
-  "outlook_read",
-  "Read a specific Outlook email by ID.",
-  { messageId: z.string().describe("Outlook message ID") },
+  "microsoft_read_email",
+  "Reads a single Outlook email by its message ID and returns headers and body.",
+  { messageId: z.string().describe("Outlook message ID (returned by microsoft_search_emails)") },
   async ({ messageId }) => {
     const msg = await graph(
       `/me/messages/${encodeURIComponent(messageId)}?$select=subject,from,toRecipients,receivedDateTime,body`,
@@ -209,14 +209,14 @@ server.tool(
 );
 
 server.tool(
-  "outlook_send",
-  "Send an email via Outlook.",
+  "microsoft_send_email",
+  "Sends an email from the user's Outlook account. The message is also saved to Sent Items.",
   {
-    to:      z.string().describe("Recipient email(s), comma-separated"),
-    subject: z.string().describe("Email subject"),
-    body:    z.string().describe("Email body (plain text)"),
-    cc:      z.string().optional().describe("CC recipient(s), comma-separated"),
-    isHtml:  z.boolean().optional().describe("True if body is HTML"),
+    to:      z.string().describe("Recipient email address(es), comma-separated."),
+    subject: z.string().describe("Email subject."),
+    body:    z.string().describe("Email body (plain text by default; set isHtml=true for HTML)."),
+    cc:      z.string().optional().describe("CC recipient(s), comma-separated."),
+    isHtml:  z.boolean().optional().describe("Set true if `body` should be sent as HTML (default false = plain text)."),
   },
   async ({ to, subject, body, cc, isHtml }) => {
     const recipients = (s: string) =>
@@ -238,13 +238,13 @@ server.tool(
 );
 
 server.tool(
-  "outlook_draft",
-  "Create a draft email in Outlook (not sent).",
+  "microsoft_create_draft",
+  "Creates a draft email in the user's Outlook drafts folder without sending it. Returns the new draft ID.",
   {
-    to:      z.string().describe("Recipient email(s), comma-separated"),
-    subject: z.string().describe("Email subject"),
-    body:    z.string().describe("Email body (plain text)"),
-    isHtml:  z.boolean().optional().describe("True if body is HTML"),
+    to:      z.string().describe("Recipient email address(es), comma-separated."),
+    subject: z.string().describe("Email subject."),
+    body:    z.string().describe("Email body (plain text by default; set isHtml=true for HTML)."),
+    isHtml:  z.boolean().optional().describe("Set true if `body` should be stored as HTML (default false = plain text)."),
   },
   async ({ to, subject, body, isHtml }) => {
     const recipients = to
