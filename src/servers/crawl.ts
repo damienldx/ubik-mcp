@@ -194,6 +194,304 @@ server.tool(
   },
 );
 
+// ─── New tools (issue #14 enrich) ────────────────────────────────────────────
+
+server.tool(
+  "crawl_get_links",
+  "Fetch a web page and return all links it contains (text + href). Optionally filter by URL substring.",
+  {
+    url:        z.string().url().describe("URL to fetch"),
+    contains:   z.string().optional().describe("Only return links whose href contains this substring"),
+    same_origin: z.boolean().optional().describe("If true, only return links on the same origin as the URL"),
+    wait_for:   z.string().optional().describe("CSS selector to wait for before extracting"),
+  },
+  async ({ url, contains, same_origin, wait_for }) => {
+    try {
+      const puppeteer = await import("puppeteer");
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      });
+      try {
+        const page = await browser.newPage();
+        await page.setUserAgent("UBIK-MCP-Crawl/1.0");
+        await page.goto(url, { waitUntil: "networkidle2", timeout: DEFAULT_TIMEOUT });
+        if (wait_for) await page.waitForSelector(wait_for, { timeout: 5_000 }).catch(() => {});
+        const links = await page.$$eval("a[href]", (els) =>
+          els.map((el) => ({
+            text: (el.textContent || "").trim(),
+            href: (el as HTMLAnchorElement).href,
+          })),
+        );
+        const origin = new URL(url).origin;
+        const filtered = links.filter((l) => {
+          if (!l.href) return false;
+          if (contains && !l.href.includes(contains)) return false;
+          if (same_origin) {
+            try { if (new URL(l.href).origin !== origin) return false; } catch { return false; }
+          }
+          return true;
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify({ url, count: filtered.length, links: filtered }, null, 2) }] };
+      } finally {
+        await browser.close();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Error getting links from ${url}: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_get_text",
+  "Fetch a web page and return its visible text content as plain text (no markdown, no HTML). Useful for downstream NLP.",
+  {
+    url:      z.string().url().describe("URL to fetch"),
+    wait_for: z.string().optional().describe("CSS selector to wait for before extracting"),
+  },
+  async ({ url, wait_for }) => {
+    try {
+      const { html, title, finalUrl } = await fetchPage(url, { waitFor: wait_for });
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const truncated = text.length > MAX_CONTENT_LENGTH
+        ? text.slice(0, MAX_CONTENT_LENGTH) + " [... truncated ...]"
+        : text;
+      return { content: [{ type: "text" as const, text: `# ${title}\nSource: ${finalUrl}\n\n${truncated}` }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Error getting text from ${url}: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_get_metadata",
+  "Fetch a web page and return its metadata: title, description, canonical URL, language, OpenGraph tags, Twitter card tags.",
+  {
+    url: z.string().url().describe("URL to fetch"),
+  },
+  async ({ url }) => {
+    try {
+      const puppeteer = await import("puppeteer");
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      });
+      try {
+        const page = await browser.newPage();
+        await page.setUserAgent("UBIK-MCP-Crawl/1.0");
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT });
+        const meta = await page.evaluate(() => {
+          const get = (sel: string, attr = "content"): string =>
+            document.querySelector(sel)?.getAttribute(attr) ?? "";
+          const allMeta: Record<string, string> = {};
+          document.querySelectorAll<HTMLMetaElement>('meta[property^="og:"], meta[name^="og:"]').forEach((m) => {
+            const k = m.getAttribute("property") || m.getAttribute("name") || "";
+            if (k) allMeta[k] = m.content || "";
+          });
+          document.querySelectorAll<HTMLMetaElement>('meta[name^="twitter:"]').forEach((m) => {
+            const k = m.getAttribute("name") || "";
+            if (k) allMeta[k] = m.content || "";
+          });
+          return {
+            title:       document.title,
+            description: get('meta[name="description"]'),
+            canonical:   get('link[rel="canonical"]', "href"),
+            language:    document.documentElement.lang || "",
+            charset:     document.characterSet || "",
+            ...allMeta,
+          };
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify({ url, metadata: meta }, null, 2) }] };
+      } finally {
+        await browser.close();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Error getting metadata from ${url}: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_check_status",
+  "Send a HEAD request to a URL and return the HTTP status, redirect chain, and key response headers. Lightweight (no JS execution).",
+  {
+    url:           z.string().url().describe("URL to check"),
+    follow_redirects: z.boolean().optional().describe("Follow redirects to the final URL (default true)"),
+    timeout_ms:    z.number().int().positive().max(30_000).optional().describe("Timeout in ms (default 10000)"),
+  },
+  async ({ url, follow_redirects, timeout_ms }) => {
+    try {
+      const ctrl    = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), timeout_ms ?? 10_000);
+      const res = await fetch(url, {
+        method:   "HEAD",
+        redirect: follow_redirects === false ? "manual" : "follow",
+        signal:   ctrl.signal,
+      });
+      clearTimeout(timeout);
+      const headers: Record<string, string> = {};
+      res.headers.forEach((v, k) => { headers[k] = v; });
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        url,
+        final_url:    res.url,
+        status:       res.status,
+        status_text:  res.statusText,
+        ok:           res.ok,
+        redirected:   res.redirected,
+        content_type: headers["content-type"] || null,
+        headers,
+      }, null, 2) }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Error checking ${url}: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_search_web",
+  "Search the web via DuckDuckGo (HTML endpoint, no API key). Returns a list of {title, url, snippet} results.",
+  {
+    query:       z.string().describe("Search query"),
+    max_results: z.number().int().positive().max(30).default(10).describe("Maximum results to return"),
+    region:      z.string().optional().describe("Optional region code (e.g. 'fr-fr', 'us-en'). Defaults to no region."),
+  },
+  async ({ query, max_results, region }) => {
+    try {
+      const params = new URLSearchParams({ q: query });
+      if (region) params.set("kl", region);
+      const ddgUrl = `https://html.duckduckgo.com/html/?${params.toString()}`;
+      const res = await fetch(ddgUrl, {
+        method: "POST",
+        headers: { "User-Agent": "UBIK-MCP-Crawl/1.0", "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `DuckDuckGo HTTP ${res.status}` }], isError: true };
+      }
+      const html = await res.text();
+      // DuckDuckGo HTML structure: results in <div class="result"> with .result__title a, .result__snippet
+      const results: { title: string; url: string; snippet: string }[] = [];
+      const blockRe = /<div class="result\b[^"]*"[\s\S]*?<\/div>\s*<\/div>/gi;
+      const titleRe = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i;
+      const snipRe  = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i;
+      const strip   = (s: string) => s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      let m: RegExpExecArray | null;
+      while ((m = blockRe.exec(html)) && results.length < max_results) {
+        const block = m[0];
+        const t     = block.match(titleRe);
+        const s     = block.match(snipRe);
+        if (t) {
+          // DuckDuckGo wraps URLs in /l/?uddg=<encoded>
+          let href = t[1];
+          const u = new URL(href, "https://duckduckgo.com");
+          const real = u.searchParams.get("uddg");
+          if (real) href = decodeURIComponent(real);
+          results.push({
+            title:   strip(t[2]),
+            url:     href,
+            snippet: s ? strip(s[1]) : "",
+          });
+        }
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify({ query, count: results.length, results }, null, 2) }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Search error: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_submit_form",
+  "Submit an HTML form via POST and return the response body. Form fields are sent as application/x-www-form-urlencoded by default.",
+  {
+    url:          z.string().url().describe("Form action URL (where to POST)"),
+    fields:       z.record(z.string()).describe("Form field name → value pairs"),
+    content_type: z.enum(["application/x-www-form-urlencoded", "multipart/form-data", "application/json"])
+                   .default("application/x-www-form-urlencoded")
+                   .describe("Body encoding"),
+    headers:      z.record(z.string()).optional().describe("Additional HTTP headers"),
+    timeout_ms:   z.number().int().positive().max(60_000).optional().describe("Timeout in ms (default 30000)"),
+  },
+  async ({ url, fields, content_type, headers, timeout_ms }) => {
+    try {
+      const ctrl    = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), timeout_ms ?? 30_000);
+      let body: BodyInit;
+      const reqHeaders: Record<string, string> = {
+        "User-Agent":   "UBIK-MCP-Crawl/1.0",
+        "Content-Type": content_type,
+        ...(headers ?? {}),
+      };
+      if (content_type === "application/json") {
+        body = JSON.stringify(fields);
+      } else if (content_type === "multipart/form-data") {
+        const fd = new FormData();
+        for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+        body = fd;
+        // Browser sets boundary automatically when body is FormData; remove our manual header.
+        delete reqHeaders["Content-Type"];
+      } else {
+        body = new URLSearchParams(fields).toString();
+      }
+      const res = await fetch(url, {
+        method:  "POST",
+        headers: reqHeaders,
+        body,
+        signal:  ctrl.signal,
+      });
+      clearTimeout(timeout);
+      const text = await res.text();
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        url,
+        status: res.status,
+        ok: res.ok,
+        body: text.length > MAX_CONTENT_LENGTH ? text.slice(0, MAX_CONTENT_LENGTH) + " [...truncated]" : text,
+      }, null, 2) }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Form submit error: ${msg}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "crawl_follow_redirect",
+  "Manually follow HTTP redirects from a URL and return the full chain (status + Location at each hop). Stops at first non-redirect response or max_hops.",
+  {
+    url:      z.string().url().describe("Starting URL"),
+    max_hops: z.number().int().positive().max(20).default(10).describe("Maximum redirects to follow before stopping"),
+  },
+  async ({ url, max_hops }) => {
+    const chain: { hop: number; url: string; status: number; location?: string }[] = [];
+    let current = url;
+    for (let hop = 0; hop < max_hops; hop++) {
+      try {
+        const res = await fetch(current, { method: "HEAD", redirect: "manual" });
+        const loc = res.headers.get("location") || undefined;
+        const link = loc ? new URL(loc, current).toString() : undefined;
+        chain.push({ hop, url: current, status: res.status, location: link });
+        if (!link || res.status < 300 || res.status >= 400) break;
+        current = link;
+      } catch (err) {
+        chain.push({ hop, url: current, status: 0, location: `error: ${err instanceof Error ? err.message : String(err)}` });
+        break;
+      }
+    }
+    return { content: [{ type: "text" as const, text: JSON.stringify({ start: url, hops: chain.length, chain }, null, 2) }] };
+  },
+);
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-crawl] fatal: ${String(err)}\n`);
   process.exit(1);
