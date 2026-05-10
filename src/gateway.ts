@@ -55,9 +55,7 @@ const SERVERS: UpstreamServer[] = [
   { name: "github",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "github.ts")],    tools: [] },
   { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
   { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
-  { name: "microsoft",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")],  tools: [] },
-  { name: "paperclip",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "paperclip.ts")],  tools: [] },
-  { name: "desktop",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "desktop.ts")],    tools: [] },
+  { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
 ];
 
 async function connectUpstream(srv: UpstreamServer): Promise<void> {
