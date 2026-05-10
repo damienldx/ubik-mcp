@@ -31,7 +31,7 @@ import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
 import os from "node:os";
-import fs from "node:fs";
+import fsp from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createMcpServer, runServer } from "../lib/server";
 
@@ -282,44 +282,69 @@ function contractPath(forkId: string): string {
   return path.join(FORKS_DIR, forkId, "gps_contract.json");
 }
 
-function readContract(forkId: string): GpsContract | null {
-  const p = contractPath(forkId);
-  if (!fs.existsSync(p)) return null;
+async function readContract(forkId: string): Promise<GpsContract | null> {
   try {
-    const raw = fs.readFileSync(p, "utf8");
+    const raw = await fsp.readFile(contractPath(forkId), "utf8");
     return JSON.parse(raw) as GpsContract;
-  } catch {
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return null;
     return null;
   }
 }
 
-function writeContract(contract: GpsContract): void {
+async function writeContract(contract: GpsContract): Promise<void> {
   const dir = path.dirname(contractPath(contract.fork_id));
-  fs.mkdirSync(dir, { recursive: true });
+  await fsp.mkdir(dir, { recursive: true });
   // Write via tempfile + rename so concurrent readers never see a torn file.
   const tmp = contractPath(contract.fork_id) + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(contract, null, 2), "utf8");
-  fs.renameSync(tmp, contractPath(contract.fork_id));
+  await fsp.writeFile(tmp, JSON.stringify(contract, null, 2), "utf8");
+  await fsp.rename(tmp, contractPath(contract.fork_id));
 }
 
-function deleteContract(forkId: string): boolean {
-  const p = contractPath(forkId);
-  if (!fs.existsSync(p)) return false;
-  fs.rmSync(p);
-  return true;
+async function deleteContract(forkId: string): Promise<boolean> {
+  try {
+    await fsp.rm(contractPath(forkId));
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return false;
+    throw err;
+  }
 }
 
-function findActiveContractByAgent(agentId: string): GpsContract | null {
-  if (!fs.existsSync(FORKS_DIR)) return null;
-  const forks = fs.readdirSync(FORKS_DIR, { withFileTypes: true });
+async function findActiveContractByAgent(agentId: string): Promise<GpsContract | null> {
+  let forks: import("node:fs").Dirent[];
+  try {
+    forks = await fsp.readdir(FORKS_DIR, { withFileTypes: true });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+    throw err;
+  }
+  // Read contracts in parallel — N is small (tens of forks max), and each
+  // file is < 1kB. Sequential await would serialize disk seeks for no benefit.
+  const dirs = forks.filter((e) => e.isDirectory()).map((e) => e.name);
+  const contracts = await Promise.all(dirs.map((d) => readContract(d)));
   let best: GpsContract | null = null;
-  for (const entry of forks) {
-    if (!entry.isDirectory()) continue;
-    const c = readContract(entry.name);
+  for (const c of contracts) {
     if (!c || c.agent_id !== agentId) continue;
     if (!best || c.signed_at > best.signed_at) best = c;
   }
   return best;
+}
+
+async function countActiveContracts(): Promise<number> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fsp.readdir(FORKS_DIR, { withFileTypes: true });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return 0;
+    throw err;
+  }
+  const checks = await Promise.all(
+    entries
+      .filter((e) => e.isDirectory())
+      .map((e) => fsp.access(contractPath(e.name)).then(() => true, () => false)),
+  );
+  return checks.filter(Boolean).length;
 }
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -338,7 +363,7 @@ server.tool(
   async (args) => {
     const verdict = shouldSkipText(args);
     if (!verdict.skip && args.agent_id) {
-      const active = findActiveContractByAgent(args.agent_id);
+      const active = await findActiveContractByAgent(args.agent_id);
       if (active) {
         return {
           content: [{
@@ -384,7 +409,7 @@ server.tool(
   },
   async ({ message, agent_id, fork_id, top_k }) => {
     if (fork_id) {
-      const contract = readContract(fork_id);
+      const contract = await readContract(fork_id);
       if (contract) {
         const result: GpsResult = {
           persona: contract.persona,
@@ -452,12 +477,7 @@ server.tool(
   "Returns cache stats (entry count, TTL, max size) for observability. Also reports the count of active fork contracts on disk.",
   {},
   async () => {
-    let activeContracts = 0;
-    if (fs.existsSync(FORKS_DIR)) {
-      for (const entry of fs.readdirSync(FORKS_DIR, { withFileTypes: true })) {
-        if (entry.isDirectory() && fs.existsSync(contractPath(entry.name))) activeContracts++;
-      }
-    }
+    const activeContracts = await countActiveContracts();
     return {
       content: [
         {
@@ -494,7 +514,7 @@ server.tool(
     tools_allowlist: z.array(z.string()).optional().describe("Override the derived allowlist. When omitted, uses recommended_tools.map(t => t.name)."),
   },
   async ({ fork_id, agent_id, mission_brief, top_k, budget_hint, tools_allowlist }) => {
-    const existing = readContract(fork_id);
+    const existing = await readContract(fork_id);
     if (existing && existing.mission_brief === mission_brief && existing.agent_id === agent_id) {
       return {
         content: [{
@@ -516,7 +536,7 @@ server.tool(
       budget_hint: budget_hint ?? null,
       signed_at: new Date().toISOString(),
     };
-    writeContract(contract);
+    await writeContract(contract);
     return { content: [{ type: "text" as const, text: JSON.stringify(contract, null, 2) }] };
   },
 );
@@ -532,7 +552,7 @@ server.tool(
     tools_allowlist: z.array(z.string()).optional().describe("Override the derived allowlist."),
   },
   async ({ fork_id, new_mission_brief, top_k, budget_hint, tools_allowlist }) => {
-    const existing = readContract(fork_id);
+    const existing = await readContract(fork_id);
     if (!existing) {
       return {
         content: [{
@@ -553,7 +573,7 @@ server.tool(
       budget_hint: budget_hint ?? existing.budget_hint,
       signed_at: new Date().toISOString(),
     };
-    writeContract(contract);
+    await writeContract(contract);
     return {
       content: [{
         type: "text" as const,
@@ -578,8 +598,8 @@ server.tool(
       };
     }
     const contract = fork_id
-      ? readContract(fork_id)
-      : findActiveContractByAgent(agent_id!);
+      ? await readContract(fork_id)
+      : await findActiveContractByAgent(agent_id!);
     return { content: [{ type: "text" as const, text: JSON.stringify(contract, null, 2) }] };
   },
 );
@@ -591,7 +611,7 @@ server.tool(
     fork_id: z.string().min(1).describe("Fork identifier whose contract is being released."),
   },
   async ({ fork_id }) => {
-    const existed = deleteContract(fork_id);
+    const existed = await deleteContract(fork_id);
     return {
       content: [{
         type: "text" as const,
