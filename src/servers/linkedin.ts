@@ -3,10 +3,10 @@
  * UBIK LinkedIn — standalone MCP stdio server.
  *
  * Tools (4):
- *   - get_my_profile         Get current user's LinkedIn profile
- *   - create_post            Publish a LinkedIn post
- *   - search_people          Search LinkedIn profiles (limited by API scopes)
- *   - linkedin_send_message  Send a LinkedIn message (limited by API scopes)
+ *   - linkedin_get_profile   Profile of the authenticated LinkedIn user.
+ *   - linkedin_create_post   Publish a text post on LinkedIn.
+ *   - linkedin_search_people Search LinkedIn profiles (limited by API scopes).
+ *   - linkedin_send_message  Send a LinkedIn message (limited by API scopes).
  *
  * Auth: LINKEDIN_ACCESS_TOKEN read from process.env (or .env via dotenv).
  * Imports: @modelcontextprotocol/sdk, zod, dotenv, node:* only.
@@ -53,8 +53,8 @@ async function liApi(endpoint: string, method = "GET", body?: any): Promise<any>
 const server = createMcpServer("ubik-linkedin");
 
 server.tool(
-  "get_my_profile",
-  "Get current user's LinkedIn profile (name, email, picture, headline)",
+  "linkedin_get_profile",
+  "Returns the profile of the authenticated LinkedIn user (name, email, headline, vanity name, picture URL).",
   {},
   async () => {
     try {
@@ -90,11 +90,11 @@ server.tool(
 );
 
 server.tool(
-  "create_post",
-  "Publish a post on LinkedIn",
+  "linkedin_create_post",
+  "Publishes a text post on LinkedIn under the authenticated user.",
   {
-    text: z.string().describe("The post content/text"),
-    visibility: z.enum(["PUBLIC", "CONNECTIONS"]).default("PUBLIC").describe("Post visibility: PUBLIC or CONNECTIONS"),
+    text: z.string().describe("Post content (plain text, supports line breaks)."),
+    visibility: z.enum(["PUBLIC", "CONNECTIONS"]).default("PUBLIC").describe("PUBLIC = visible to anyone; CONNECTIONS = visible only to your connections."),
   },
   async ({ text, visibility }) => {
     try {
@@ -132,10 +132,10 @@ server.tool(
 );
 
 server.tool(
-  "search_people",
-  "Search LinkedIn profiles. LIMITATION: fails with 403 for most users (requires r_1st_connections or Sales Navigator scopes). Only use if the user explicitly asks.",
+  "linkedin_search_people",
+  "Searches LinkedIn profiles by keyword (name, company, title). LIMITATION: returns 403 for most users — requires r_1st_connections or Sales Navigator API scopes. Only call if the user explicitly asks.",
   {
-    query: z.string().describe("Search query (name, company, title, etc.)"),
+    query: z.string().describe("Free-text search query (name, company, job title, etc.)."),
   },
   async ({ query }) => {
     try {
@@ -170,10 +170,10 @@ server.tool(
 
 server.tool(
   "linkedin_send_message",
-  "Send a LinkedIn message. LIMITATION: requires LinkedIn Messaging API product access beyond w_member_social. Will fail with 403 for most users.",
+  "Sends a direct message to one LinkedIn user. LIMITATION: requires LinkedIn Messaging API product access beyond w_member_social — returns 403 for most users.",
   {
-    recipientUrn: z.string().describe("Recipient URN (e.g. 'urn:li:person:ABC123')"),
-    text: z.string().describe("Message text"),
+    recipientUrn: z.string().describe("Recipient URN in the form 'urn:li:person:<id>'."),
+    text: z.string().describe("Message body (plain text)."),
   },
   async ({ recipientUrn, text }) => {
     try {

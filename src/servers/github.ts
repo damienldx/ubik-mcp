@@ -3,12 +3,12 @@
  * UBIK GitHub — standalone MCP stdio server.
  *
  * Tools (6):
- *   - github_me            Get the authenticated user profile
- *   - github_list_repos    List repos for user/org
- *   - github_get_repo      Get repository details
- *   - github_create_repo   Create a new repository
- *   - github_list_prs      List pull requests
- *   - github_create_pr     Create a pull request
+ *   - github_get_me        Profile of the authenticated user.
+ *   - github_list_repos    Repos for a user, an org, or the authenticated user.
+ *   - github_get_repo      Full details for one repository.
+ *   - github_create_repo   Create a repository (user or org owned).
+ *   - github_list_prs      List pull requests (state-filtered).
+ *   - github_create_pr     Open a pull request from a head branch to a base.
  *
  * Auth: GITHUB_TOKEN read from process.env (or .env via dotenv).
  * Imports: @modelcontextprotocol/sdk, zod, dotenv, node:* only.
@@ -69,8 +69,8 @@ function formatPr(p: any): string {
 const server = createMcpServer("ubik-github");
 
 server.tool(
-  "github_me",
-  "Get the authenticated GitHub user profile",
+  "github_get_me",
+  "Returns the profile of the authenticated GitHub user (login, name, email, repo counts).",
   {},
   async () => {
     try {
@@ -95,12 +95,12 @@ server.tool(
 
 server.tool(
   "github_list_repos",
-  "List repositories for the authenticated user or a specific owner",
+  "Lists repositories for the authenticated user or for a specific owner (user or org).",
   {
-    owner: z.string().optional().describe("Owner (user or org). Omit for authenticated user's repos"),
-    type: z.enum(["all", "owner", "public", "private", "member"]).default("all").describe("Filter type"),
-    sort: z.enum(["created", "updated", "pushed", "full_name"]).default("updated"),
-    per_page: z.number().default(30).describe("Results per page (max 100)"),
+    owner: z.string().optional().describe("GitHub username or org login (omit for the authenticated user's repos)."),
+    type: z.enum(["all", "owner", "public", "private", "member"]).default("all").describe("Repo membership filter."),
+    sort: z.enum(["created", "updated", "pushed", "full_name"]).default("updated").describe("Sort order."),
+    per_page: z.number().int().min(1).max(100).default(30).describe("Results per page (max 100)."),
   },
   async ({ owner, type, sort, per_page }) => {
     try {
@@ -119,10 +119,10 @@ server.tool(
 
 server.tool(
   "github_get_repo",
-  "Get detailed info about a repository",
+  "Returns full details for one repository (description, stars, forks, license, topics, clone URL).",
   {
-    owner: z.string().describe("Repository owner"),
-    repo: z.string().describe("Repository name"),
+    owner: z.string().describe("Owner login (user or org)."),
+    repo: z.string().describe("Repository name (without owner)."),
   },
   async ({ owner, repo }) => {
     try {
@@ -144,13 +144,13 @@ server.tool(
 
 server.tool(
   "github_create_repo",
-  "Create a new repository",
+  "Creates a new repository under the authenticated user or under a given organisation.",
   {
-    name: z.string().describe("Repository name"),
-    description: z.string().optional().describe("Repository description"),
-    private: z.boolean().default(false).describe("Whether the repo is private"),
-    auto_init: z.boolean().default(true).describe("Initialize with a README"),
-    org: z.string().optional().describe("Organization name (omit for personal repo)"),
+    name: z.string().describe("New repository name (must be unique within the owner)."),
+    description: z.string().optional().describe("Short repo description shown on its page."),
+    private: z.boolean().default(false).describe("Create as private (default: false)."),
+    auto_init: z.boolean().default(true).describe("Initialise the repo with a README (default: true)."),
+    org: z.string().optional().describe("Organisation login (omit to create under the authenticated user)."),
   },
   async (args) => {
     try {
@@ -170,12 +170,12 @@ server.tool(
 
 server.tool(
   "github_list_prs",
-  "List pull requests for a repository",
+  "Lists pull requests for a repository, filtered by state (open, closed, all).",
   {
-    owner: z.string(),
-    repo: z.string(),
-    state: z.enum(["open", "closed", "all"]).default("open"),
-    per_page: z.number().default(30),
+    owner: z.string().describe("Owner login (user or org)."),
+    repo: z.string().describe("Repository name."),
+    state: z.enum(["open", "closed", "all"]).default("open").describe("PR state filter."),
+    per_page: z.number().int().min(1).max(100).default(30).describe("Results per page (max 100)."),
   },
   async ({ owner, repo, state, per_page }) => {
     try {
@@ -191,15 +191,15 @@ server.tool(
 
 server.tool(
   "github_create_pr",
-  "Create a pull request",
+  "Creates a pull request from a head branch into a base branch on the given repository.",
   {
-    owner: z.string(),
-    repo: z.string(),
-    title: z.string(),
-    body: z.string().optional().describe("PR description (markdown)"),
-    head: z.string().describe("Source branch (e.g. 'feature/my-feature')"),
-    base: z.string().default("main").describe("Target branch"),
-    draft: z.boolean().default(false),
+    owner: z.string().describe("Owner login (user or org)."),
+    repo: z.string().describe("Repository name."),
+    title: z.string().describe("PR title (one line, shown in lists and notifications)."),
+    body: z.string().optional().describe("PR description in GitHub-flavoured markdown."),
+    head: z.string().describe("Source branch (e.g. 'feature/my-feature' or 'fork-owner:branch')."),
+    base: z.string().default("main").describe("Target branch in the repo (default: main)."),
+    draft: z.boolean().default(false).describe("Open the PR as draft (default: false)."),
   },
   async ({ owner, repo, title, body, head, base, draft }) => {
     try {
