@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# UBIK MCP — local stdio server, no SSH tunnel needed on dev-station-02
+# readlink -f resolves the symlink so DIR points to the real package root
+SCRIPT="$(readlink -f "$0")"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
+exec "$DIR/node_modules/.bin/tsx" "$DIR/src/mcp-ubik-local.ts" "$@"
