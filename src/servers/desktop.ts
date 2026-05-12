@@ -86,7 +86,7 @@ server.tool("ubik_write",
     message: z.string().describe("Message to send"),
     from:    z.string().optional().describe("Sender agent_id"),
   },
-  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? process.env.RELAY_AGENT_ID ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
 server.tool("ubik_read",
   "Read pending messages for an agent from the relay.",
@@ -108,7 +108,7 @@ server.tool("ubik_interrupt",
     agent_id: z.string().describe("Agent to interrupt"),
     from:     z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
-  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.agent_id)}`, { from: args.from ?? "ubik-mcp", message: "__interrupt__" })); } catch(e) { return fail(e); } });
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.agent_id)}`, { from: args.from ?? process.env.RELAY_AGENT_ID ?? "ubik-mcp", message: "__interrupt__" })); } catch(e) { return fail(e); } });
 
 server.tool("ubik_route_agent",
   "Route a task to an agent via the relay.",
@@ -117,7 +117,7 @@ server.tool("ubik_route_agent",
     message: z.string().describe("Task description"),
     from:    z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
-  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? process.env.RELAY_AGENT_ID ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
 // ═══ activity_* ══════════════════════════════════════════════════════════════
 
@@ -128,7 +128,7 @@ server.tool("activity_emit",
     message: z.string().describe("Activity message"),
     from:    z.string().optional().describe("Sender agent_id (defaults to 'ubik-mcp')"),
   },
-  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
+  async (args) => { try { return ok(await relay("POST", `/send/${encodeURIComponent(args.to)}`, { from: args.from ?? process.env.RELAY_AGENT_ID ?? "ubik-mcp", message: args.message })); } catch(e) { return fail(e); } });
 
 server.tool("activity_read",
   "Read the relay activity stream.",
