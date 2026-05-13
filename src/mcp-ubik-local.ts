@@ -9,6 +9,16 @@ import * as readline from "readline";
 
 const UBIK_URL = process.env.UBIK_URL || "http://127.0.0.1:8765";
 const UBIK_TOKEN = process.env.UBIK_API_KEY || "ubik";
+// Resolved once at startup. Used to auto-inject `agent_id` on tools that
+// post messages to the relay on behalf of this fleet session, so the
+// backend can route DMs and wait-queues against the real sender instead
+// of falling back to "ubik-mcp".
+const UBIK_AGENT_ID = (process.env.UBIK_AGENT_ID || "").trim();
+
+// Tools that need the caller's agent_id as the relay `from` field.
+// The MCP server auto-fills it from UBIK_AGENT_ID when missing, so the
+// LLM doesn't have to remember its own id on every call.
+const TOOLS_NEED_SENDER = new Set(["fleet_dispatch", "inbox_post"]);
 
 // ─── UBIK API ───────────────────────────────────────────────────────────────
 
@@ -36,7 +46,19 @@ async function listUbikTools(): Promise<unknown[]> {
 }
 
 async function callUbikTool(name: string, args: unknown): Promise<unknown> {
-  return ubikFetch("/api/tools/execute", { tool: name, input: args });
+  let input = args;
+  if (UBIK_AGENT_ID && TOOLS_NEED_SENDER.has(name)
+      && typeof input === "object" && input !== null) {
+    const obj = input as Record<string, unknown>;
+    // inbox_post uses `sender`; fleet_dispatch uses `agent_id`. Only fill
+    // when the caller didn't pass an explicit value.
+    if (name === "fleet_dispatch" && !obj.agent_id) {
+      input = { ...obj, agent_id: UBIK_AGENT_ID };
+    } else if (name === "inbox_post" && !obj.sender) {
+      input = { ...obj, sender: UBIK_AGENT_ID };
+    }
+  }
+  return ubikFetch("/api/tools/execute", { tool: name, input });
 }
 
 // ─── MCP Stdio Server (JSON-RPC 2.0) ────────────────────────────────────────
