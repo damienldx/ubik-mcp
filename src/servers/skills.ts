@@ -865,6 +865,164 @@ server.tool(
   },
 );
 
+// ── skills_invoke ─────────────────────────────────────────────────────────────
+
+server.tool(
+  "skills_invoke",
+  "Invoke a skill (user or ubik-native) directly via ENGINE. Looks up the skill's system_prompt locally (when stored in skills.db) and POSTs to ENGINE /v1/skills/{id}/invoke as a stateless call. Returns the model's response.",
+  {
+    skill_id: z.string().min(1).describe("Skill id — full key path (e.g. 'skill/UBIK Native/ubik-native-crm-kpi-auditor') or bare id ('ubik-native-crm-kpi-auditor')."),
+    input:    z.string().min(1).describe("The query / task to confide to the skill."),
+    model:    z.string().optional().describe("Model id forwarded to ENGINE (default: ubik-genie)."),
+  },
+  async (args) => {
+    const ENGINE = process.env.UBIK_ENGINE_URL ?? "http://127.0.0.1:8801";
+    const TIMEOUT_MS = 60_000;
+    try {
+      // Resolve the bare id from a possible full key path.
+      const bareId = args.skill_id.includes("/")
+        ? args.skill_id.split("/").pop()!
+        : args.skill_id;
+
+      // ENGINE refuses empty prompt (local-first contract). Resolve from
+      // ~/.ubik-autoskill/{id}/prompt.md (native) or skills.db (user-imported).
+      let systemPrompt = "";
+      let promptSource: "autoskill" | "skills.db" | "empty" = "empty";
+      try {
+        const autoskillPath = path.join(os.homedir(), ".ubik-autoskill", bareId, "prompt.md");
+        if (fs.existsSync(autoskillPath)) {
+          systemPrompt  = fs.readFileSync(autoskillPath, "utf-8").trim();
+          if (systemPrompt) promptSource = "autoskill";
+        }
+      } catch { /* fall through to skills.db */ }
+      if (!systemPrompt) {
+        try {
+          const db = getStore();
+          const row =
+            (db.prepare("SELECT content FROM context WHERE key = ?").get(args.skill_id) as { content: string } | undefined) ??
+            (db.prepare("SELECT content FROM context WHERE key LIKE ? LIMIT 1").get(`skill/%/${bareId}`) as { content: string } | undefined);
+          if (row) {
+            try {
+              const p = JSON.parse(row.content) as { system_prompt?: string };
+              systemPrompt = p.system_prompt ?? "";
+              if (systemPrompt) promptSource = "skills.db";
+            } catch { /* keep empty */ }
+          }
+        } catch { /* keep empty */ }
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const url = `${ENGINE}/v1/skills/${encodeURIComponent(bareId)}/invoke`;
+        const resp = await fetch(url, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ query: args.input, prompt: systemPrompt, model: args.model ?? "ubik-genie" }),
+          signal:  controller.signal,
+        });
+        const text = await resp.text();
+        if (!resp.ok) return fail(`ENGINE ${resp.status}: ${text.slice(0, 600)}`);
+        let body: Record<string, unknown> = {};
+        try { body = JSON.parse(text) as Record<string, unknown>; } catch { body = { raw: text }; }
+        const response = (body.response as string | undefined) ?? (body.output as string | undefined) ?? null;
+        return ok({
+          skill_id:   bareId,
+          model:      args.model ?? "ubik-genie",
+          system_prompt_used: systemPrompt ? `(${systemPrompt.length} chars from ${promptSource})` : "(empty — ENGINE will refuse)",
+          response,
+          raw:        body,
+        });
+      } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") {
+          return fail(`ENGINE invoke timed out after ${TIMEOUT_MS}ms`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) { return fail(err); }
+  },
+);
+
+// ── agent_invoke ──────────────────────────────────────────────────────────────
+
+server.tool(
+  "agent_invoke",
+  "Invoke a fleet agent by manifest id. mode='inline' (default) reads the bundled manifest from data/agents and returns its system_prompt + tools + guardrails — Claude applies it as its operating identity for the task. mode='dispatch' spawns a real fleet agent via the relay admin bus.",
+  {
+    manifest_id: z.string().min(1).describe("Agent manifest id, e.g. 'accelerateur-de-transfert-s3'."),
+    task:        z.string().min(1).describe("Task / instructions to confide to the agent."),
+    mode:        z.enum(["inline", "dispatch"]).optional().describe("inline (default) or dispatch."),
+  },
+  async (args) => {
+    const RELAY = process.env.UBIK_RELAY_URL ?? "http://127.0.0.1:7894";
+    const TIMEOUT_MS = 60_000;
+    const mode = args.mode ?? "inline";
+    try {
+      if (mode === "inline") {
+        const manifestPath = path.join(
+          os.homedir(),
+          "workspace/ubik-mcp/data/agents",
+          `${args.manifest_id}.md`,
+        );
+        if (!fs.existsSync(manifestPath)) {
+          return fail(`Manifest not found: ${manifestPath}`);
+        }
+        const md = fs.readFileSync(manifestPath, "utf-8");
+        const fm = parseAgentFrontmatter(md);
+        const bodyMatch = md.match(/^---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)$/);
+        const systemPrompt = (bodyMatch?.[1] ?? md).trim();
+        return ok({
+          mode:          "inline",
+          manifest_id:   args.manifest_id,
+          task:          args.task,
+          name:          fm.name,
+          role:          fm.role,
+          autonomy:      fm.autonomy,
+          tools:         { engine: fm.tools_engine ?? [], client: fm.tools_client ?? [] },
+          guardrails:    fm.guardrails ?? {},
+          system_prompt: systemPrompt,
+          adoption_hint: "Apply system_prompt as your operating identity for this task. Respect guardrails as hard constraints. Release the persona on task completion or domain drift.",
+        });
+      }
+
+      // mode === "dispatch"
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const message = `agent-spawn:default-vehicle:next-slot:provider=claude:manifest=${args.manifest_id}:task=${args.task}`;
+        const resp = await fetch(`${RELAY}/admin/send/console-meca`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ from: "skills-mcp", message }),
+          signal:  controller.signal,
+        });
+        const text = await resp.text();
+        if (!resp.ok) return fail(`Relay ${resp.status}: ${text.slice(0, 600)}`);
+        let data: Record<string, unknown> = {};
+        try { data = JSON.parse(text) as Record<string, unknown>; } catch { data = { raw: text }; }
+        return ok({
+          mode:           "dispatch",
+          manifest_id:    args.manifest_id,
+          task:           args.task,
+          dispatched_to:  "console-meca",
+          message,
+          relay_response: data,
+        });
+      } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") {
+          return fail(`Relay dispatch timed out after ${TIMEOUT_MS}ms`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) { return fail(err); }
+  },
+);
+
+
 runServer(server).catch((err) => {
   process.stderr.write(`[ubik-skills] fatal: ${err}\n`);
   process.exit(1);
