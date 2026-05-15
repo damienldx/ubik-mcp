@@ -21,7 +21,8 @@ import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -74,7 +75,6 @@ const SERVERS: UpstreamServer[] = [
   { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
   { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
   { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
-  { name: "desktop",   command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "desktop.ts")],   tools: [] },
   { name: "gps",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "gps.ts")],       tools: [] },
 ];
 
@@ -147,12 +147,10 @@ function buildAggregator(): McpServer {
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
-interface SseSession {
-  transport: SSEServerTransport;
-}
-
-const sessions = new Map<string, SseSession>();
-let aggServer: McpServer | null = null;
+// Each MCP client gets its own StreamableHTTPServerTransport + aggregator.
+// Upstream subprocess clients are shared across sessions.
+const sessions = new Map<string, StreamableHTTPServerTransport>();
+let aggregatorReady = false;
 
 function healthPayload() {
   return {
@@ -210,36 +208,54 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/mcp") {
-    if (!aggServer) {
+  if (url.pathname === "/mcp") {
+    if (!aggregatorReady) {
       sendJson(res, 503, { ok: false, error: "aggregator not ready" });
       return;
     }
-    const transport = new SSEServerTransport("/mcp", res);
-    sessions.set(transport.sessionId, { transport });
-    log("info", `SSE session opened (sessionId=${transport.sessionId}, total=${sessions.size})`);
-    transport.onclose = () => {
-      sessions.delete(transport.sessionId);
-      log("info", `SSE session closed (sessionId=${transport.sessionId}, remaining=${sessions.size})`);
-    };
-    try {
-      await aggServer.connect(transport);
-    } catch (err) {
-      log("error", `SSE connect failed (sessionId=${transport.sessionId}): ${describeError(err)}`);
-    }
-    return;
-  }
 
-  if (req.method === "POST" && url.pathname === "/mcp") {
-    const sessionId = url.searchParams.get("sessionId");
-    if (!sessionId) { sendJson(res, 400, { ok: false, error: "missing sessionId" }); return; }
-    const session = sessions.get(sessionId);
-    if (!session) { sendJson(res, 404, { ok: false, error: "session not found" }); return; }
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    let transport = sessionId ? sessions.get(sessionId) : undefined;
+
+    if (!transport) {
+      // No (or unknown) session id: only accept POST (presumed initialize).
+      if (req.method !== "POST") {
+        sendJson(res, 400, { ok: false, error: "missing or unknown Mcp-Session-Id header" });
+        return;
+      }
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid: string) => {
+          sessions.set(sid, transport!);
+          log("info", `MCP session opened (sessionId=${sid}, total=${sessions.size})`);
+        },
+      });
+      transport.onclose = () => {
+        const sid = transport!.sessionId;
+        if (sid) {
+          sessions.delete(sid);
+          log("info", `MCP session closed (sessionId=${sid}, remaining=${sessions.size})`);
+        }
+      };
+
+      // Build a per-session aggregator. Upstream subprocess clients are shared
+      // via the SERVERS module-level array, so this just re-registers the
+      // routing tools on a fresh McpServer — no subprocess spawn.
+      const sessionAgg = buildAggregator();
+      try {
+        await sessionAgg.connect(transport);
+      } catch (err) {
+        log("error", `MCP connect failed: ${describeError(err)}`);
+        if (!res.headersSent) sendJson(res, 500, { ok: false, error: "connect failed" });
+        return;
+      }
+    }
+
     try {
-      await session.transport.handlePostMessage(req, res);
+      await transport.handleRequest(req, res);
     } catch (err) {
-      log("error", `SSE post failed (sessionId=${sessionId}): ${describeError(err)}`);
-      if (!res.headersSent) sendJson(res, 500, { ok: false, error: "post handler failed" });
+      log("error", `MCP handle failed: ${describeError(err)}`);
+      if (!res.headersSent) sendJson(res, 500, { ok: false, error: "handler failed" });
     }
     return;
   }
@@ -257,7 +273,9 @@ async function main(): Promise<void> {
   log("info", `upstream connect summary: ${connected.length} ok, ${failed.length} failed` +
               (failed.length > 0 ? ` (failed: ${failed.map((s) => s.name).join(", ")})` : ""));
 
-  aggServer = buildAggregator();
+  // Verify aggregator can be built (catches schema errors early).
+  buildAggregator();
+  aggregatorReady = true;
 
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
