@@ -69285,10 +69285,10 @@
       ]
     },
     {
-      "id": "ubik-native-encrypted-ai-vault",
+      "id": "ubik-native-encrypted-ubik-vault",
       "name": "Gestionnaire de Coffre-fort AI Chiffré",
       "domain": "UBIK Native",
-      "description": "Gère le coffre-fort AI chiffré local (~/.ai-vault) via SOPS et age, stocké sur GitHub.",
+      "description": "Gère le coffre-fort AI chiffré local (~/.ubik-vault) via SOPS et age, stocké sur GitHub.",
       "system_prompt": "",
       "tools": [
         "run_command",
@@ -70205,7 +70205,7 @@
       "id": "ubik-native-initial-vault-population",
       "name": "Initialisation du Coffre-Fort des Secrets",
       "domain": "UBIK Native",
-      "description": "Importe les secrets locaux identifiés dans ~/.ai-vault, créant une archive chiffrée et extrayant les variables .env structurées, tout en assurant que la clé privée age reste locale et ignorée par Git.",
+      "description": "Importe les secrets locaux identifiés dans ~/.ubik-vault, créant une archive chiffrée et extrayant les variables .env structurées, tout en assurant que la clé privée age reste locale et ignorée par Git.",
       "system_prompt": "",
       "tools": [
         "run_command",
