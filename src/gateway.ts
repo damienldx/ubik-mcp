@@ -253,6 +253,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     try {
       await transport.handleRequest(req, res);
+      // Belt-and-suspenders: ensure the transport is registered in the sessions
+      // map even if `onsessioninitialized` did not fire (timing varies across
+      // MCP SDK versions and client implementations).
+      const sid = transport.sessionId;
+      if (sid && !sessions.has(sid)) {
+        sessions.set(sid, transport);
+        log("info", `MCP session registered post-handle (sessionId=${sid}, total=${sessions.size})`);
+      }
     } catch (err) {
       log("error", `MCP handle failed: ${describeError(err)}`);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: "handler failed" });
