@@ -260,6 +260,8 @@ getStore();
 // Background: load embedder + generate skill vectors (non-blocking).
 
 seedVectorsIfEmpty().catch(() => {});
+// Eagerly warm the embedder so semantic search is ready even when vectors are already seeded.
+loadEmbedder().catch(() => {});
 
 server.tool(
   "skills_outline_file",
