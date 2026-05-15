@@ -258,6 +258,7 @@ const server = createMcpServer("ubik-skills");
 // Eager init — triggers auto-seed on first install before any tool call.
 getStore();
 // Background: load embedder + generate skill vectors (non-blocking).
+
 seedVectorsIfEmpty().catch(() => {});
 
 server.tool(

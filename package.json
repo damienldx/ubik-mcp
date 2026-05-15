@@ -1,27 +1,28 @@
 {
-  "name": "ubik-mcp",
-  "version": "1.0.0",
-  "description": "UBIK MCP servers \u2014 standalone HTTP gateway for fleet agents",
-  "type": "module",
-  "scripts": {
-    "start": "tsx src/gateway.ts",
-    "dev": "tsx watch src/gateway.ts"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@xenova/transformers": "^2.17.2",
-    "better-sqlite3": "^12.8.0",
-    "dotenv": "^17.3.1",
-    "puppeteer": "^24.43.0",
-    "tsx": "^4.21.0",
-    "zod": "^3.25.31"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^20",
-    "typescript": "^5"
-  },
-  "bin": {
-    "ubik-mcp": "./bin/ubik-mcp-server"
-  }
+    "name": "ubik-mcp",
+    "version": "1.0.0",
+    "description": "UBIK MCP servers \u2014 standalone HTTP gateway for fleet agents",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/gateway.ts",
+        "dev": "tsx watch src/gateway.ts",
+        "postinstall": "npm rebuild better-sqlite3"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
+        "@xenova/transformers": "^2.17.2",
+        "better-sqlite3": "^12.8.0",
+        "dotenv": "^17.3.1",
+        "puppeteer": "^24.43.0",
+        "tsx": "^4.21.0",
+        "zod": "^3.25.31"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "^20",
+        "typescript": "^5"
+    },
+    "bin": {
+        "ubik-mcp": "./bin/ubik-mcp-server"
+    }
 }
