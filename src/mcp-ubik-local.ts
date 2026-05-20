@@ -23,14 +23,30 @@ const TOOLS_NEED_SENDER = new Set(["fleet_dispatch", "inbox_post"]);
 // ─── UBIK API ───────────────────────────────────────────────────────────────
 
 async function ubikFetch(path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(`${UBIK_URL}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "x-ubik-agent-token": UBIK_TOKEN,
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${UBIK_URL}${path}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "x-ubik-agent-token": UBIK_TOKEN,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (err: unknown) {
+    // Connect-time failure (backend down, port closed, host unreachable).
+    // Distinct from HTTP errors, which fetch() surfaces via res.ok === false.
+    // Mirrors the URLError branch in ~/.ubik-agent/mcp-ubik-local.py so both
+    // stdio variants give the operator the same actionable hint.
+    const cause = err instanceof Error
+      ? (err.cause as { code?: string } | undefined)
+      : undefined;
+    const reason = cause?.code || (err instanceof Error ? err.message : String(err));
+    throw new Error(
+      `UBIK backend unreachable at ${UBIK_URL} (${reason}). ` +
+      `Check: systemctl --user status ubik-backend`,
+    );
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
