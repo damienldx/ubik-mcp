@@ -13,7 +13,9 @@
  *   - skills_add_skill         Upserts a skill in the local skill library.
  *   - skills_recall            Semantic (or keyword fallback) search over skill library.
  *
- * Storage: ~/.ubik-mcp/skills.db — auto-seeded from data/skills-seed.json on first start.
+ * Storage: ~/.ubik-mcp/skills.db — auto-seeded from the ENGINE catalog
+ *   (~/.ubik-engine/data.db, single source of truth incl. system_prompts) on
+ *   first start, falling back to the bundled data/skills-seed.json offline.
  * Vectors: skill_vectors table populated async on first start via all-MiniLM-L6-v2.
  * Imports: @modelcontextprotocol/sdk, zod, dotenv, better-sqlite3, @xenova/transformers, node:* only.
  */
@@ -30,32 +32,72 @@ config({ path: path.join(process.cwd(), ".env") });
 const STORE_DIR  = path.join(os.homedir(), ".ubik-mcp");
 const STORE_PATH = path.join(STORE_DIR, "skills.db");
 
-// Seed file bundled in the repo — resolved relative to this source file.
-const SEED_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), "../../data/skills-seed.json");
+// Primary skill source: the ENGINE catalog (single source of truth, holds the
+// authoritative system_prompts in skills.metadata). The bundled JSON is kept
+// only as an offline fallback when the engine DB is unavailable.
+const ENGINE_DB  = process.env.UBIK_ENGINE_DB || path.join(os.homedir(), ".ubik-engine", "data.db");
+const SEED_PATH  = path.join(path.dirname(new URL(import.meta.url).pathname), "../../data/skills-seed.json");
 
 let _store: Database.Database | null = null;
 
+type SeedSkill = { id: string; domain: string; name: string; description: string; system_prompt: string; tools: string[]; tags: string[] };
+
+// Read the catalog from the ENGINE data.db `skills` table. Only the regular
+// table is touched (never the vec0 virtual tables), so no sqlite extension is
+// required. Returns null if the DB is missing or unreadable.
+function loadFromEngine(): SeedSkill[] | null {
+  if (!fs.existsSync(ENGINE_DB)) return null;
+  try {
+    const edb  = new Database(ENGINE_DB, { readonly: true, fileMustExist: true });
+    const rows = edb.prepare("SELECT id, name, domain, description, tools, tags, metadata FROM skills").all() as Array<{ id: string; name: string; domain: string; description: string; tools: string; tags: string; metadata: string }>;
+    edb.close();
+    const parse = (s: string | null, fallback: unknown) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
+    return rows.map((r) => ({
+      id:            r.id,
+      domain:        r.domain || "general",
+      name:          r.name,
+      description:   r.description || "",
+      system_prompt: String((parse(r.metadata, {}) as { system_prompt?: string }).system_prompt ?? ""),
+      tools:         parse(r.tools, []) as string[],
+      tags:          parse(r.tags, []) as string[],
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function loadFromBundle(): SeedSkill[] | null {
+  if (!fs.existsSync(SEED_PATH)) return null;
+  try {
+    return (JSON.parse(fs.readFileSync(SEED_PATH, "utf-8")) as { skills: SeedSkill[] }).skills;
+  } catch {
+    return null;
+  }
+}
+
 function seedIfEmpty(db: Database.Database): void {
-  if (!fs.existsSync(SEED_PATH)) return;
   const count = (db.prepare("SELECT COUNT(*) AS n FROM context WHERE key LIKE 'skill/%'").get() as { n: number }).n;
   if (count > 0) return;
 
+  const fromEngine = loadFromEngine();
+  const source = fromEngine ? "engine" : "bundle";
+  const skills = fromEngine ?? loadFromBundle();
+  if (!skills || skills.length === 0) return;
+
   try {
-    const raw   = fs.readFileSync(SEED_PATH, "utf-8");
-    const data  = JSON.parse(raw) as { skills: Array<{ id: string; domain: string; name: string; description: string; system_prompt: string; tools: string[]; tags: string[] }> };
-    const now   = new Date().toISOString();
+    const now    = new Date().toISOString();
     const upsert = db.prepare(
       "INSERT INTO context (key, content, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO NOTHING"
     );
-    const seedAll = db.transaction((skills: typeof data.skills) => {
-      for (const s of skills) {
+    const seedAll = db.transaction((rows: SeedSkill[]) => {
+      for (const s of rows) {
         const key     = `skill/${s.domain}/${s.id}`;
         const content = JSON.stringify({ name: s.name, domain: s.domain, description: s.description, system_prompt: s.system_prompt, tools: s.tools, tags: s.tags });
         upsert.run(key, content, now, now);
       }
     });
-    seedAll(data.skills);
-    process.stderr.write(`[ubik-skills] seeded ${data.skills.length} skills from bundled data\n`);
+    seedAll(skills);
+    process.stderr.write(`[ubik-skills] seeded ${skills.length} skills from ${source}\n`);
   } catch {
     // Non-fatal: seed failure doesn't break the server
   }
