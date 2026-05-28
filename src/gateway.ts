@@ -75,7 +75,14 @@ const SERVERS: UpstreamServer[] = [
   { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
   { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
   { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
-  { name: "gps",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "gps.ts")],       tools: [] },
+  { name: "lba",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba.ts")],       tools: [] },
+  { name: "memory",    command: "/home/damienldx/.local/bin/ubik-memory-mcp", args: [], tools: [] },
+  { name: "agent",     command: "python3", args: ["/home/damienldx/.ubik-agent/mcp-ubik-local.py"], tools: [] },
+  { name: "workspace", command: "python3", args: [path.join(__dirname, "..", "agents-local", "workspace-server.py")], tools: [] },
+  { name: "browser",   command: "python3", args: ["/home/damienldx/workspace/browser-mcp/server.py"], tools: [] },
+  { name: "relay",     command: "python3", args: ["/home/damienldx/workspace/ubik-fleet/fleet/starters/mcp_relay.py"], tools: [] },
+  { name: "lba-backend", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba-backend.ts")], tools: [] },
+  { name: "engine-bridge", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "engine-bridge.ts")], tools: [] },
 ];
 
 async function connectUpstream(srv: UpstreamServer): Promise<void> {
@@ -116,7 +123,7 @@ function buildAggregator(): McpServer {
       // requirements — and so the MCP SDK doesn't strip args before they
       // reach the handler. An empty shape would advertise no params AND
       // reject every property under strict validation, breaking any tool
-      // that requires arguments (gps_lookup, github_*, gmail_*, …). The
+      // that requires arguments (github_*, gmail_*, …). The
       // handler still routes raw args to upstream.callTool.
       const shape = jsonSchemaToZodShape(tool.inputSchema);
       agg.tool(

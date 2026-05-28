@@ -1,0 +1,1993 @@
+[
+  {
+    "module": "mcp_devops",
+    "name": "analyze_data",
+    "description": "Basic statistical analysis of a CSV or JSON file: row count, column types, min/max/mean for numerics",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Absolute path to a .csv or .json file"
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "analyze_db_schema",
+    "description": "List all tables, columns, data types, nullability, and approximate row counts from PostgreSQL",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "code_review",
+    "description": "Heuristic code review of a source file (alias for review_file from mcp_review)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the file to review"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "create_html_artifact",
+    "description": "Create a standalone HTML file with dark-themed inline CSS and optional JS",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Document title"
+        },
+        "html_content": {
+          "type": "string",
+          "description": "HTML body content"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output path (auto-generated if omitted)"
+        },
+        "css": {
+          "type": "string",
+          "description": "Additional CSS to inject"
+        },
+        "js": {
+          "type": "string",
+          "description": "JavaScript to inject at end of body"
+        }
+      },
+      "required": [
+        "html_content"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "create_task",
+    "description": "Create a new task entry in data/tasks/",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Task title"
+        },
+        "description": {
+          "type": "string",
+          "description": "Task description"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ],
+          "description": "Priority (default: medium)"
+        },
+        "assignee": {
+          "type": "string",
+          "description": "Assigned to"
+        },
+        "due_date": {
+          "type": "string",
+          "description": "Due date (YYYY-MM-DD)"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "type": "string",
+          "description": "Project name"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "export_artifact",
+    "description": "Export data (list or dict) to a file in JSON, CSV, or HTML table format",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "description": "Data to export"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "csv",
+            "html"
+          ],
+          "description": "Output format"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output file path (auto-generated if omitted)"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title for HTML export"
+        }
+      },
+      "required": [
+        "data"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "file_outline",
+    "description": "Extract all function/class/const definitions from a source file with line numbers",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the source file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "find_free_slots",
+    "description": "Find free calendar time slots by checking Google Calendar events for a given date",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format (default: today)"
+        },
+        "duration_min": {
+          "type": "integer",
+          "description": "Minimum slot duration in minutes (default: 60)"
+        },
+        "start_hour": {
+          "type": "integer",
+          "description": "Work day start hour (default: 9)"
+        },
+        "end_hour": {
+          "type": "integer",
+          "description": "Work day end hour (default: 18)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "get_my_tasks",
+    "description": "List all tasks with optional filters by status, assignee, or project",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Filter by status: open, in_progress, submitted, closed"
+        },
+        "assignee": {
+          "type": "string",
+          "description": "Filter by assignee"
+        },
+        "project": {
+          "type": "string",
+          "description": "Filter by project"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max tasks to return (default: 50)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "get_review",
+    "description": "Get a saved code review by ID",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Review ID"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "get_task",
+    "description": "Get a task by its ID",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Task ID"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "init_project",
+    "description": "Scaffold a new project directory with standard structure, README, .gitignore, and git init",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name (used as directory name)"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "python",
+            "node",
+            "rust"
+          ],
+          "description": "Project type"
+        },
+        "base_dir": {
+          "type": "string",
+          "description": "Parent directory (default: ~/workspace)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "list_pipeline_templates",
+    "description": "List available pipeline templates from data/pipelines/",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "list_projects",
+    "description": "List all project directories in ~/workspace/ with language detection",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "description": "Root workspace path (default: ~/workspace)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "memory_consolidate",
+    "description": "Queue a memory consolidation request (placeholder — full merge requires GPU embeddings)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string",
+          "description": "Note about what to consolidate"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "memory_stats",
+    "description": "Cortex memory statistics: total count, count by type, recent entries",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User ID (default: default)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "mvp_docker_build",
+    "description": "Run docker build in a project directory",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the project directory containing Dockerfile"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Image tag (default: directory name)"
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Dockerfile name (default: Dockerfile)"
+        },
+        "build_args": {
+          "type": "object",
+          "description": "Build args as key-value pairs"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "mvp_docker_push",
+    "description": "Push a Docker image to a registry with docker push",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "Full image tag e.g. registry.io/user/image:latest"
+        }
+      },
+      "required": [
+        "tag"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "mvp_docker_test",
+    "description": "Run docker run --rm to execute a test command inside a container",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "Image tag to run"
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to run inside the container"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to pass"
+        }
+      },
+      "required": [
+        "tag"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "mvp_git_push",
+    "description": "Run git push in a project directory",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the git repo (default: ~/workspace)"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to push (default: current branch)"
+        },
+        "remote": {
+          "type": "string",
+          "description": "Remote name (default: origin)"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Use --force-with-lease (default: false)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "mvp_git_sync",
+    "description": "Sync a git repo: pull --rebase then push",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the git repo (default: ~/workspace)"
+        },
+        "remote": {
+          "type": "string",
+          "description": "Remote name (default: origin)"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch name (default: current branch)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "prepare_pipeline",
+    "description": "Prepare a multi-step pipeline from a template or inline steps definition and persist as JSON",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "type": "string",
+          "description": "Template name to load (without .json extension)"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Inline pipeline steps [{tool, args, description}]"
+        },
+        "name": {
+          "type": "string",
+          "description": "Pipeline name"
+        },
+        "variables": {
+          "type": "object",
+          "description": "Variables to substitute in the pipeline"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "read_database",
+    "description": "Run a SQL query on the UBIK PostgreSQL container (ubik-postgres)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "SQL query to execute"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "scrape_extract",
+    "description": "Extract structured data from an HTML file or URL using html.parser, filtered by tag selectors",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url_or_path": {
+          "type": "string",
+          "description": "URL (https://...) or local file path"
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "HTML tag names to extract e.g. [\"h1\", \"p\", \"a\"]"
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Max elements to return (default 50)"
+        }
+      },
+      "required": [
+        "url_or_path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "search_expert_docs",
+    "description": "Search expert/skill documentation files in data/experts/ by keyword",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results (default: 10)"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "send_email_pro",
+    "description": "Send an email via SMTP (uses SMTP_HOST, SMTP_USER, SMTP_PASS env vars)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Recipient email address"
+        },
+        "subject": {
+          "type": "string",
+          "description": "Email subject"
+        },
+        "body": {
+          "type": "string",
+          "description": "Email body (plain text or HTML)"
+        },
+        "cc": {
+          "type": "string",
+          "description": "CC email address"
+        },
+        "html": {
+          "type": "boolean",
+          "description": "Send as HTML (default: false)"
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "submit_review",
+    "description": "Submit a code review result (verdict + comments) to the reviews log",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "File path or PR reference being reviewed"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "request_changes",
+            "comment"
+          ],
+          "description": "Review verdict"
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of review comments"
+        },
+        "score": {
+          "type": "number",
+          "description": "Optional numeric score (0-100)"
+        },
+        "reviewer": {
+          "type": "string",
+          "description": "Reviewer name/ID (default: agent)"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    }
+  },
+  {
+    "module": "mcp_devops",
+    "name": "submit_work",
+    "description": "Mark a task or work item as submitted and log the output",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID to mark as submitted"
+        },
+        "description": {
+          "type": "string",
+          "description": "Work description"
+        },
+        "output": {
+          "type": "string",
+          "description": "Output or result of the work"
+        },
+        "agent": {
+          "type": "string",
+          "description": "Agent/user submitting (default: agent)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_add",
+    "description": "Stage files for commit",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "files": {
+          "description": "File(s) to stage — string or list (default: '.')",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_blame",
+    "description": "Show who last modified each line of a file",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "description": "File to blame"
+        },
+        "lines": {
+          "type": "string",
+          "description": "Line range e.g. 10,20"
+        }
+      },
+      "required": [
+        "file"
+      ]
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_branch",
+    "description": "List, create, or delete git branches",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "create",
+            "delete",
+            "current"
+          ],
+          "description": "Default: list"
+        },
+        "name": {
+          "type": "string",
+          "description": "Branch name (for create/delete)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_checkout",
+    "description": "Checkout a branch or restore a file",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string",
+          "description": "Branch name or file path"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_clone",
+    "description": "Clone a git repository",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Parent directory for the clone"
+        },
+        "url": {
+          "type": "string",
+          "description": "Repository URL"
+        },
+        "dest": {
+          "type": "string",
+          "description": "Destination folder name"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_commit",
+    "description": "Create a git commit",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "description": "Commit message"
+        },
+        "amend": {
+          "type": "boolean",
+          "description": "Amend last commit (default false)"
+        }
+      },
+      "required": [
+        "message"
+      ]
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_diff",
+    "description": "Show git diff. Can diff staged changes, specific commits, or files.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "Show staged diff (default false)"
+        },
+        "file": {
+          "type": "string",
+          "description": "Limit to a specific file"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Commit SHA or range e.g. HEAD~3..HEAD"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_log",
+    "description": "Show git commit log",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Repo path"
+        },
+        "n": {
+          "type": "integer",
+          "description": "Number of commits (default 20)"
+        },
+        "file": {
+          "type": "string",
+          "description": "Filter by file"
+        },
+        "oneline": {
+          "type": "boolean",
+          "description": "One line per commit (default true)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_pull",
+    "description": "Pull changes from remote",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "remote": {
+          "type": "string",
+          "description": "Remote (default: origin)"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "rebase": {
+          "type": "boolean",
+          "description": "Use rebase instead of merge"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_push",
+    "description": "Push commits to remote",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "remote": {
+          "type": "string",
+          "description": "Remote name (default: origin)"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to push"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force push with lease (default false)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_stash",
+    "description": "Save, pop, list or drop stash entries",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "save",
+            "pop",
+            "list",
+            "drop"
+          ],
+          "description": "Default: save"
+        },
+        "message": {
+          "type": "string",
+          "description": "Stash message (for save)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_git",
+    "name": "git_status",
+    "description": "Show git working tree status (short format with branch info)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Repo path (default: ~/workspace)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_complexity",
+    "description": "Calculate approximate cyclomatic complexity for each function in a file",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_dependencies",
+    "description": "Analyze package.json or requirements.txt for outdated/vulnerable/unpinned dependencies",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to package.json or requirements.txt"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_diff",
+    "description": "Review a git diff in a repo (staged, HEAD, or a ref range)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to git repo (default: ~/workspace)"
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "Review staged changes only"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Ref range e.g. HEAD~3..HEAD"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_file",
+    "description": "Read a source file and produce a heuristic code review (complexity, issues, suggestions)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_pr",
+    "description": "Fetch and review a GitHub Pull Request diff via the GitHub API",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "GitHub repo in owner/repo format"
+        },
+        "pr": {
+          "type": "integer",
+          "description": "PR number"
+        },
+        "token": {
+          "type": "string",
+          "description": "GitHub token (optional, uses GITHUB_TOKEN env if absent)"
+        }
+      },
+      "required": [
+        "repo",
+        "pr"
+      ]
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_security",
+    "description": "Scan a source file for security issues: hardcoded secrets, SQL injection, eval, shell injection, etc.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_review",
+    "name": "review_summary",
+    "description": "Generate a summary of recent git changes: commits, insertions, deletions, most changed files",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to git repo (default: ~/workspace)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Number of commits to analyze (default 20)"
+        },
+        "author": {
+          "type": "string",
+          "description": "Filter by author"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "cloned_voice_message",
+    "description": "Placeholder for voice cloning — requires a GPU model. Use generate_voice_message instead.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "convert_format",
+    "description": "Convert between file formats: md→html, html→pdf, csv→json, json→csv, yaml→json, json→yaml",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "input_path": {
+          "type": "string",
+          "description": "Path to the source file"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Path for the converted output (auto-derived if omitted)"
+        },
+        "from": {
+          "type": "string",
+          "description": "Source format (auto-detected from extension if omitted)"
+        },
+        "to": {
+          "type": "string",
+          "description": "Target format: html, pdf, json, csv, yaml"
+        }
+      },
+      "required": [
+        "input_path",
+        "to"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "generate_chart",
+    "description": "Generate a bar, line, or pie chart as PNG or SVG using matplotlib",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "bar",
+            "line",
+            "pie"
+          ],
+          "description": "Chart type"
+        },
+        "data": {
+          "type": "object",
+          "description": "Chart data: {\"labels\": [...], \"values\": [...]}"
+        },
+        "title": {
+          "type": "string",
+          "description": "Chart title"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output file path (.png or .svg)"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "png",
+            "svg"
+          ],
+          "description": "Output format (default: png)"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "generate_document",
+    "description": "Generate a document in markdown, HTML, or PDF format",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "html",
+            "pdf"
+          ],
+          "description": "Output format"
+        },
+        "title": {
+          "type": "string",
+          "description": "Document title"
+        },
+        "content": {
+          "type": "string",
+          "description": "Document body content (markdown or HTML)"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output file path (auto-generated if omitted)"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "generate_voice_message",
+    "description": "Convert text to speech and save as a .wav file using piper-tts or espeak",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text to synthesize"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Path for the output .wav file (auto-generated if omitted)"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "ocr_extract",
+    "description": "Extract text from an image file using tesseract OCR",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "image_path": {
+          "type": "string",
+          "description": "Path to the image file (PNG, JPG, TIFF, etc.)"
+        },
+        "lang": {
+          "type": "string",
+          "description": "Tesseract language code (default: eng)"
+        }
+      },
+      "required": [
+        "image_path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "screenshot_url",
+    "description": "Capture a screenshot of a URL using chromium headless and save as PNG",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "URL to screenshot"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output .png path (auto-generated if omitted)"
+        },
+        "width": {
+          "type": "integer",
+          "description": "Viewport width in pixels (default: 1280)"
+        },
+        "height": {
+          "type": "integer",
+          "description": "Viewport height in pixels (default: 800)"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "module": "mcp_media",
+    "name": "transcribe_audio",
+    "description": "Speech-to-text transcription of an audio file using the whisper CLI",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "audio_path": {
+          "type": "string",
+          "description": "Path to the audio file (.wav, .mp3, .m4a, etc.)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Whisper model size: tiny, base, small, medium, large (default: base)"
+        },
+        "language": {
+          "type": "string",
+          "description": "Force language code e.g. 'fr', 'en' (optional)"
+        }
+      },
+      "required": [
+        "audio_path"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_click",
+    "description": "Click at screen coordinates",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "button": {
+          "type": "integer",
+          "description": "1=left, 2=middle, 3=right"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_get_protocol",
+    "description": "Get a protocol by name",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_healthcheck",
+    "description": "Check if required automation tools (xdotool, scrot, xdpyinfo, xclip) are available",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_hotkey",
+    "description": "Press a hotkey combination with modifier support (ctrl+shift+s, super+d, alt+F4)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hotkey": {
+          "type": "string",
+          "description": "Hotkey combo, e.g. ctrl+shift+s, super+d, alt+F4"
+        }
+      },
+      "required": [
+        "hotkey"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_key",
+    "description": "Press a key or combo (e.g. Return, ctrl+s, alt+Tab)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_list_protocols",
+    "description": "List all saved formation protocols",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_replay_step",
+    "description": "Execute a single step from a saved protocol",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Protocol name"
+        },
+        "step": {
+          "type": "integer",
+          "description": "Step index (0-based)"
+        }
+      },
+      "required": [
+        "name",
+        "step"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_save_protocol",
+    "description": "Save a formation protocol (sequence of steps) for later replay",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "string",
+          "description": "JSON array of steps: [{action: click|type|key|scroll|wait, x?, y?, text?, key?, direction?, duration?}]"
+        }
+      },
+      "required": [
+        "name",
+        "steps"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_screen_info",
+    "description": "Get screen size and active window info",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_screenshot",
+    "description": "Capture the screen (returns base64 PNG)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_scroll",
+    "description": "Scroll up or down",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        },
+        "amount": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "direction"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "formation_type",
+    "description": "Type text on keyboard",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "protocole_delete",
+    "description": "Delete a protocol by name",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "protocole_execute",
+    "description": "Execute all steps of a protocol sequentially",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "protocole_get",
+    "description": "Get a protocol by name",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "protocole_list",
+    "description": "List all saved protocols",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "protocole_save",
+    "description": "Save a named protocol with steps",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "string",
+          "description": "JSON array of steps"
+        }
+      },
+      "required": [
+        "name",
+        "steps"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_click_text",
+    "description": "Find a window by text and click its center",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_clipboard_read",
+    "description": "Read current clipboard content (requires xclip or xsel)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_clipboard_write",
+    "description": "Write text to clipboard (requires xclip or xsel)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_conditional",
+    "description": "If/else branching in automation: check a condition, return which branch to take",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "condition": {
+          "type": "string",
+          "description": "Value to check (window name, process name, or file path)"
+        },
+        "condition_type": {
+          "type": "string",
+          "enum": [
+            "window_exists",
+            "process_running",
+            "file_exists"
+          ],
+          "description": "Type of condition"
+        },
+        "then": {
+          "type": "string",
+          "description": "Branch label if true"
+        },
+        "else": {
+          "type": "string",
+          "description": "Branch label if false"
+        }
+      },
+      "required": [
+        "condition"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_detect_change",
+    "description": "Take 2 screenshots with a delay and compare pixel diff",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "delay": {
+          "type": "number",
+          "description": "Seconds between screenshots (default 1.0)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_drag_drop",
+    "description": "Drag from (x1,y1) to (x2,y2)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "x1": {
+          "type": "integer"
+        },
+        "y1": {
+          "type": "integer"
+        },
+        "x2": {
+          "type": "integer"
+        },
+        "y2": {
+          "type": "integer"
+        },
+        "button": {
+          "type": "integer",
+          "description": "Mouse button (default 1=left)"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_fill_form",
+    "description": "Fill multiple form fields by tabbing between them and typing values",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "string",
+          "description": "JSON array of field objects: [{value: 'text'}, ...]"
+        }
+      },
+      "required": [
+        "fields"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_find_element",
+    "description": "Find a UI element/window by text using xdotool search --name",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_focus_window",
+    "description": "Focus/activate a window by name or id",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_list_windows",
+    "description": "List all open windows (optionally filtered by name)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "Optional name filter"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_loop",
+    "description": "Repeat an action N times with a delay between iterations",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Action to repeat (e.g. formation_click, formation_key)"
+        },
+        "count": {
+          "type": "integer",
+          "description": "Number of iterations"
+        },
+        "delay": {
+          "type": "number",
+          "description": "Seconds between iterations"
+        },
+        "action_args": {
+          "type": "object",
+          "description": "Arguments for the action"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_monitor_region",
+    "description": "Monitor a screen region for changes: take N snapshots and compare each to the previous",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "snapshots": {
+          "type": "integer",
+          "description": "Number of snapshots (default 3, max 10)"
+        },
+        "interval": {
+          "type": "number",
+          "description": "Seconds between snapshots (default 1.0)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_paste_text",
+    "description": "Write text to clipboard then paste it with Ctrl+V (or just paste if no text given)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text to write to clipboard before pasting (optional)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_read_text",
+    "description": "OCR a screen region (requires tesseract; returns placeholder if unavailable)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_resize_window",
+    "description": "Resize a window by name or id",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_run_protocol",
+    "description": "Execute a saved protocol by name (all steps sequentially)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_scrape_region",
+    "description": "Capture a screen region and return it as base64 PNG",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ]
+    }
+  },
+  {
+    "module": "mcp_formation",
+    "name": "rda_wait_for",
+    "description": "Wait for a window/element to appear (polls xdotool search)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number",
+          "description": "Max seconds to wait (default 10)"
+        },
+        "interval": {
+          "type": "number",
+          "description": "Poll interval in seconds (default 0.5)"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  }
+]
