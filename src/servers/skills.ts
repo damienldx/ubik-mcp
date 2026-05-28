@@ -499,11 +499,11 @@ server.tool(
   {
     query:   z.string().min(1).describe("Space-separated keywords to search across tool names and descriptions"),
     limit:   z.number().int().positive().optional().describe("Max results returned (default 10)"),
-    gateway: z.string().optional().describe("Gateway base URL (default http://127.0.0.1:8910)"),
+    gateway: z.string().optional().describe("Gateway base URL (default http://127.0.0.1:8902)"),
   },
   async (args) => {
     try {
-      const base  = (args.gateway ?? "http://127.0.0.1:8910").replace(/\/$/, "");
+      const base  = (args.gateway ?? "http://127.0.0.1:8902").replace(/\/$/, "");
       const res   = await fetch(`${base}/tools`, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return fail(new Error(`Gateway /tools returned ${res.status}`));
 
