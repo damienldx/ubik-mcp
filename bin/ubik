@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""ubik — unified one-shot CLI router for the UBIK tool surface ("forge ring" in bash).
+
+Mirrors the MCP gateway's namespace routing, but as a bash command with zero
+context-token cost at rest. Each namespace forwards to the same backend the
+MCP proxy uses, so behavior matches the gateway tool.
+
+Usage:
+    ubik <namespace> <tool> --args '<json-object>'   # invoke a tool
+    ubik <namespace> --list                          # list tools (name + description)
+    ubik <namespace> <tool> --schema                 # print a tool's JSON input schema
+    ubik --namespaces                                # list available namespaces
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+
+AGENT_BASE = os.environ.get("UBIK_BACKEND", "http://127.0.0.1:8765")
+ENGINE_BASE = os.environ.get("UBIK_ENGINE_URL", "http://127.0.0.1:8801")
+ENGINE_SCHEMAS = os.environ.get(
+    "UBIK_ENGINE_SCHEMAS",
+    os.path.expanduser("~/workspace/ubik-mcp/data/engine-bridge-schemas.json"),
+)
+
+
+def _http(method, url, body=None, timeout=60):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode()
+
+
+# ---- agent namespace: proxy to UBIK backend :8765 (uniform execute endpoint) ----
+def agent_list():
+    d = json.loads(_http("GET", f"{AGENT_BASE}/api/tools/discover", timeout=10))
+    return d if isinstance(d, list) else d.get("tools", d.get("result", []))
+
+
+def agent_exec(tool, args):
+    d = json.loads(_http("POST", f"{AGENT_BASE}/api/tools/execute",
+                         {"tool": tool, "input": args}))
+    return d.get("result", d) if isinstance(d, dict) else d
+
+
+# ---- engine namespace: proxy to ENGINE :8801 (uniform call endpoint) ----
+def engine_list():
+    return json.load(open(ENGINE_SCHEMAS, encoding="utf-8"))
+
+
+def engine_exec(tool, args):
+    d = json.loads(_http("POST", f"{ENGINE_BASE}/v1/tools/call",
+                         {"name": tool, "args": args}))
+    if isinstance(d, dict) and "result" in d:
+        return d["result"]
+    return d
+
+
+NAMESPACES = {
+    "agent":  {"list": agent_list,  "exec": agent_exec},
+    "engine": {"list": engine_list, "exec": engine_exec},
+}
+
+
+def _emit(value):
+    if isinstance(value, (dict, list)):
+        sys.stdout.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    else:
+        sys.stdout.write(str(value) + "\n")
+
+
+def _err(msg, code):
+    sys.stderr.write(json.dumps({"error": msg}) + "\n")
+    raise SystemExit(code)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="ubik", description="Unified one-shot CLI for the UBIK tool surface")
+    p.add_argument("namespace", nargs="?", help="e.g. agent, engine")
+    p.add_argument("tool", nargs="?", help="tool name (omit with --list)")
+    p.add_argument("--args", default="{}", help="JSON object of tool arguments")
+    p.add_argument("--list", action="store_true", help="List tools in the namespace")
+    p.add_argument("--schema", action="store_true", help="Print the JSON input schema for <tool>")
+    p.add_argument("--namespaces", action="store_true", help="List available namespaces")
+    a = p.parse_args()
+
+    if a.namespaces or not a.namespace:
+        _emit(sorted(NAMESPACES))
+        return
+
+    ns = NAMESPACES.get(a.namespace)
+    if ns is None:
+        _err(f"unknown namespace: {a.namespace} (have: {', '.join(sorted(NAMESPACES))})", 2)
+
+    if a.list:
+        tools = ns["list"]()
+        _emit([{"name": t.get("name"),
+                "description": (t.get("description") or "").strip().splitlines()[0]
+                               if (t.get("description") or "").strip() else ""}
+               for t in tools])
+        return
+
+    if a.schema:
+        if not a.tool:
+            _err("--schema requires a tool name", 2)
+        match = next((t for t in ns["list"]() if t.get("name") == a.tool), None)
+        if match is None:
+            _err(f"unknown tool: {a.tool}", 2)
+        _emit(match.get("inputSchema", match.get("input_schema", {})))
+        return
+
+    if not a.tool:
+        _err("tool name required (or use --list / --schema)", 2)
+    try:
+        arguments = json.loads(a.args) if a.args else {}
+    except json.JSONDecodeError as e:
+        _err(f"invalid --args JSON: {e}", 2)
+    if not isinstance(arguments, dict):
+        _err("--args must be a JSON object", 2)
+
+    try:
+        _emit(ns["exec"](a.tool, arguments))
+    except urllib.error.HTTPError as e:
+        _err(f"backend HTTP {e.code}: {e.read().decode()[:300]}", 1)
+    except Exception as e:  # noqa: BLE001
+        _err(f"{type(e).__name__}: {e}", 1)
+
+
+if __name__ == "__main__":
+    main()
