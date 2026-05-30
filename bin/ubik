@@ -64,10 +64,11 @@ def engine_exec(tool, args):
 # ---- generic stdio one-shot client: spawn the real MCP server, handshake, call ----
 REPO = os.path.expanduser("~/workspace/ubik-mcp")
 
-def _stdio_call(server_file, request):
-    """Spawn `npx tsx src/servers/<file>`, do an MCP initialize handshake, send
-    `request` (id=2), return the matching JSON-RPC response. Runs the real server
-    code => zero drift vs the gateway (which spawns the same file)."""
+def _stdio_call(command, request, env_extra=None):
+    """Spawn an MCP stdio server (`command` = argv list), do an initialize
+    handshake, send `request` (id=2), return the matching JSON-RPC response.
+    Runs the real server code => zero drift vs the gateway (same command).
+    `env_extra` is an optional callable returning extra env vars (e.g. tokens)."""
     import subprocess
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2024-11-05", "capabilities": {},
@@ -82,8 +83,9 @@ def _stdio_call(server_file, request):
         if os.path.isdir(node_bin):
             env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
             break
-    proc = subprocess.run(["npx", "-y", "tsx", f"src/servers/{server_file}"],
-                          input=stdin, capture_output=True, text=True,
+    if env_extra:
+        env.update(env_extra())
+    proc = subprocess.run(command, input=stdin, capture_output=True, text=True,
                           cwd=REPO, timeout=120, env=env)
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -98,14 +100,14 @@ def _stdio_call(server_file, request):
     raise RuntimeError(f"no response from {server_file}; stderr={proc.stderr[-300:]}")
 
 
-def _make_stdio(server_file):
+def _make_stdio(command, env_extra=None):
     def _list():
-        r = _stdio_call(server_file, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        r = _stdio_call(command, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, env_extra)
         return r.get("result", {}).get("tools", [])
 
     def _exec(tool, args):
-        r = _stdio_call(server_file, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                                      "params": {"name": tool, "arguments": args}})
+        r = _stdio_call(command, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                      "params": {"name": tool, "arguments": args}}, env_extra)
         res = r.get("result", {})
         txt = (res.get("content") or [{}])[0].get("text", "")
         if res.get("isError"):
@@ -120,19 +122,35 @@ def _make_stdio(server_file):
 
 # Self-contained TS servers run one-shot via stdio (slower ~1.5s tsx startup, but
 # infrequent + runs the real server code). Covers point 3 (TS) and point 4.
+def _tsx(f):
+    return ["npx", "-y", "tsx", f"src/servers/{f}"]
+
 STDIO = {
-    "github": "github.ts", "linkedin": "linkedin.ts", "review": "review.ts",
-    "system": "system.ts", "lba": "lba.ts",
-    "skills": "skills.ts", "crawl": "crawl.ts",
-    "google": "google.ts", "microsoft": "microsoft.ts",
+    "github": _tsx("github.ts"), "linkedin": _tsx("linkedin.ts"), "review": _tsx("review.ts"),
+    "system": _tsx("system.ts"), "lba": _tsx("lba.ts"),
+    "skills": _tsx("skills.ts"), "crawl": _tsx("crawl.ts"),
+    "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
+    "lba-backend": _tsx("lba-backend.ts"),
+    "relay": ["python3", os.path.expanduser("~/workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
 }
 
 NAMESPACES = {
     "agent":  {"list": agent_list,  "exec": agent_exec},
     "engine": {"list": engine_list, "exec": engine_exec},
 }
-for _n, _f in STDIO.items():
-    NAMESPACES[_n] = _make_stdio(_f)
+def _gh_token_env():
+    """github.ts wants GITHUB_TOKEN; the gateway never wires it (REST tools 401).
+    Reuse the already-authenticated gh CLI token — secret-safe, nothing stored."""
+    import subprocess
+    try:
+        t = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5).stdout.strip()
+        return {"GITHUB_TOKEN": t} if t else {}
+    except Exception:
+        return {}
+
+ENV_HOOKS = {"github": _gh_token_env}
+for _n, _cmd in STDIO.items():
+    NAMESPACES[_n] = _make_stdio(_cmd, ENV_HOOKS.get(_n))
 
 
 def _emit(value):
