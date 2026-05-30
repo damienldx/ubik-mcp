@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""ubik — unified one-shot CLI router for the UBIK tool surface ("forge ring" in bash).
+
+Mirrors the MCP gateway's namespace routing, but as a bash command with zero
+context-token cost at rest. Each namespace forwards to the same backend the
+MCP proxy uses, so behavior matches the gateway tool.
+
+Usage:
+    ubik <namespace> <tool> --args '<json-object>'   # invoke a tool
+    ubik <namespace> --list                          # list tools (name + description)
+    ubik <namespace> <tool> --schema                 # print a tool's JSON input schema
+    ubik --namespaces                                # list available namespaces
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+
+AGENT_BASE = os.environ.get("UBIK_BACKEND", "http://127.0.0.1:8765")
+ENGINE_BASE = os.environ.get("UBIK_ENGINE_URL", "http://127.0.0.1:8801")
+ENGINE_SCHEMAS = os.environ.get(
+    "UBIK_ENGINE_SCHEMAS",
+    os.path.expanduser("~/workspace/ubik-mcp/data/engine-bridge-schemas.json"),
+)
+
+
+def _http(method, url, body=None, timeout=60):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode()
+
+
+# ---- agent namespace: proxy to UBIK backend :8765 (uniform execute endpoint) ----
+def agent_list():
+    d = json.loads(_http("GET", f"{AGENT_BASE}/api/tools/discover", timeout=10))
+    return d if isinstance(d, list) else d.get("tools", d.get("result", []))
+
+
+def agent_exec(tool, args):
+    d = json.loads(_http("POST", f"{AGENT_BASE}/api/tools/execute",
+                         {"tool": tool, "input": args}))
+    return d.get("result", d) if isinstance(d, dict) else d
+
+
+# ---- engine namespace: proxy to ENGINE :8801 (uniform call endpoint) ----
+def engine_list():
+    return json.load(open(ENGINE_SCHEMAS, encoding="utf-8"))
+
+
+def engine_exec(tool, args):
+    d = json.loads(_http("POST", f"{ENGINE_BASE}/v1/tools/call",
+                         {"name": tool, "args": args}))
+    if isinstance(d, dict) and "result" in d:
+        return d["result"]
+    return d
+
+
+# ---- generic stdio one-shot client: spawn the real MCP server, handshake, call ----
+REPO = os.path.expanduser("~/workspace/ubik-mcp")
+
+def _stdio_call(command, request, env_extra=None):
+    """Spawn an MCP stdio server (`command` = argv list), do an initialize
+    handshake, send `request` (id=2), return the matching JSON-RPC response.
+    Runs the real server code => zero drift vs the gateway (same command).
+    `env_extra` is an optional callable returning extra env vars (e.g. tokens)."""
+    import subprocess
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                       "clientInfo": {"name": "ubik-cli", "version": "1"}}}
+    inited = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    stdin = "\n".join(json.dumps(m) for m in (init, inited, request)) + "\n"
+    # Match the gateway's runtime: use its nvm Node so tsx/node resolve identically
+    # (avoids node-version drift in tool output) and inherit env (tokens come from
+    # the caller's environment / per-server config, same as the gateway spawn).
+    env = dict(os.environ)
+    for node_bin in (os.path.expanduser("~/.nvm/versions/node/v24.14.0/bin"),):
+        if os.path.isdir(node_bin):
+            env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
+            break
+    if env_extra:
+        env.update(env_extra())
+    proc = subprocess.run(command, input=stdin, capture_output=True, text=True,
+                          cwd=REPO, timeout=120, env=env)
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            m = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if m.get("id") == 2:
+            return m
+    raise RuntimeError(f"no response from {server_file}; stderr={proc.stderr[-300:]}")
+
+
+def _make_stdio(command, env_extra=None):
+    def _list():
+        r = _stdio_call(command, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, env_extra)
+        return r.get("result", {}).get("tools", [])
+
+    def _exec(tool, args):
+        r = _stdio_call(command, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                      "params": {"name": tool, "arguments": args}}, env_extra)
+        res = r.get("result", {})
+        txt = (res.get("content") or [{}])[0].get("text", "")
+        if res.get("isError"):
+            return f"[error] {txt}"
+        try:
+            return json.loads(txt)
+        except (json.JSONDecodeError, TypeError):
+            return txt
+
+    return {"list": _list, "exec": _exec}
+
+
+# Self-contained TS servers run one-shot via stdio (slower ~1.5s tsx startup, but
+# infrequent + runs the real server code). Covers point 3 (TS) and point 4.
+def _tsx(f):
+    return ["npx", "-y", "tsx", f"src/servers/{f}"]
+
+STDIO = {
+    "github": _tsx("github.ts"), "linkedin": _tsx("linkedin.ts"), "review": _tsx("review.ts"),
+    "system": _tsx("system.ts"), "lba": _tsx("lba.ts"),
+    "skills": _tsx("skills.ts"), "crawl": _tsx("crawl.ts"),
+    "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
+    "lba-backend": _tsx("lba-backend.ts"),
+    "relay": ["python3", os.path.expanduser("~/workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
+}
+
+# ---- memory namespace: in-process via the ubik_memory package (same dispatch as
+# the `ubik-memory tool` CLI and the old memory.* MCP tools) ----
+def memory_list():
+    import asyncio
+    from ubik_memory import mcp_server  # lazy: pulls duckdb only for `ubik memory`
+    tools = asyncio.run(mcp_server.list_tools())
+    return [{"name": t.name, "description": t.description or "",
+             "inputSchema": getattr(t, "inputSchema", {}) or {}} for t in tools]
+
+
+def memory_exec(tool, args):
+    from ubik_memory import mcp_server  # lazy
+    out = mcp_server.run_tool_text(tool, args)
+    try:
+        return json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return out
+
+
+NAMESPACES = {
+    "memory": {"list": memory_list, "exec": memory_exec},
+    "agent":  {"list": agent_list,  "exec": agent_exec},
+    "engine": {"list": engine_list, "exec": engine_exec},
+}
+def _gh_token_env():
+    """github.ts wants GITHUB_TOKEN; the gateway never wires it (REST tools 401).
+    Reuse the already-authenticated gh CLI token — secret-safe, nothing stored."""
+    import subprocess
+    try:
+        t = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5).stdout.strip()
+        return {"GITHUB_TOKEN": t} if t else {}
+    except Exception:
+        return {}
+
+ENV_HOOKS = {"github": _gh_token_env}
+for _n, _cmd in STDIO.items():
+    NAMESPACES[_n] = _make_stdio(_cmd, ENV_HOOKS.get(_n))
+
+
+def _emit(value):
+    if isinstance(value, (dict, list)):
+        sys.stdout.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    else:
+        sys.stdout.write(str(value) + "\n")
+
+
+def _err(msg, code):
+    sys.stderr.write(json.dumps({"error": msg}) + "\n")
+    raise SystemExit(code)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="ubik", description="Unified one-shot CLI for the UBIK tool surface")
+    p.add_argument("namespace", nargs="?", help="e.g. agent, engine")
+    p.add_argument("tool", nargs="?", help="tool name (omit with --list)")
+    p.add_argument("--args", default="{}", help="JSON object of tool arguments")
+    p.add_argument("--list", action="store_true", help="List tools in the namespace")
+    p.add_argument("--schema", action="store_true", help="Print the JSON input schema for <tool>")
+    p.add_argument("--namespaces", action="store_true", help="List available namespaces")
+    a = p.parse_args()
+
+    if a.namespaces or not a.namespace:
+        _emit(sorted(NAMESPACES))
+        return
+
+    ns = NAMESPACES.get(a.namespace)
+    if ns is None:
+        _err(f"unknown namespace: {a.namespace} (have: {', '.join(sorted(NAMESPACES))})", 2)
+
+    if a.list:
+        tools = ns["list"]()
+        _emit([{"name": t.get("name"),
+                "description": (t.get("description") or "").strip().splitlines()[0]
+                               if (t.get("description") or "").strip() else ""}
+               for t in tools])
+        return
+
+    if a.schema:
+        if not a.tool:
+            _err("--schema requires a tool name", 2)
+        match = next((t for t in ns["list"]() if t.get("name") == a.tool), None)
+        if match is None:
+            _err(f"unknown tool: {a.tool}", 2)
+        _emit(match.get("inputSchema", match.get("input_schema", {})))
+        return
+
+    if not a.tool:
+        _err("tool name required (or use --list / --schema)", 2)
+    try:
+        arguments = json.loads(a.args) if a.args else {}
+    except json.JSONDecodeError as e:
+        _err(f"invalid --args JSON: {e}", 2)
+    if not isinstance(arguments, dict):
+        _err("--args must be a JSON object", 2)
+
+    try:
+        _emit(ns["exec"](a.tool, arguments))
+    except urllib.error.HTTPError as e:
+        _err(f"backend HTTP {e.code}: {e.read().decode()[:300]}", 1)
+    except Exception as e:  # noqa: BLE001
+        _err(f"{type(e).__name__}: {e}", 1)
+
+
+if __name__ == "__main__":
+    main()
