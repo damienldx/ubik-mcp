@@ -18,33 +18,55 @@ import sys
 import urllib.request
 import urllib.error
 
+# Resolve install paths from the script's REAL location (robust under any HOME:
+# fleet agents run with HOME=~/.fleet/<id>, where "~/workspace" resolves wrong).
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))  # .../workspace/ubik-mcp
+_REAL_HOME = os.path.dirname(os.path.dirname(REPO))                  # operator home
+
 AGENT_BASE = os.environ.get("UBIK_BACKEND", "http://127.0.0.1:8765")
 ENGINE_BASE = os.environ.get("UBIK_ENGINE_URL", "http://127.0.0.1:8801")
 ENGINE_SCHEMAS = os.environ.get(
     "UBIK_ENGINE_SCHEMAS",
-    os.path.expanduser("~/workspace/ubik-mcp/data/engine-bridge-schemas.json"),
+    os.path.join(REPO, "data", "engine-bridge-schemas.json"),
 )
 
 
-def _http(method, url, body=None, timeout=60):
+def _agent_headers():
+    """Replicate the MCP proxy identity headers so backend lead-only guards
+    authorize CLI calls (x-ubik-caller-agent-id) — fleet agents set UBIK_AGENT_ID."""
+    h = {}
+    caller = os.environ.get("UBIK_AGENT_ID", "")
+    if caller:
+        h["x-ubik-caller-agent-id"] = caller
+    try:
+        cfg = json.load(open(os.path.join(_REAL_HOME, ".ubik-agent", "config.json")))
+        if cfg.get("token"):
+            h["x-ubik-agent-token"] = cfg["token"]
+    except Exception:
+        pass
+    return h
+
+
+def _http(method, url, body=None, timeout=60, headers=None):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"Content-Type": "application/json"},
-    )
+    h = {"Content-Type": "application/json"}
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, data=data, method=method, headers=h)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode()
 
 
 # ---- agent namespace: proxy to UBIK backend :8765 (uniform execute endpoint) ----
 def agent_list():
-    d = json.loads(_http("GET", f"{AGENT_BASE}/api/tools/discover", timeout=10))
+    d = json.loads(_http("GET", f"{AGENT_BASE}/api/tools/discover", timeout=10,
+                         headers=_agent_headers()))
     return d if isinstance(d, list) else d.get("tools", d.get("result", []))
 
 
 def agent_exec(tool, args):
     d = json.loads(_http("POST", f"{AGENT_BASE}/api/tools/execute",
-                         {"tool": tool, "input": args}))
+                         {"tool": tool, "input": args}, headers=_agent_headers()))
     return d.get("result", d) if isinstance(d, dict) else d
 
 
@@ -62,8 +84,6 @@ def engine_exec(tool, args):
 
 
 # ---- generic stdio one-shot client: spawn the real MCP server, handshake, call ----
-REPO = os.path.expanduser("~/workspace/ubik-mcp")
-
 def _stdio_call(command, request, env_extra=None):
     """Spawn an MCP stdio server (`command` = argv list), do an initialize
     handshake, send `request` (id=2), return the matching JSON-RPC response.
@@ -79,7 +99,11 @@ def _stdio_call(command, request, env_extra=None):
     # (avoids node-version drift in tool output) and inherit env (tokens come from
     # the caller's environment / per-server config, same as the gateway spawn).
     env = dict(os.environ)
-    for node_bin in (os.path.expanduser("~/.nvm/versions/node/v24.14.0/bin"),):
+    # Spawn operator-level MCP servers AS the operator: HOME drives python user-site
+    # (the `mcp` module), npm/nvm, configs. Agent identity flows via UBIK_AGENT_ID env,
+    # not HOME — so this is safe and fixes fleet-home spawns (HOME=~/.fleet/<id> lacks mcp).
+    env["HOME"] = _REAL_HOME
+    for node_bin in (os.path.join(_REAL_HOME, ".nvm/versions/node/v24.14.0/bin"),):
         if os.path.isdir(node_bin):
             env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
             break
@@ -97,7 +121,7 @@ def _stdio_call(command, request, env_extra=None):
             continue
         if m.get("id") == 2:
             return m
-    raise RuntimeError(f"no response from {server_file}; stderr={proc.stderr[-300:]}")
+    raise RuntimeError(f"no response from {command[-1]}; stderr={proc.stderr[-300:]}")
 
 
 def _make_stdio(command, env_extra=None):
@@ -131,7 +155,7 @@ STDIO = {
     "skills": _tsx("skills.ts"), "crawl": _tsx("crawl.ts"),
     "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
     "lba-backend": _tsx("lba-backend.ts"),
-    "relay": ["python3", os.path.expanduser("~/workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
+    "relay": ["python3", os.path.join(_REAL_HOME, "workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
 }
 
 # ---- memory namespace: in-process via the ubik_memory package (same dispatch as
