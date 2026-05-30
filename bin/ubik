@@ -61,10 +61,78 @@ def engine_exec(tool, args):
     return d
 
 
+# ---- generic stdio one-shot client: spawn the real MCP server, handshake, call ----
+REPO = os.path.expanduser("~/workspace/ubik-mcp")
+
+def _stdio_call(server_file, request):
+    """Spawn `npx tsx src/servers/<file>`, do an MCP initialize handshake, send
+    `request` (id=2), return the matching JSON-RPC response. Runs the real server
+    code => zero drift vs the gateway (which spawns the same file)."""
+    import subprocess
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                       "clientInfo": {"name": "ubik-cli", "version": "1"}}}
+    inited = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    stdin = "\n".join(json.dumps(m) for m in (init, inited, request)) + "\n"
+    # Match the gateway's runtime: use its nvm Node so tsx/node resolve identically
+    # (avoids node-version drift in tool output) and inherit env (tokens come from
+    # the caller's environment / per-server config, same as the gateway spawn).
+    env = dict(os.environ)
+    for node_bin in (os.path.expanduser("~/.nvm/versions/node/v24.14.0/bin"),):
+        if os.path.isdir(node_bin):
+            env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
+            break
+    proc = subprocess.run(["npx", "-y", "tsx", f"src/servers/{server_file}"],
+                          input=stdin, capture_output=True, text=True,
+                          cwd=REPO, timeout=120, env=env)
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            m = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if m.get("id") == 2:
+            return m
+    raise RuntimeError(f"no response from {server_file}; stderr={proc.stderr[-300:]}")
+
+
+def _make_stdio(server_file):
+    def _list():
+        r = _stdio_call(server_file, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        return r.get("result", {}).get("tools", [])
+
+    def _exec(tool, args):
+        r = _stdio_call(server_file, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                      "params": {"name": tool, "arguments": args}})
+        res = r.get("result", {})
+        txt = (res.get("content") or [{}])[0].get("text", "")
+        if res.get("isError"):
+            return f"[error] {txt}"
+        try:
+            return json.loads(txt)
+        except (json.JSONDecodeError, TypeError):
+            return txt
+
+    return {"list": _list, "exec": _exec}
+
+
+# Self-contained TS servers run one-shot via stdio (slower ~1.5s tsx startup, but
+# infrequent + runs the real server code). Covers point 3 (TS) and point 4.
+STDIO = {
+    "github": "github.ts", "linkedin": "linkedin.ts", "review": "review.ts",
+    "system": "system.ts", "lba": "lba.ts",
+    "skills": "skills.ts", "crawl": "crawl.ts",
+    "google": "google.ts", "microsoft": "microsoft.ts",
+}
+
 NAMESPACES = {
     "agent":  {"list": agent_list,  "exec": agent_exec},
     "engine": {"list": engine_list, "exec": engine_exec},
 }
+for _n, _f in STDIO.items():
+    NAMESPACES[_n] = _make_stdio(_f)
 
 
 def _emit(value):
