@@ -25,6 +25,7 @@ _REAL_HOME = os.path.dirname(os.path.dirname(REPO))                  # operator 
 
 AGENT_BASE = os.environ.get("UBIK_BACKEND", "http://127.0.0.1:8765")
 ENGINE_BASE = os.environ.get("UBIK_ENGINE_URL", "http://127.0.0.1:8801")
+RELAY_BASE = os.environ.get("RELAY_URL", "http://127.0.0.1:7894")
 ENGINE_SCHEMAS = os.environ.get(
     "UBIK_ENGINE_SCHEMAS",
     os.path.join(REPO, "data", "engine-bridge-schemas.json"),
@@ -195,6 +196,67 @@ def _gh_token_env():
 ENV_HOOKS = {"github": _gh_token_env}
 for _n, _cmd in STDIO.items():
     NAMESPACES[_n] = _make_stdio(_cmd, ENV_HOOKS.get(_n))
+
+
+# ---- relay namespace: mcp_relay.py exposes relay_send/relay_read/... over stdio,
+# but NOT fleet_listen (the blocking long-poll). It lives in a separate MCP server
+# (ubik-desktop-tools), so a CLI-only fleet home had no way to long-poll the inbox.
+# Add it here as a direct HTTP GET to :7894/wait/<id>?timeout=N — leaner than
+# spawning the stdio server for a hot-path long-poll (LEAD loops dispatch→listen).
+_FLEET_LISTEN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string",
+                     "description": "Agent whose inbox to long-poll (defaults to "
+                                    "RELAY_AGENT_ID/UBIK_AGENT_ID env)."},
+        "timeout": {"type": "integer", "default": 60,
+                    "description": "Long-poll seconds, clamped to [1, 60]."},
+    },
+    "required": [],
+}
+
+
+def _relay_fleet_listen(args):
+    """Block until a message is queued for agent_id (or timeout), then return the
+    peeked inbox. Mirrors ubik-desktop-tools fleet_listen: GET /wait/<id>?timeout=N.
+    Peeks without consuming — use `relay relay_read` to drain the queue."""
+    agent_id = (args.get("agent_id")
+                or os.environ.get("RELAY_AGENT_ID")
+                or os.environ.get("UBIK_AGENT_ID", ""))
+    if not agent_id:
+        return "[error] fleet_listen requires agent_id (or RELAY_AGENT_ID/UBIK_AGENT_ID env)"
+    try:
+        timeout = int(args.get("timeout", 60))
+    except (TypeError, ValueError):
+        timeout = 60
+    timeout = max(1, min(60, timeout))
+    url = f"{RELAY_BASE}/wait/{agent_id}?timeout={timeout}"
+    out = _http("GET", url, timeout=timeout + 5)
+    try:
+        return json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return out
+
+
+def _wrap_relay(base):
+    def _list():
+        tools = list(base["list"]())
+        tools.append({"name": "fleet_listen",
+                      "description": "Blocking long-poll of an agent's relay inbox "
+                                     "(GET :7894/wait). Returns queued messages or "
+                                     "empty after timeout. Peeks without consuming.",
+                      "inputSchema": _FLEET_LISTEN_SCHEMA})
+        return tools
+
+    def _exec(tool, args):
+        if tool == "fleet_listen":
+            return _relay_fleet_listen(args)
+        return base["exec"](tool, args)
+
+    return {"list": _list, "exec": _exec}
+
+
+NAMESPACES["relay"] = _wrap_relay(NAMESPACES["relay"])
 
 
 def _emit(value):
