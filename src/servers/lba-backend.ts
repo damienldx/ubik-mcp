@@ -26,6 +26,12 @@ type Schema = {
 
 const SCHEMAS: Schema[] = [
   {
+    name: "manifest_list",
+    description:
+      "Liste tous les manifests d'agents LBA disponibles (id, name, level, role, domain, version). A appeler EN PREMIER pour decouvrir les agent_id valides avant manifest_read/validate/write. Lecture seule, aucun argument.",
+    zodSchema: z.object({}),
+  },
+  {
     name: "manifest_read",
     description:
       "Lit le manifest actuel d'un agent LBA (frontmatter structure + body). Toujours appeler en premier pour connaitre l'etat actuel.",

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -488,10 +489,14 @@ def tool_suggest(args: dict) -> dict:
 
     # Thread agent_id through to qubik_search.py so the call is attributed to the
     # calling slot in qubik_query_log (without it the row logs as unknown/NULL).
-    agent_flag = f" --agent {json.dumps(agent_id)}" if agent_id else ""
+    # shlex.quote (not json.dumps): json.dumps defaults to ensure_ascii=True, which
+    # escapes non-ASCII (é -> é) so the query is LOGGED escaped in query_text,
+    # while qubik_record_usage searches the raw query -> never matches. shlex.quote
+    # preserves unicode + apostrophes verbatim and is injection-safe. (LOT2 L4 fix #2)
+    agent_flag = f" --agent {shlex.quote(agent_id)}" if agent_id else ""
     script = (
         f"cd ~/workspace/UBIK-ENGINE && "
-        f"python3 qubik_search.py {json.dumps(query)} {limit}{agent_flag} 2>/dev/null"
+        f"python3 qubik_search.py {shlex.quote(query)} {limit}{agent_flag} 2>/dev/null"
     )
     rc, stdout, stderr = _run_ssh(script, timeout=15)
     if rc != 0:
@@ -525,25 +530,29 @@ def tool_record_usage(args: dict) -> dict:
     if not query:
         return {"error": "query required (the same query used in qubik_suggest)"}
 
-    # Run on the VM where the DB lives
-    q_esc = query.replace("'", "")[:500]
-    t_esc = tool_name.replace("'", "")[:200]
-    a_esc = agent_id.replace("'", "")[:200]
-    # When agent_id is known, scope the update to THIS slot's row so concurrent
-    # same-query calls from other agents don't get cross-attributed.
-    agent_cond = "AND agent_id=? " if agent_id else ""
-    agent_param = f', \"{a_esc}\"' if agent_id else ""
+    # Run on the VM where the DB lives. Pass tool_name/query/agent_id as ARGV to the
+    # python -c (not string-interpolated into the SQL/shell) so apostrophes AND unicode
+    # survive verbatim — the previous version did query.replace("'","") which silently
+    # stripped apostrophes and never matched the raw query_text. query_text is stored
+    # raw by qubik_search.py, so we now match the raw query exactly. (LOT2 L4 fix #2)
+    py = (
+        'import sys; sys.path.insert(0, "src"); '
+        'from db import get_connection, ensure_initialized; '
+        'ensure_initialized(); conn = get_connection(); '
+        'tn, q = sys.argv[1], sys.argv[2]; '
+        'ag = sys.argv[3] if len(sys.argv) > 3 else None; '
+        'cond = "AND agent_id=? " if ag else ""; '
+        'params = [tn, q] + ([ag] if ag else []); '
+        'cur = conn.execute("UPDATE qubik_query_log SET tool_used=?, used_at=CURRENT_TIMESTAMP '
+        'WHERE id = (SELECT id FROM qubik_query_log WHERE query_text=? " + cond + "AND tool_used IS NULL '
+        'ORDER BY id DESC LIMIT 1)", params); '
+        'conn.commit(); print(cur.rowcount)'
+    )
+    argv = [tool_name, query] + ([agent_id] if agent_id else [])
     script = (
-        f"cd ~/workspace/UBIK-ENGINE && UBIK_DATA_DIR=/home/damienldx/.ubik-engine python3 -c '"
-        f'import sys; sys.path.insert(0, \"src\"); '
-        f'from db import get_connection, ensure_initialized; '
-        f'ensure_initialized(); conn = get_connection(); '
-        f'cur = conn.execute(\"UPDATE qubik_query_log SET tool_used=?, used_at=CURRENT_TIMESTAMP '
-        f'WHERE id = (SELECT id FROM qubik_query_log WHERE query_text=? {agent_cond}AND tool_used IS NULL '
-        f'ORDER BY id DESC LIMIT 1)\", (\"{t_esc}\", \"{q_esc}\"{agent_param})); '
-        f'conn.commit(); '
-        f'print(cur.rowcount)'
-        f"' 2>/dev/null"
+        "cd ~/workspace/UBIK-ENGINE && UBIK_DATA_DIR=/home/damienldx/.ubik-engine "
+        "python3 -c " + shlex.quote(py) + " "
+        + " ".join(shlex.quote(a) for a in argv) + " 2>/dev/null"
     )
     rc, stdout, stderr = _run_ssh(script, timeout=10)
     if rc != 0:
