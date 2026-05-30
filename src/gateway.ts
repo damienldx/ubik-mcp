@@ -67,22 +67,22 @@ interface UpstreamServer {
 // can be run without a separate compile step (matches package.json scripts).
 const SERVERS: UpstreamServer[] = [
   { name: "skills",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "skills.ts")],    tools: [] },
-  { name: "system",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "system.ts")],    tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "system",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "system.ts")],    tools: [] },
   { name: "crawl",     command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "crawl.ts")],     tools: [] },
-  { name: "review",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "review.ts")],    tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "review",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "review.ts")],    tools: [] },
   { name: "formation", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "formation.ts")], tools: [] },
-  { name: "github",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "github.ts")],    tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "github",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "github.ts")],    tools: [] },
   { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
   { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
   { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
-  { name: "lba",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba.ts")],       tools: [] },
-  { name: "memory",    command: "/home/damienldx/.local/bin/ubik-memory-mcp", args: [], tools: [] },
-  { name: "agent",     command: "python3", args: ["/home/damienldx/.ubik-agent/mcp-ubik-local.py"], tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "lba",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba.ts")],       tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "memory",    command: "/home/damienldx/.local/bin/ubik-memory-mcp", args: [], tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "agent",     command: "python3", args: ["/home/damienldx/.ubik-agent/mcp-ubik-local.py"], tools: [] },
   { name: "workspace", command: "python3", args: [path.join(__dirname, "..", "agents-local", "workspace-server.py")], tools: [] },
   { name: "browser",   command: "python3", args: ["/home/damienldx/workspace/browser-mcp/server.py"], tools: [] },
-  { name: "relay",     command: "python3", args: ["/home/damienldx/workspace/ubik-fleet/fleet/starters/mcp_relay.py"], tools: [] },
-  { name: "lba-backend", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba-backend.ts")], tools: [] },
-  { name: "engine-bridge", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "engine-bridge.ts")], tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "relay",     command: "python3", args: ["/home/damienldx/workspace/ubik-fleet/fleet/starters/mcp_relay.py"], tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "lba-backend", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba-backend.ts")], tools: [] },
+  // [forge-ring: now in `ubik` CLI] { name: "engine-bridge", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "engine-bridge.ts")], tools: [] },
 ];
 
 async function connectUpstream(srv: UpstreamServer): Promise<void> {
