@@ -134,7 +134,27 @@ STDIO = {
     "relay": ["python3", os.path.expanduser("~/workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
 }
 
+# ---- memory namespace: in-process via the ubik_memory package (same dispatch as
+# the `ubik-memory tool` CLI and the old memory.* MCP tools) ----
+def memory_list():
+    import asyncio
+    from ubik_memory import mcp_server  # lazy: pulls duckdb only for `ubik memory`
+    tools = asyncio.run(mcp_server.list_tools())
+    return [{"name": t.name, "description": t.description or "",
+             "inputSchema": getattr(t, "inputSchema", {}) or {}} for t in tools]
+
+
+def memory_exec(tool, args):
+    from ubik_memory import mcp_server  # lazy
+    out = mcp_server.run_tool_text(tool, args)
+    try:
+        return json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return out
+
+
 NAMESPACES = {
+    "memory": {"list": memory_list, "exec": memory_exec},
     "agent":  {"list": agent_list,  "exec": agent_exec},
     "engine": {"list": engine_list, "exec": engine_exec},
 }
