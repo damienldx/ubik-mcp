@@ -482,10 +482,17 @@ def tool_suggest(args: dict) -> dict:
     """Query QUBIK on the VM for relevant tools and skills. Zero LLM cost — FTS5 only."""
     query = args.get("query", "").strip()
     limit = int(args.get("limit", 5))
+    agent_id = (args.get("agent_id") or "").strip()
     if not query:
         return {"error": "query required"}
 
-    script = f"cd ~/workspace/UBIK-ENGINE && python3 qubik_search.py {json.dumps(query)} {limit} 2>/dev/null"
+    # Thread agent_id through to qubik_search.py so the call is attributed to the
+    # calling slot in qubik_query_log (without it the row logs as unknown/NULL).
+    agent_flag = f" --agent {json.dumps(agent_id)}" if agent_id else ""
+    script = (
+        f"cd ~/workspace/UBIK-ENGINE && "
+        f"python3 qubik_search.py {json.dumps(query)} {limit}{agent_flag} 2>/dev/null"
+    )
     rc, stdout, stderr = _run_ssh(script, timeout=15)
     if rc != 0:
         return {"error": f"qubik_search failed: {stderr.strip()}"}
@@ -512,6 +519,7 @@ def tool_record_usage(args: dict) -> dict:
     """
     tool_name = args.get("tool_name", "").strip()
     query = args.get("query", "").strip()
+    agent_id = (args.get("agent_id") or "").strip()
     if not tool_name:
         return {"error": "tool_name required"}
     if not query:
@@ -520,14 +528,19 @@ def tool_record_usage(args: dict) -> dict:
     # Run on the VM where the DB lives
     q_esc = query.replace("'", "")[:500]
     t_esc = tool_name.replace("'", "")[:200]
+    a_esc = agent_id.replace("'", "")[:200]
+    # When agent_id is known, scope the update to THIS slot's row so concurrent
+    # same-query calls from other agents don't get cross-attributed.
+    agent_cond = "AND agent_id=? " if agent_id else ""
+    agent_param = f', \"{a_esc}\"' if agent_id else ""
     script = (
         f"cd ~/workspace/UBIK-ENGINE && UBIK_DATA_DIR=/home/damienldx/.ubik-engine python3 -c '"
         f'import sys; sys.path.insert(0, \"src\"); '
         f'from db import get_connection, ensure_initialized; '
         f'ensure_initialized(); conn = get_connection(); '
         f'cur = conn.execute(\"UPDATE qubik_query_log SET tool_used=?, used_at=CURRENT_TIMESTAMP '
-        f'WHERE id = (SELECT id FROM qubik_query_log WHERE query_text=? AND tool_used IS NULL '
-        f'ORDER BY id DESC LIMIT 1)\", (\"{t_esc}\", \"{q_esc}\")); '
+        f'WHERE id = (SELECT id FROM qubik_query_log WHERE query_text=? {agent_cond}AND tool_used IS NULL '
+        f'ORDER BY id DESC LIMIT 1)\", (\"{t_esc}\", \"{q_esc}\"{agent_param})); '
         f'conn.commit(); '
         f'print(cur.rowcount)'
         f"' 2>/dev/null"
@@ -666,6 +679,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "query": {"type": "string", "description": "Describe what you want to accomplish"},
                 "limit": {"type": "integer", "description": "Max number of tools to return (default: 5)"},
+                "agent_id": {"type": "string", "description": "Calling slot id (e.g. '6da176c2-agent-7'). Attributes the query to this slot in qubik_query_log; omit and it logs as unknown."},
             },
             "required": ["query"],
         },
@@ -683,6 +697,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "tool_name": {"type": "string", "description": "Name of the tool actually used (e.g. 'agent_workspace_create')"},
                 "query": {"type": "string", "description": "The query you originally passed to qubik_suggest"},
+                "agent_id": {"type": "string", "description": "Calling slot id (e.g. '6da176c2-agent-7'). Scopes the tool_used update to this slot's row."},
             },
             "required": ["tool_name", "query"],
         },
