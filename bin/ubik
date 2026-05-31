@@ -90,12 +90,12 @@ def _stdio_call(command, request, env_extra=None):
     handshake, send `request` (id=2), return the matching JSON-RPC response.
     Runs the real server code => zero drift vs the gateway (same command).
     `env_extra` is an optional callable returning extra env vars (e.g. tokens)."""
-    import subprocess
+    import subprocess, threading
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                        "clientInfo": {"name": "ubik-cli", "version": "1"}}}
     inited = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-    stdin = "\n".join(json.dumps(m) for m in (init, inited, request)) + "\n"
+    payload = "\n".join(json.dumps(m) for m in (init, inited, request)) + "\n"
     # Match the gateway's runtime: use its nvm Node so tsx/node resolve identically
     # (avoids node-version drift in tool output) and inherit env (tokens come from
     # the caller's environment / per-server config, same as the gateway spawn).
@@ -110,19 +110,60 @@ def _stdio_call(command, request, env_extra=None):
             break
     if env_extra:
         env.update(env_extra())
-    proc = subprocess.run(command, input=stdin, capture_output=True, text=True,
-                          cwd=REPO, timeout=120, env=env)
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
+    # Client-driven lifecycle (do NOT use subprocess.run(input=...), which closes
+    # stdin immediately): writing all messages then closing stdin makes the MCP
+    # stdio server see EOF and tear down the session, which races the in-flight
+    # request handler's response write. The server starts the call (its side
+    # effect — e.g. a relay /send enqueue — fires) but the JSON-RPC reply is
+    # dropped before flush → "no response" raised here ~10% of the time → the
+    # caller double-sends an already-delivered DM. Repro'd 3/30; keeping stdin
+    # open until the id=2 reply is read, then tearing down, is 0/30.
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, cwd=REPO, env=env)
+    try:
+        proc.stdin.write(payload)
+        proc.stdin.flush()
+    except (BrokenPipeError, ValueError):
+        pass
+    # Drain stderr concurrently so a chatty server (FastMCP logs each call) can't
+    # fill the pipe and block the child before it answers.
+    err_buf = []
+    err_th = threading.Thread(target=lambda: err_buf.append(proc.stderr.read() or ""),
+                              daemon=True)
+    err_th.start()
+    result = {"resp": None}
+    def _read_resp():
+        for line in proc.stdout:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                m = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if m.get("id") == 2:
+                result["resp"] = m
+                return
+    read_th = threading.Thread(target=_read_resp, daemon=True)
+    read_th.start()
+    read_th.join(120)
+    # Reply captured (or timed out): now it is safe to close stdin and stop the
+    # server — the response write, if any, already happened.
+    try:
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
         try:
-            m = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if m.get("id") == 2:
-            return m
-    raise RuntimeError(f"no response from {command[-1]}; stderr={proc.stderr[-300:]}")
+            proc.kill()
+        except Exception:
+            pass
+    if result["resp"] is not None:
+        return result["resp"]
+    err_th.join(2)
+    err = ("".join(err_buf))[-300:]
+    raise RuntimeError(f"no response from {command[-1]}; stderr={err}")
 
 
 def _make_stdio(command, env_extra=None):
