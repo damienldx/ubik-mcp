@@ -517,10 +517,15 @@ def tool_suggest(args: dict) -> dict:
 def tool_record_usage(args: dict) -> dict:
     """Record which tool was actually used after a qubik_suggest.
 
-    Updates the most recent qubik_query_log row whose query_text matches
-    `query` (or partial-matches if exact not found) with tool_used.
-    This feeds the future rank-boost loop — tools used after being
-    suggested gain weight on semantically similar future queries.
+    Delegates to qubik_record_usage.py on the VM, which matches the most recent
+    qubik_query_log row by its NORMALIZED key (normalize_query) — the SAME key
+    qubik_search.py logs. This is symmetric by construction: emoji, unicode form,
+    case and any escaping introduced in transit no longer break the match.
+
+    Previously this ran inline SQL matching on the RAW query_text, while
+    qubik_suggest had logged the query escaped ("—" → literal "\\u2014") via an
+    upstream ensure_ascii=True serializer → 0 rows, recorded:false, feedback loop
+    silently dead (bug t_533ca5381f). Both sides now share normalize_query().
     """
     tool_name = args.get("tool_name", "").strip()
     query = args.get("query", "").strip()
@@ -530,44 +535,27 @@ def tool_record_usage(args: dict) -> dict:
     if not query:
         return {"error": "query required (the same query used in qubik_suggest)"}
 
-    # Run on the VM where the DB lives. Pass tool_name/query/agent_id as ARGV to the
-    # python -c (not string-interpolated into the SQL/shell) so apostrophes AND unicode
-    # survive verbatim — the previous version did query.replace("'","") which silently
-    # stripped apostrophes and never matched the raw query_text. query_text is stored
-    # raw by qubik_search.py, so we now match the raw query exactly. (LOT2 L4 fix #2)
-    py = (
-        'import sys; sys.path.insert(0, "src"); '
-        'from db import get_connection, ensure_initialized; '
-        'ensure_initialized(); conn = get_connection(); '
-        'tn, q = sys.argv[1], sys.argv[2]; '
-        'ag = sys.argv[3] if len(sys.argv) > 3 else None; '
-        'cond = "AND agent_id=? " if ag else ""; '
-        'params = [tn, q] + ([ag] if ag else []); '
-        'cur = conn.execute("UPDATE qubik_query_log SET tool_used=?, used_at=CURRENT_TIMESTAMP '
-        'WHERE id = (SELECT id FROM qubik_query_log WHERE query_text=? " + cond + "AND tool_used IS NULL '
-        'ORDER BY id DESC LIMIT 1)", params); '
-        'conn.commit(); print(cur.rowcount)'
-    )
-    argv = [tool_name, query] + ([agent_id] if agent_id else [])
+    # shlex.quote (not json.dumps) keeps unicode + apostrophes verbatim into argv;
+    # the script normalizes both stored and incoming query identically.
+    agent_flag = f" --agent {shlex.quote(agent_id)}" if agent_id else ""
     script = (
         "cd ~/workspace/UBIK-ENGINE && UBIK_DATA_DIR=/home/damienldx/.ubik-engine "
-        "python3 -c " + shlex.quote(py) + " "
-        + " ".join(shlex.quote(a) for a in argv) + " 2>/dev/null"
+        "python3 qubik_record_usage.py "
+        + f"{shlex.quote(tool_name)} {shlex.quote(query)}{agent_flag} 2>/dev/null"
     )
     rc, stdout, stderr = _run_ssh(script, timeout=10)
     if rc != 0:
         return {"error": f"record_usage failed: {stderr.strip()}"}
-    try:
-        updated = int(stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        updated = 0
-    return {
-        "recorded": updated > 0,
-        "tool_name": tool_name,
-        "query": query,
-        "rows_updated": updated,
-        "note": "If 0 rows updated, the query didn't match any recent qubik_suggest call — make sure you pass the SAME query string.",
-    }
+
+    # stdout may have log lines before JSON — find the JSON line (mirrors tool_suggest)
+    for line in stdout.strip().splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                pass
+    return {"error": "no JSON output from qubik_record_usage", "raw": stdout[:500]}
 
 
 def tool_prepull(_args: dict) -> dict:
