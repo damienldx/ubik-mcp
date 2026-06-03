@@ -41,8 +41,16 @@ REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 _REAL_HOME = os.path.dirname(os.path.dirname(REPO))
 
 BASE = os.environ.get("UBIK_WALL_BASE", "http://localhost:8091").rstrip("/")
-ATELIER_STATE = Path(os.environ.get(
-    "UBIK_ATELIER_STATE", os.path.join(_REAL_HOME, ".ubik-memory", "atelier", "state.json")))
+def _default_atelier_state() -> str:
+    # MMO-0 (2026-06-03): live stores migrated to UBIK_STATE_DIR (~/.ubik-state),
+    # outside any git worktree. Legacy ~/.ubik-memory path kept as fallback.
+    state_dir = os.environ.get("UBIK_STATE_DIR", "").strip() or os.path.join(_REAL_HOME, ".ubik-state")
+    new = os.path.join(state_dir, "atelier", "state.json")
+    legacy = os.path.join(_REAL_HOME, ".ubik-memory", "atelier", "state.json")
+    return new if os.path.exists(new) or not os.path.exists(legacy) else legacy
+
+
+ATELIER_STATE = Path(os.environ.get("UBIK_ATELIER_STATE", _default_atelier_state()))
 WALLS_PATH = Path(os.environ.get(
     "UBIK_WALL_PRESETS", os.path.join(_REAL_HOME, ".config", "ubik-wall", "walls.json")))
 
