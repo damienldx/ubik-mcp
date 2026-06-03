@@ -78,14 +78,17 @@ def _save_walls(walls: dict):
     tmp.replace(WALLS_PATH)
 
 
-def _active_plans() -> list[dict]:
+def _all_plans() -> list[dict]:
     try:
         state = json.loads(ATELIER_STATE.read_text(encoding="utf-8"))
     except Exception as e:
         _die(f"état atelier illisible ({ATELIER_STATE}): {e}")
     plans = state.get("plans") or {}
-    items = plans.values() if isinstance(plans, dict) else plans
-    return [p for p in items
+    return list(plans.values() if isinstance(plans, dict) else plans)
+
+
+def _active_plans() -> list[dict]:
+    return [p for p in _all_plans()
             if not p.get("archived") and p.get("status") not in INACTIVE_PLAN_STATES]
 
 
@@ -145,9 +148,33 @@ def cmd_open(args):
     elif args.plan:
         plans = [p for p in _active_plans() if p.get("id") == args.plan]
         if not plans:
-            _die(f"plan actif introuvable: {args.plan!r} (archivé/terminé ou inexistant)")
+            # Distinguer inexistant / inactif (t_1764850529) — un ID tronqué
+            # d'un char (copié depuis un affichage amputé) tombe ici : on
+            # oriente vers la vérification de l'ID complet.
+            match = [p for p in _all_plans() if p.get("id") == args.plan]
+            if match:
+                st = match[0].get("status", "?")
+                arch = ", archivé" if match[0].get("archived") else ""
+                _die(f"plan {args.plan!r} existe mais n'est plus actif "
+                     f"(status={st}{arch}) — le mur ne s'affiche que pour un plan actif")
+            _die(f"plan inexistant: {args.plan!r} — vérifie l'ID complet "
+                 f"(13 chars, ex: plan_922765fa ; un ID copié tronqué d'un "
+                 f"caractère est la cause classique)")
         agents = _agents_for_plan(plans[0], wave_current=bool(args.wave))
         label = f"plan {args.plan}" + (" (wave courante)" if args.wave else " (missions actives)")
+        if not agents:
+            # Plan trouvé et actif mais 0 mission dispatched/working :
+            # pré-dispatch (gate) ≠ plan introuvable — message dédié avec
+            # l'inventaire des missions pour situer où en est le pipeline.
+            missions = plans[0].get("missions") or []
+            counts: dict[str, int] = {}
+            for m in missions:
+                s = m.get("status") or "?"
+                counts[s] = counts.get(s, 0) + 1
+            det = ", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "aucune mission décomposée"
+            _die(f"plan {args.plan} trouvé [{plans[0].get('status', '?')}] mais aucune mission "
+                 f"dispatched/working — pré-dispatch probable : {len(missions)} mission(s) ({det}). "
+                 f"Le mur s'allume au dispatch.", 2)
     else:  # --wave current global
         agents = [a for p in _active_plans() for a in _agents_for_plan(p, wave_current=True)]
         label = "wave courante (tous plans actifs)"

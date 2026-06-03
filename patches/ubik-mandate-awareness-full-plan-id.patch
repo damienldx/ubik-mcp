@@ -1,0 +1,11 @@
+--- a/.claude/hooks/ubik-mandate-awareness.sh
++++ b/.claude/hooks/ubik-mandate-awareness.sh
+@@ -194,7 +194,7 @@
+     if active_plans:
+         lines.append("PLANS ACTIFS:")
+         for p in active_plans[:3]:
+-            pid = p.get("id", "?")[:12]
++            pid = p.get("id", "?")  # ID COMPLET — un [:12] amputait le 13e char (plan_922765fa→plan_922765f) et cassait ubik-wall open --plan au copier-coller (t_1764850529)
+             title = p.get("title", "sans titre")[:60]
+             status = p.get("status", "?")
+             missions = p.get("missions", [])
