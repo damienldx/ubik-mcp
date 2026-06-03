@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ubik-peek — observe a fleet agent's live terminal (CLI replacement for the
+# agent_terminal MCP tool). Fleet agents each run in a tmux session named by
+# their agent_id on the shared operator tmux server, so a capture-pane reads
+# exactly what that agent is doing right now.
+#
+# Usage:
+#   ubik-peek                 # list active fleet tmux sessions (agent ids)
+#   ubik-peek <agent_id>      # show last 40 non-empty lines of that agent's pane
+#   ubik-peek <agent_id> 80   # show last 80 lines
+#
+# Reflex: after a dispatch/brief, OBSERVE the pane instead of waiting blind.
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    echo "Active fleet panes (tmux sessions):"
+    tmux ls 2>/dev/null | grep -E '\-agent-[0-9]+:' | sed 's/:.*//' | sort -V
+    echo
+    echo "Usage: ubik-peek <agent_id> [lines]"
+    exit 0
+fi
+
+AGENT="$1"
+LINES="${2:-40}"
+
+if ! tmux has-session -t "$AGENT" 2>/dev/null; then
+    echo "ubik-peek: no tmux session for '$AGENT'" >&2
+    echo "Known sessions:" >&2
+    tmux ls 2>/dev/null | grep -E '\-agent-[0-9]+:' | sed 's/:.*//' | sort -V >&2
+    exit 1
+fi
+
+# -p prints to stdout; -S -<n> would scroll back, but the visible pane is what
+# matters for "what is the agent doing now". Drop blank lines, keep the tail.
+tmux capture-pane -t "$AGENT" -p 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$LINES"
