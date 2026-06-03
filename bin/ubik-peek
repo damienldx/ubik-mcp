@@ -5,31 +5,155 @@
 # exactly what that agent is doing right now.
 #
 # Usage:
-#   ubik-peek                 # list active fleet tmux sessions (agent ids)
-#   ubik-peek <agent_id>      # show last 40 non-empty lines of that agent's pane
-#   ubik-peek <agent_id> 80   # show last 80 lines
+#   ubik-peek                     # list active fleet tmux sessions (agent ids)
+#   ubik-peek <agent_id>          # show last 40 non-empty lines of that agent's pane
+#   ubik-peek <agent_id> 80       # show last 80 lines
+#   ubik-peek --diff <agent_id>   # only lines NEW since the last --diff peek,
+#                                 # + compact verdict: CHANGED | unchanged | ⚠ IDLE ≥5min
+#   ubik-peek --all [lines]       # snapshot: one block per active agent (default 8 lines)
+#   ubik-peek --grid N [lines]    # like --all, N columns side by side
+#
+# --diff keeps its state OUTSIDE the LLM context (~/.cache/ubik-peek/<agent>.last):
+# re-peeking an unchanged pane costs 1 verdict line instead of re-paying the full
+# pane. Zero delta for >= 5 min flags the agent IDLE (possibly stuck). RTK spirit:
+# compress the noise, never the signal.
 #
 # Reflex: after a dispatch/brief, OBSERVE the pane instead of waiting blind.
 set -euo pipefail
 
-if [ $# -eq 0 ]; then
-    echo "Active fleet panes (tmux sessions):"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ubik-peek"
+IDLE_THRESHOLD_MIN=5
+
+list_sessions() {
     tmux ls 2>/dev/null | grep -E '\-agent-[0-9]+:' | sed 's/:.*//' | sort -V
-    echo
-    echo "Usage: ubik-peek <agent_id> [lines]"
-    exit 0
-fi
+}
 
-AGENT="$1"
-LINES="${2:-40}"
+# Visible pane, blank lines dropped — same capture as v1.
+capture() {
+    tmux capture-pane -t "$1" -p 2>/dev/null | grep -v '^[[:space:]]*$' || true
+}
 
-if ! tmux has-session -t "$AGENT" 2>/dev/null; then
-    echo "ubik-peek: no tmux session for '$AGENT'" >&2
-    echo "Known sessions:" >&2
-    tmux ls 2>/dev/null | grep -E '\-agent-[0-9]+:' | sed 's/:.*//' | sort -V >&2
-    exit 1
-fi
+require_session() {
+    if ! tmux has-session -t "$1" 2>/dev/null; then
+        echo "ubik-peek: no tmux session for '$1'" >&2
+        echo "Known sessions:" >&2
+        list_sessions >&2
+        exit 1
+    fi
+}
 
-# -p prints to stdout; -S -<n> would scroll back, but the visible pane is what
-# matters for "what is the agent doing now". Drop blank lines, keep the tail.
-tmux capture-pane -t "$AGENT" -p 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$LINES"
+peek_classic() { # $1 agent, $2 lines — v1 behavior, byte-for-byte
+    require_session "$1"
+    # -p prints to stdout; -S -<n> would scroll back, but the visible pane is what
+    # matters for "what is the agent doing now". Drop blank lines, keep the tail.
+    capture "$1" | tail -n "$2"
+}
+
+peek_diff() { # $1 agent
+    local agent="$1" last stamp now cur delta min since
+    require_session "$agent"
+    mkdir -p "$CACHE_DIR"
+    # Opportunistic hygiene: drop state of agents not peeked for a week.
+    find "$CACHE_DIR" -type f -mtime +7 -delete 2>/dev/null || true
+    last="$CACHE_DIR/$agent.last"
+    stamp="$CACHE_DIR/$agent.lastchange"
+    now=$(date +%s)
+    cur=$(capture "$agent")
+
+    if [ ! -f "$last" ]; then
+        printf '%s\n' "$cur" > "$last"
+        echo "$now" > "$stamp"
+        echo "── $agent · BASELINE (premier peek, état initialisé — les prochains --diff seront des deltas) ──"
+        printf '%s\n' "$cur" | tail -n 15
+        return 0
+    fi
+
+    # Delta = lines present now but absent from the previous capture.
+    # Set-based (grep -Fx) so lines that merely scrolled up stay "seen";
+    # -F because pane content is full of regex metacharacters.
+    delta=$(printf '%s\n' "$cur" | grep -Fxv -f "$last" || true)
+
+    if [ -n "$delta" ]; then
+        printf '%s\n' "$cur" > "$last"
+        echo "$now" > "$stamp"
+        echo "── $agent · CHANGED ──"
+        printf '%s\n' "$delta"
+    else
+        since=$(( now - $(cat "$stamp" 2>/dev/null || echo "$now") ))
+        min=$(( since / 60 ))
+        if [ "$min" -ge "$IDLE_THRESHOLD_MIN" ]; then
+            echo "── $agent · ⚠ IDLE depuis ${min}min (≥${IDLE_THRESHOLD_MIN}min sans delta — agent possiblement bloqué) ──"
+        else
+            echo "── $agent · unchanged (${min}min sans delta) ──"
+        fi
+    fi
+}
+
+peek_all() { # $1 lines per block
+    local lines="$1" sessions s
+    sessions=$(list_sessions)
+    if [ -z "$sessions" ]; then
+        echo "ubik-peek: no active fleet sessions"
+        return 0
+    fi
+    for s in $sessions; do
+        echo "═══ $s ═══"
+        capture "$s" | tail -n "$lines"
+        echo
+    done
+}
+
+peek_grid() { # $1 ncols, $2 lines per block
+    local ncols="$1" lines="$2" width tmpdir blocks=() s i row
+    case "$ncols" in (*[!0-9]*|'') echo "ubik-peek: --grid expects a column count, got '$ncols'" >&2; exit 1;; esac
+    [ "$ncols" -lt 1 ] && ncols=1
+    width="${COLUMNS:-$(tput cols 2>/dev/null || echo 200)}"
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+    i=0
+    for s in $(list_sessions); do
+        { echo "═══ $s ═══"; capture "$s" | tail -n "$lines"; } > "$tmpdir/$i"
+        blocks+=("$tmpdir/$i"); i=$((i+1))
+    done
+    if [ "$i" -eq 0 ]; then
+        echo "ubik-peek: no active fleet sessions"
+        return 0
+    fi
+    # pr -m merges files as parallel columns, truncating long lines per column.
+    set -- "${blocks[@]}"
+    while [ $# -gt 0 ]; do
+        row=("$1"); shift
+        while [ ${#row[@]} -lt "$ncols" ] && [ $# -gt 0 ]; do row+=("$1"); shift; done
+        pr -m -t -W "$width" "${row[@]}"
+        echo
+    done
+}
+
+case "${1:-}" in
+    "")
+        echo "Active fleet panes (tmux sessions):"
+        list_sessions
+        echo
+        echo "Usage: ubik-peek <agent_id> [lines]"
+        echo "       ubik-peek --diff <agent_id> | --all [lines] | --grid N [lines]"
+        exit 0
+        ;;
+    --diff)
+        [ $# -ge 2 ] || { echo "Usage: ubik-peek --diff <agent_id>" >&2; exit 1; }
+        peek_diff "$2"
+        ;;
+    --all)
+        peek_all "${2:-8}"
+        ;;
+    --grid)
+        [ $# -ge 2 ] || { echo "Usage: ubik-peek --grid N [lines]" >&2; exit 1; }
+        peek_grid "$2" "${3:-8}"
+        ;;
+    -h|--help)
+        sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        peek_classic "$1" "${2:-40}"
+        ;;
+esac
