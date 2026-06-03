@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""ubik-wall — fabrique des deep-links TerminalPanel (mur mission-control).
+
+Le CLI FABRIQUE l'URL (?agents=a,b,c lue par le TerminalPanel) et l'imprime —
+il n'ouvre aucun transport (ttyd/tmux/Caddy intacts ; voir ubik-tty pour la
+gestion des viewers).
+
+Usage:
+    ubik-wall save <nom> <agents...>     # persiste un preset nommé
+    ubik-wall open <nom>                 # deep-link du preset
+    ubik-wall open --plan <plan_id>      # agents des missions ACTIVES du plan
+    ubik-wall open --plan <pid> --wave current   # … wave en cours uniquement
+    ubik-wall open --wave current        # wave en cours, tous plans actifs
+    ubik-wall list                       # presets enregistrés
+
+Options d'open :
+    --open             ouvre aussi l'URL via xdg-open (best effort)
+    --workspace <id>   ajoute &workspace=<id> (popout d'un workspace dédié)
+
+Env :
+    UBIK_WALL_BASE     base du front (def http://localhost:8091)
+    UBIK_ATELIER_STATE state atelier (def <home opérateur>/.ubik-memory/atelier/state.json)
+
+Sélection dérivée de l'état atelier : missions status dispatched/working des
+plans non archivés/terminés (même source de vérité que le guard ubik-tty).
+`--wave current` = la plus petite wave ayant une mission active ; sans --plan,
+l'union des waves courantes de chaque plan actif.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import quote
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+_REAL_HOME = os.path.dirname(os.path.dirname(REPO))
+
+BASE = os.environ.get("UBIK_WALL_BASE", "http://localhost:8091").rstrip("/")
+ATELIER_STATE = Path(os.environ.get(
+    "UBIK_ATELIER_STATE", os.path.join(_REAL_HOME, ".ubik-memory", "atelier", "state.json")))
+WALLS_PATH = Path(os.environ.get(
+    "UBIK_WALL_PRESETS", os.path.join(_REAL_HOME, ".config", "ubik-wall", "walls.json")))
+
+AGENT_RE = re.compile(r"^[0-9a-f]{8}-agent-\d+$")
+ACTIVE_MISSION_STATES = {"dispatched", "working"}
+INACTIVE_PLAN_STATES = {"cancelled", "completed", "failed"}
+
+
+def _die(msg: str, code: int = 1):
+    print(f"ubik-wall: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _load_walls() -> dict:
+    try:
+        return json.loads(WALLS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_walls(walls: dict):
+    WALLS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = WALLS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(walls, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(WALLS_PATH)
+
+
+def _active_plans() -> list[dict]:
+    try:
+        state = json.loads(ATELIER_STATE.read_text(encoding="utf-8"))
+    except Exception as e:
+        _die(f"état atelier illisible ({ATELIER_STATE}): {e}")
+    plans = state.get("plans") or {}
+    items = plans.values() if isinstance(plans, dict) else plans
+    return [p for p in items
+            if not p.get("archived") and p.get("status") not in INACTIVE_PLAN_STATES]
+
+
+def _agents_for_plan(plan: dict, wave_current: bool) -> list[str]:
+    active = [m for m in plan.get("missions") or []
+              if m.get("status") in ACTIVE_MISSION_STATES and m.get("agent_id")]
+    if wave_current and active:
+        cur = min(m.get("wave", 0) for m in active)
+        active = [m for m in active if m.get("wave", 0) == cur]
+    return [m["agent_id"] for m in active]
+
+
+def _build_url(agents: list[str], workspace: str | None) -> str:
+    seen, ordered = set(), []
+    for a in agents:
+        if a not in seen:
+            seen.add(a)
+            ordered.append(a)
+    url = f"{BASE}/?agents={quote(','.join(ordered), safe=',-')}"
+    if workspace:
+        url += f"&workspace={quote(workspace)}"
+    return url
+
+
+def cmd_save(args):
+    bad = [a for a in args.agents if not AGENT_RE.match(a)]
+    if bad:
+        _die(f"agent_id invalide: {', '.join(bad)} (attendu <vehicle8hex>-agent-N)")
+    walls = _load_walls()
+    walls[args.nom] = args.agents
+    _save_walls(walls)
+    print(f"preset {args.nom!r} enregistré ({len(args.agents)} agents) → {WALLS_PATH}")
+
+
+def cmd_list(_args):
+    walls = _load_walls()
+    if not walls:
+        print(f"aucun preset ({WALLS_PATH}) — ubik-wall save <nom> <agents...>")
+        return
+    for nom, agents in sorted(walls.items()):
+        print(f"{nom:<20} {len(agents)} agents : {', '.join(agents)}")
+
+
+def cmd_open(args):
+    sources = sum(1 for x in (args.nom, args.plan) if x) + (1 if (args.wave and not args.plan) else 0)
+    if sources == 0:
+        _die("usage: open <nom> | open --plan <plan_id> [--wave current] | open --wave current")
+    if args.wave and args.wave != "current":
+        _die(f"--wave: seule la valeur 'current' est supportée (reçu {args.wave!r})")
+
+    if args.nom:
+        walls = _load_walls()
+        if args.nom not in walls:
+            known = ", ".join(sorted(walls)) or "(aucun)"
+            _die(f"preset inconnu: {args.nom!r} — connus: {known}")
+        agents, label = walls[args.nom], f"preset {args.nom!r}"
+    elif args.plan:
+        plans = [p for p in _active_plans() if p.get("id") == args.plan]
+        if not plans:
+            _die(f"plan actif introuvable: {args.plan!r} (archivé/terminé ou inexistant)")
+        agents = _agents_for_plan(plans[0], wave_current=bool(args.wave))
+        label = f"plan {args.plan}" + (" (wave courante)" if args.wave else " (missions actives)")
+    else:  # --wave current global
+        agents = [a for p in _active_plans() for a in _agents_for_plan(p, wave_current=True)]
+        label = "wave courante (tous plans actifs)"
+
+    if not agents:
+        _die(f"{label}: aucun agent en mission active — rien à afficher au mur", 2)
+
+    url = _build_url(agents, args.workspace)
+    print(url)
+    print(f"# {label}: {len(dict.fromkeys(agents))} agents", file=sys.stderr)
+    if args.open:
+        try:
+            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"# xdg-open indisponible ({e}) — copie l'URL ci-dessus", file=sys.stderr)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="ubik-wall", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("save", help="persiste un preset nommé d'agents")
+    p.add_argument("nom")
+    p.add_argument("agents", nargs="+")
+    p.set_defaults(fn=cmd_save)
+
+    p = sub.add_parser("open", help="imprime le deep-link TerminalPanel")
+    p.add_argument("nom", nargs="?")
+    p.add_argument("--plan", metavar="PLAN_ID")
+    p.add_argument("--wave", metavar="current")
+    p.add_argument("--workspace", metavar="ID", help="passthrough &workspace=<id> (popout)")
+    p.add_argument("--open", action="store_true", help="ouvre aussi via xdg-open (best effort)")
+    p.set_defaults(fn=cmd_open)
+
+    p = sub.add_parser("list", help="liste les presets")
+    p.set_defaults(fn=cmd_list)
+
+    args = ap.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
