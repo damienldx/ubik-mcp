@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""ubik-tty — CLI de supervision des terminaux fleet (ttyd/tmux), côté serveur.
+
+Suite CLI du Terminal Panel : observe et gère les viewers ttyd des agents
+fleet sans toucher au transport (ttyd / tmux / systemd / Caddy intacts).
+spawn/kill passent par l'API backend existante (la même que le panel) pour
+que l'état interne du backend (ttyd_procs, routes Caddy) reste cohérent.
+
+Usage:
+    ubik-tty status [--json]            # services ttyd up : port, depuis quand, qui streame
+    ubik-tty spawn <agent...>           # pré-chauffe ttyd (spawn-on-demand backend + probe readiness)
+    ubik-tty kill <agent> [--hold REF]  # stop le viewer ttyd — GUARD: refuse si mission active
+    ubik-tty kill --idle <durée>        # stop les viewers sans client depuis ≥ durée (30m, 2h, 1d)
+    ubik-tty url <agent>                # imprime /tty/<agent>/ et /terminal/open/<agent>
+    ubik-tty rec <agent> start|stop     # enregistre le pane tmux → .cast (asciinema v2)
+    ubik-tty rec [<agent>] list         # liste les enregistrements (+ actifs)
+
+GUARD DUR (verbatim LEAD) : kill JAMAIS sur un agent en mission active
+(status dispatched/working dans l'état atelier) sans HOLD explicite.
+`--hold REF` = référence du HOLD accordé (ex: "LEAD DM 2026-06-03") —
+exigée pour outrepasser, tracée sur stdout. State illisible → fail-safe: refus.
+
+Enregistrement (rec) :
+  - Format asciinema v2 (rejouable: `asciinema play <f>.cast`):
+    ligne 1 = header JSON {version:2,width,height,timestamp,title},
+    puis 1 event JSON par ligne: [t_rel_sec, "o", "data"].
+  - Rétention (condition dure LEAD — pas de bande infinie) :
+    UBIK_TTY_REC_MAX_MB   (def 16)  taille max d'un .cast → rotation en .partN.cast
+                                    (seuil vérifié après chaque chunk : taille réelle
+                                    max + dernier chunk, ≤ max + 64KB)
+    UBIK_TTY_REC_QUOTA_MB (def 512) quota global du dossier rec/ → purge auto des plus vieux
+  - UBIK_TTY_REC_DIR (def <home opérateur>/.ubik-tty/rec/<agent>/<utc>.cast)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Resolve operator home from the script's REAL location (fleet agents run with
+# HOME=~/.fleet/<id> — same pattern as bin/ubik).
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+_REAL_HOME = os.path.dirname(os.path.dirname(REPO))
+
+BACKEND = os.environ.get("UBIK_BACKEND", "http://127.0.0.1:8765")
+ATELIER_STATE = Path(os.environ.get(
+    "UBIK_ATELIER_STATE", os.path.join(_REAL_HOME, ".ubik-memory", "atelier", "state.json")))
+REC_DIR = Path(os.environ.get("UBIK_TTY_REC_DIR", os.path.join(_REAL_HOME, ".ubik-tty", "rec")))
+REC_MAX_BYTES = int(float(os.environ.get("UBIK_TTY_REC_MAX_MB", "16")) * 1024 * 1024)
+REC_QUOTA_BYTES = int(float(os.environ.get("UBIK_TTY_REC_QUOTA_MB", "512")) * 1024 * 1024)
+
+UNIT_RE = re.compile(r"^ubik-ttyd-(?P<agent>[0-9a-f]{8}-agent-\d+)\.service$")
+AGENT_RE = re.compile(r"^[0-9a-f]{8}-agent-\d+$")
+# Mission states that mean "agent is actively on a mission" (frozen LEAD wording).
+ACTIVE_MISSION_STATES = {"dispatched", "working"}
+INACTIVE_PLAN_STATES = {"cancelled", "completed", "failed"}
+
+
+def _die(msg: str, code: int = 1):
+    print(f"ubik-tty: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _agent_ok(agent: str) -> str:
+    if not AGENT_RE.match(agent):
+        _die(f"agent_id invalide: {agent!r} (attendu <vehicle8hex>-agent-N)")
+    return agent
+
+
+def _run(cmd: list[str], timeout: float = 5) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+# ── systemd / ttyd introspection (lecture seule) ─────────────────────────────
+
+def _ttyd_units() -> list[str]:
+    r = _run(["systemctl", "--user", "list-units", "ubik-ttyd-*", "--all",
+              "--no-legend", "--plain", "--no-pager"])
+    units = []
+    for line in (r.stdout or "").splitlines():
+        name = line.split()[0] if line.split() else ""
+        if UNIT_RE.match(name):
+            units.append(name)
+    return sorted(units)
+
+
+def _unit_props(unit: str) -> dict:
+    r = _run(["systemctl", "--user", "show", unit,
+              "-p", "MainPID", "-p", "ActiveState", "-p", "ActiveEnterTimestamp"])
+    props = {}
+    for line in (r.stdout or "").splitlines():
+        k, _, v = line.partition("=")
+        props[k] = v
+    return props
+
+
+def _port_and_session_from_pid(pid: int) -> tuple[int | None, str | None]:
+    """Port (-p N) + session tmux (dernier argv) depuis /proc — même logique
+    que recover_ttyd_port() du backend, étendue à la session."""
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
+        port = None
+        for i, a in enumerate(argv):
+            if a == b"-p" and i + 1 < len(argv):
+                port = int(argv[i + 1])
+        session = argv[-2].decode() if argv and argv[-1] == b"" else (argv[-1].decode() if argv else None)
+        return port, session
+    except Exception:
+        return None, None
+
+
+def _established_clients(port: int) -> list[str]:
+    r = _run(["ss", "-Htn", "state", "established", f"( sport = :{port} )"])
+    peers = []
+    for line in (r.stdout or "").splitlines():
+        cols = line.split()
+        if len(cols) >= 4:
+            peers.append(cols[-1])  # peer addr:port
+    return peers
+
+
+def _uptime_seconds(active_enter: str) -> float | None:
+    # ActiveEnterTimestamp: "Wed 2026-06-03 17:35:50 UTC"
+    try:
+        ts = datetime.strptime(active_enter.strip(), "%a %Y-%m-%d %H:%M:%S %Z")
+        return max(0.0, datetime.now(timezone.utc).timestamp() - ts.replace(tzinfo=timezone.utc).timestamp())
+    except Exception:
+        return None
+
+
+def _fmt_dur(sec: float | None) -> str:
+    if sec is None:
+        return "?"
+    sec = int(sec)
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m{sec % 60:02d}s"
+    if sec < 86400:
+        return f"{sec // 3600}h{(sec % 3600) // 60:02d}m"
+    return f"{sec // 86400}d{(sec % 86400) // 3600:02d}h"
+
+
+def _parse_dur(s: str) -> float:
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*([smhd])$", s.strip())
+    if not m:
+        _die(f"durée invalide: {s!r} (attendu Ns/Nm/Nh/Nd, ex: 30m, 2h)")
+    mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    return float(m.group(1)) * mult
+
+
+def _collect_status() -> list[dict]:
+    rows = []
+    for unit in _ttyd_units():
+        agent = UNIT_RE.match(unit).group("agent")
+        props = _unit_props(unit)
+        pid = int(props.get("MainPID") or 0)
+        port = session = None
+        if pid > 0:
+            port, session = _port_and_session_from_pid(pid)
+        clients = _established_clients(port) if port else []
+        up = _uptime_seconds(props.get("ActiveEnterTimestamp", ""))
+        rows.append({
+            "agent": agent, "unit": unit,
+            "active": props.get("ActiveState") == "active",
+            "port": port, "tmux_session": session,
+            "since": props.get("ActiveEnterTimestamp") or None,
+            "uptime_s": up, "clients": len(clients), "client_peers": clients,
+        })
+    return rows
+
+
+# ── atelier mission guard ─────────────────────────────────────────────────────
+
+def _active_missions_for(agent: str) -> list[dict] | None:
+    """Missions dispatched/working pour cet agent (plans non archivés/terminés).
+    None = state illisible (le caller DOIT fail-safe en refus)."""
+    try:
+        state = json.loads(ATELIER_STATE.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    found = []
+    plans = state.get("plans") or {}
+    items = plans.items() if isinstance(plans, dict) else ((p.get("id"), p) for p in plans)
+    for pid, plan in items:
+        if plan.get("archived") or (plan.get("status") in INACTIVE_PLAN_STATES):
+            continue
+        for m in plan.get("missions") or []:
+            if m.get("agent_id") == agent and m.get("status") in ACTIVE_MISSION_STATES:
+                found.append({"plan": plan.get("id") or pid, "mission": m.get("id"),
+                              "status": m.get("status"), "title": (m.get("title") or "")[:60]})
+    return found
+
+
+# ── backend API (réutilisation — zéro duplication de la tuyauterie) ──────────
+
+def _http(method: str, path: str, timeout: float = 15) -> tuple[int, bytes]:
+    req = urllib.request.Request(f"{BACKEND}{path}", method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        _die(f"backend {BACKEND} injoignable ({e}) — spawn/kill passent par l'API "
+             f"backend pour garder ttyd_procs + routes Caddy cohérents ; réessaie quand il est up.")
+
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+def cmd_status(args):
+    rows = _collect_status()
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print("aucun service ubik-ttyd-* (les viewers spawnent on-demand : ubik-tty spawn <agent>)")
+        return
+    print(f"{'AGENT':<24} {'PORT':<6} {'UP':<8} {'DEPUIS':<10} {'CLIENTS':<8} TMUX")
+    for r in rows:
+        streamers = f"{r['clients']}" + (f" ({', '.join(r['client_peers'][:3])})" if r["client_peers"] else "")
+        print(f"{r['agent']:<24} {r['port'] or '?':<6} {'up' if r['active'] else 'DOWN':<8} "
+              f"{_fmt_dur(r['uptime_s']):<10} {streamers:<8} {r['tmux_session'] or '?'}")
+
+
+def cmd_spawn(args):
+    for agent in args.agents:
+        _agent_ok(agent)
+        code, _ = _http("GET", f"/terminal/open/{agent}")
+        ok = code == 200
+        print(f"{agent}: {'spawned (ttyd prêt, probe readiness backend passée)' if ok else f'ÉCHEC HTTP {code}'}")
+        if not ok:
+            sys.exit(1)
+
+
+def cmd_kill(args):
+    if args.idle:
+        dur = _parse_dur(args.idle)
+        targets = [r for r in _collect_status()
+                   if r["active"] and r["clients"] == 0
+                   and r["uptime_s"] is not None and r["uptime_s"] >= dur]
+        if not targets:
+            print(f"aucun viewer idle (0 client, up ≥ {args.idle})")
+            return
+        agents = [r["agent"] for r in targets]
+    elif args.agent:
+        agents = [_agent_ok(args.agent)]
+    else:
+        _die("usage: kill <agent> | kill --idle <durée>")
+
+    for agent in agents:
+        missions = _active_missions_for(agent)
+        if missions is None and not args.hold:
+            _die(f"{agent}: état atelier illisible ({ATELIER_STATE}) → FAIL-SAFE: kill REFUSÉ. "
+                 f"(GUARD LEAD: jamais de kill sans visibilité mission ; --hold REF pour HOLD explicite)", 2)
+        if missions and not args.hold:
+            det = "; ".join(f"{m['plan']}/{m['mission']} [{m['status']}]" for m in missions)
+            _die(f"{agent}: REFUSÉ — mission active ({det}). "
+                 f"GUARD DUR LEAD: kill JAMAIS sur un agent en mission active sans HOLD explicite. "
+                 f"Obtiens le HOLD (LEAD) puis relance avec --hold '<référence du HOLD>'.", 2)
+        if args.hold:
+            print(f"{agent}: HOLD explicite fourni — ref: {args.hold!r} (tracé)")
+        code, _ = _http("DELETE", f"/terminal/{agent}")
+        print(f"{agent}: {'viewer ttyd stoppé (unit + route Caddy via backend)' if code == 200 else f'ÉCHEC HTTP {code}'}")
+        if code != 200:
+            sys.exit(1)
+
+
+def cmd_url(args):
+    agent = _agent_ok(args.agent)
+    print(f"/tty/{agent}/")
+    print(f"/terminal/open/{agent}")
+    print(f"{BACKEND}/terminal/open/{agent}")
+
+
+# ── rec : tmux pipe-pane → asciinema v2 ──────────────────────────────────────
+
+def _tmux_session_for(agent: str) -> str:
+    # même résolution que le backend : relay tmux_target, fallback agent_id
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:7894/agents", timeout=2) as r:
+            data = json.loads(r.read())
+        target = (data.get(agent) or {}).get("tmux_target", "")
+        if target:
+            return target.split(":")[0]
+    except Exception:
+        pass
+    return agent
+
+
+def _pane_piping(session: str) -> bool:
+    r = _run(["tmux", "display", "-p", "-t", session, "#{pane_pipe}"])
+    return (r.stdout or "").strip() == "1"
+
+
+def _purge_quota(active_path: Path | None = None):
+    """Purge les .cast les plus vieux (mtime) jusqu'à total ≤ quota.
+    Condition dure LEAD : pas de bande infinie sur disque."""
+    casts = sorted(REC_DIR.glob("*/*.cast"), key=lambda p: p.stat().st_mtime)
+    total = sum(p.stat().st_size for p in casts)
+    for p in casts:
+        if total <= REC_QUOTA_BYTES:
+            break
+        if active_path and p.resolve() == active_path.resolve():
+            continue  # jamais purger le fichier en cours d'écriture
+        sz = p.stat().st_size
+        p.unlink(missing_ok=True)
+        total -= sz
+        print(f"rec: purge quota ({REC_QUOTA_BYTES // (1024*1024)}MB) → supprimé {p}", file=sys.stderr)
+
+
+def cmd_rec(args):
+    if args.action == "list":
+        pattern = f"{args.agent}/*.cast" if args.agent else "*/*.cast"
+        casts = sorted(REC_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+        total = sum(p.stat().st_size for p in casts)
+        active = set()
+        for agent_dir in {p.parent.name for p in casts}:
+            if AGENT_RE.match(agent_dir) and _pane_piping(_tmux_session_for(agent_dir)):
+                active.add(agent_dir)
+        if not casts:
+            print(f"aucun .cast sous {REC_DIR}" + (f" pour {args.agent}" if args.agent else ""))
+            return
+        for p in casts:
+            mark = " [REC ●]" if p.parent.name in active and p == max(
+                (q for q in casts if q.parent == p.parent), key=lambda q: q.stat().st_mtime) else ""
+            print(f"{p.stat().st_size/1048576:7.2f}MB  {datetime.fromtimestamp(p.stat().st_mtime).strftime('%Y-%m-%d %H:%M')}  {p}{mark}")
+        print(f"total: {total/1048576:.2f}MB / quota {REC_QUOTA_BYTES//(1024*1024)}MB "
+              f"(max/fichier {REC_MAX_BYTES//(1024*1024)}MB) — rejouer: asciinema play <f>")
+        return
+
+    agent = _agent_ok(args.agent)
+    session = _tmux_session_for(agent)
+    if _run(["tmux", "has-session", "-t", session]).returncode != 0:
+        _die(f"pas de session tmux {session!r} pour {agent}")
+
+    if args.action == "start":
+        if _pane_piping(session):
+            _die(f"{agent}: un pipe-pane est déjà actif sur {session} (rec stop d'abord)", 2)
+        dims = _run(["tmux", "display", "-p", "-t", session, "#{pane_width} #{pane_height}"]).stdout.split()
+        w, h = (dims + ["80", "24"])[:2]
+        rec_dir = REC_DIR / agent
+        rec_dir.mkdir(parents=True, exist_ok=True)
+        cast = rec_dir / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".cast")
+        _purge_quota()
+        self_path = os.path.realpath(__file__)
+        sink = f"{sys.executable} {self_path} _rec-sink {cast} {w} {h}"
+        r = _run(["tmux", "pipe-pane", "-t", session, "-o", sink])
+        if r.returncode != 0:
+            _die(f"pipe-pane a échoué: {r.stderr.strip()}")
+        print(f"{agent}: REC démarré → {cast} (asciinema v2, rotation {REC_MAX_BYTES//(1024*1024)}MB, "
+              f"quota global {REC_QUOTA_BYTES//(1024*1024)}MB)")
+        return
+
+    if args.action == "stop":
+        if not _pane_piping(session):
+            print(f"{agent}: aucun enregistrement actif sur {session}")
+            return
+        _run(["tmux", "pipe-pane", "-t", session])  # sans commande = ferme le pipe
+        print(f"{agent}: REC arrêté (pipe-pane fermé)")
+        return
+
+
+def cmd_rec_sink(args):
+    """Interne (lancé par tmux pipe-pane) : stdin → events asciinema v2.
+    Rotation taille max + purge quota à chaque ouverture de fichier."""
+    cast = Path(args.cast)
+    w, h = args.width, args.height
+
+    def _open_new(path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        f = path.open("w", encoding="utf-8")
+        f.write(json.dumps({"version": 2, "width": int(w), "height": int(h),
+                            "timestamp": int(time.time()),
+                            "title": f"ubik-tty rec {path.parent.name}"}) + "\n")
+        f.flush()
+        _purge_quota(active_path=path)
+        return f, time.monotonic()
+
+    f, t0 = _open_new(cast)
+    idx = 0
+    stdin = sys.stdin.buffer
+    while True:
+        chunk = stdin.read1(65536) if hasattr(stdin, "read1") else stdin.read(65536)
+        if not chunk:
+            break
+        ev = [round(time.monotonic() - t0, 6), "o", chunk.decode("utf-8", "replace")]
+        f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        f.flush()
+        if f.tell() >= REC_MAX_BYTES:  # rotation
+            f.close()
+            idx += 1
+            nxt = cast.with_name(cast.stem.split(".part")[0] + f".part{idx}.cast")
+            f, t0 = _open_new(nxt)
+    f.close()
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="ubik-tty", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("status", help="services ttyd up: port, depuis quand, qui streame")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("spawn", help="pré-chauffe ttyd (API backend, spawn-on-demand + probe)")
+    p.add_argument("agents", nargs="+")
+    p.set_defaults(fn=cmd_spawn)
+
+    p = sub.add_parser("kill", help="stop un viewer ttyd (GUARD: refuse si mission active)")
+    p.add_argument("agent", nargs="?")
+    p.add_argument("--idle", metavar="DURÉE", help="kill tous les viewers sans client up ≥ durée (30m/2h/1d)")
+    p.add_argument("--hold", metavar="REF", help="référence du HOLD explicite accordé (LEAD) — requis si mission active")
+    p.set_defaults(fn=cmd_kill)
+
+    p = sub.add_parser("url", help="imprime /tty/<agent>/ et /terminal/open/<agent>")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_url)
+
+    p = sub.add_parser("rec", help="enregistre le pane tmux → .cast asciinema v2 (rotation+quota)")
+    p.add_argument("agent", nargs="?")
+    p.add_argument("action", nargs="?", choices=["start", "stop", "list"])
+    p.set_defaults(fn=cmd_rec)
+
+    p = sub.add_parser("_rec-sink")  # interne (tmux pipe-pane)
+    p.add_argument("cast"); p.add_argument("width"); p.add_argument("height")
+    p.set_defaults(fn=cmd_rec_sink)
+
+    args = ap.parse_args()
+    if args.cmd == "rec":
+        # `rec list` (sans agent) → argparse met 'list' dans agent
+        if args.agent == "list" and args.action is None:
+            args.agent, args.action = None, "list"
+        if args.action is None or (args.action in ("start", "stop") and not args.agent):
+            _die("usage: rec <agent> start|stop | rec [<agent>] list")
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
