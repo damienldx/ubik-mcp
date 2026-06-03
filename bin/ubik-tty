@@ -13,6 +13,7 @@ Usage:
     ubik-tty kill --idle <durée>        # stop les viewers sans client depuis ≥ durée (30m, 2h, 1d)
     ubik-tty url <agent>                # imprime /tty/<agent>/ et /terminal/open/<agent>
     ubik-tty rec <agent> start|stop     # enregistre le pane tmux → .cast (asciinema v2)
+                                        # (ordre inverse accepté : rec start <agent>)
     ubik-tty rec [<agent>] list         # liste les enregistrements (+ actifs)
 
 GUARD DUR (verbatim LEAD) : kill JAMAIS sur un agent en mission active
@@ -427,8 +428,12 @@ def main():
     p.set_defaults(fn=cmd_url)
 
     p = sub.add_parser("rec", help="enregistre le pane tmux → .cast asciinema v2 (rotation+quota)")
+    # Pas de `choices` sur les positionnels : les DEUX ordres d'args sont
+    # acceptés (rec <agent> start ET rec start <agent>) — la normalisation +
+    # validation vivent dans main(), un `choices` rejetterait l'ordre inversé
+    # avant qu'on puisse permuter (verrue t_1764850529).
     p.add_argument("agent", nargs="?")
-    p.add_argument("action", nargs="?", choices=["start", "stop", "list"])
+    p.add_argument("action", nargs="?")
     p.set_defaults(fn=cmd_rec)
 
     p = sub.add_parser("_rec-sink")  # interne (tmux pipe-pane)
@@ -437,11 +442,15 @@ def main():
 
     args = ap.parse_args()
     if args.cmd == "rec":
-        # `rec list` (sans agent) → argparse met 'list' dans agent
-        if args.agent == "list" and args.action is None:
-            args.agent, args.action = None, "list"
-        if args.action is None or (args.action in ("start", "stop") and not args.agent):
-            _die("usage: rec <agent> start|stop | rec [<agent>] list")
+        actions = {"start", "stop", "list"}
+        # Les DEUX ordres d'args sont acceptés : `rec <agent> start` (documenté)
+        # ET `rec start <agent>` (réflexe naturel). Si le 1er positionnel est
+        # une action et pas le 2e, on permute. Couvre aussi `rec list` seul
+        # (action côté agent, rien derrière) — ex-cas spécial absorbé.
+        if args.agent in actions and (args.action is None or args.action not in actions):
+            args.agent, args.action = args.action, args.agent
+        if args.action not in actions or (args.action in ("start", "stop") and not args.agent):
+            _die("usage: rec <agent> start|stop | rec start <agent> | rec [<agent>] list")
     args.fn(args)
 
 
