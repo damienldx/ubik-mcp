@@ -307,6 +307,21 @@ def _emit(value):
         sys.stdout.write(str(value) + "\n")
 
 
+def _is_applicative_failure(value):
+    """Exit contract (t_129e4dbdf7): the wrapper must exit non-zero when the
+    backend reports an applicative error, so shell `&&` patterns stop lying.
+    Failure = top-level {ok:false} or {status>=400} (backend :8765 convention),
+    or an "[error] ..." string (stdio isError path, fleet_listen misuse).
+    Anything else — including plain-text "ok" from relay_send — is success."""
+    if isinstance(value, dict):
+        if value.get("ok") is False:
+            return True
+        status = value.get("status")
+        if isinstance(status, int) and status >= 400:
+            return True
+    return isinstance(value, str) and value.startswith("[error]")
+
+
 def _err(msg, code):
     sys.stderr.write(json.dumps({"error": msg}) + "\n")
     raise SystemExit(code)
@@ -357,11 +372,14 @@ def main():
         _err("--args must be a JSON object", 2)
 
     try:
-        _emit(ns["exec"](a.tool, arguments))
+        result = ns["exec"](a.tool, arguments)
     except urllib.error.HTTPError as e:
         _err(f"backend HTTP {e.code}: {e.read().decode()[:300]}", 1)
     except Exception as e:  # noqa: BLE001
         _err(f"{type(e).__name__}: {e}", 1)
+    _emit(result)
+    if _is_applicative_failure(result):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
