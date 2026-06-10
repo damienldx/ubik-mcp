@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""ubik-garage — CLI compagnon du Panel Garage (jumeau bash, zéro-contexte).
+
+Doctrine UBIK : tout panel a son jumeau CLI zéro-contexte (cf ubik-activity =
+jumeau Panel Activity, ubik-deploy = jumeau déploiement).
+
+WRAPPER MINCE sur l'API backend M2 (billing-service :8791).
+La logique equip/unequip/MOVE-singleton/recompile reste entièrement dans M2.
+Ce CLI appelle les routes HTTP — il ne touche JAMAIS les carts directement.
+
+Routes consommées (contrat M2 — 911d5eb) :
+  GET    /api/vehicles                                   → list
+  GET    /garage/vehicles/{id}                           → show
+  POST   /garage/vehicles/{id}/seats/{slot}/equip        → equip seat-scope
+  DELETE /garage/vehicles/{id}/seats/{slot}/equipment/{slug}  → unequip seat-scope
+  POST   /garage/vehicles/{id}/equip                     → equip vehicle-scope
+  DELETE /garage/vehicles/{id}/components/{slug}         → unequip vehicle-scope
+
+Usage:
+  ubik-garage list                                    [--json]
+  ubik-garage show   <vehicle_id>                     [--json]
+  ubik-garage equip  <vehicle_id> <slot_id|vehicle> <slug>
+                     [--category CATEGORY] [--is-mandate] [--version V] [--json]
+  ubik-garage unequip <vehicle_id> <slot_id|vehicle> <slug>  [--json]
+
+Env:
+  GARAGE_BASE   URL du billing-service  (défaut http://127.0.0.1:8791)
+  UBIK_ACCOUNT  valeur du header X-Ubik-Account requis pour `list`
+                (peut aussi être passé via --account)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+GARAGE_BASE = os.environ.get("GARAGE_BASE", "http://127.0.0.1:8791").rstrip("/")
+ACCOUNT_HEADER = "X-Ubik-Account"
+
+
+# ── HTTP helper ───────────────────────────────────────────────────────────────
+
+def _http(method: str, url: str, body: dict | None = None,
+          headers: dict | None = None, timeout: int = 15) -> dict:
+    data = json.dumps(body).encode() if body is not None else None
+    h: dict[str, str] = {"Content-Type": "application/json", "Accept": "application/json"}
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, data=data, method=method, headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode())
+        except Exception:
+            payload = {}
+        code = payload.get("code", "http_error")
+        detail = payload.get("detail", exc.reason or "")
+        _die(f"HTTP {exc.code} {code}: {detail}", exc.code)
+    except urllib.error.URLError as exc:
+        _die(f"connexion impossible ({GARAGE_BASE}) : {exc.reason}")
+
+
+def _die(msg: str, code: int = 1) -> None:
+    print(f"[error] {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _ts(epoch: int | None) -> str:
+    if not epoch:
+        return "—"
+    try:
+        return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    except Exception:
+        return str(epoch)
+
+
+# ── formatters ────────────────────────────────────────────────────────────────
+
+def _fmt_component(c: dict) -> str:
+    """slug (version) ou slug seul."""
+    v = c.get("version") or ""
+    return f"{c['slug']} ({v})" if v and v != "latest" else c["slug"]
+
+
+def _print_vehicle(v: dict) -> None:
+    """Affichage table lisible d'une VehicleProjection."""
+    vid = v.get("id", "?")
+    model = v.get("model_id", "?")
+    seats = v.get("seats", [])
+    upd = _ts(v.get("updated_at"))
+    me = v.get("memory_engine")
+    hooks = v.get("ambient_hooks", [])
+
+    print(f"{'─' * 64}")
+    print(f"  véhicule : {vid}  [{model} · {len(seats)} seat(s)]  maj {upd}")
+    print(f"{'─' * 64}")
+
+    # Composants véhicule
+    print(f"  memory_engine : {_fmt_component(me) if me else '—'}")
+    if hooks:
+        print(f"  ambient_hooks : {', '.join(_fmt_component(h) for h in hooks)}")
+    else:
+        print("  ambient_hooks : —")
+
+    print()
+
+    for seat in seats:
+        sid = seat.get("slot_id", "?")
+        persona = seat.get("persona")
+        mandate = seat.get("mandate")
+        equip = seat.get("equipment", [])
+
+        p_label = persona["name"] if persona else "—"
+        m_label = mandate["id"] if mandate else "—"
+        print(f"  [{sid}]  persona:{p_label}  mandat:{m_label}")
+
+        skills = [e for e in equip if e.get("category") == "skill"]
+        agents = [e for e in equip if e.get("category") == "agent"]
+        other = [e for e in equip
+                 if e.get("category") not in ("skill", "agent")]
+
+        if skills:
+            print(f"    skills : {', '.join(_fmt_component(e) for e in skills)}")
+        if agents:
+            print(f"    agents : {', '.join(_fmt_component(e) for e in agents)}")
+        if other:
+            print(f"    autres : {', '.join(_fmt_component(e) for e in other)}")
+        if not equip:
+            print("    équipement : —")
+
+    print(f"{'─' * 64}")
+
+
+def _print_vehicles_list(vehicles: list[dict]) -> None:
+    if not vehicles:
+        print("(aucun véhicule)")
+        return
+    col_id = max(len(v.get("vehicle_id", "")) for v in vehicles)
+    col_id = max(col_id, 10)
+    col_model = max(len(v.get("model_id") or "") for v in vehicles)
+    col_model = max(col_model, 7)
+    print(f"{'VEHICLE_ID':<{col_id}}  {'MODEL':<{col_model}}  SERIAL      SLOTS  EXPIRATION")
+    print("─" * (col_id + col_model + 40))
+    for v in vehicles:
+        vid = (v.get("vehicle_id") or "")[:col_id]
+        model = (v.get("model_id") or "")[:col_model]
+        serial = (v.get("serial") or "")[:10]
+        slots = str(v.get("slots") or "?")
+        exp = _ts(v.get("license_exp"))
+        print(f"{vid:<{col_id}}  {model:<{col_model}}  {serial:<10}  {slots:<5}  {exp}")
+
+
+# ── commandes ─────────────────────────────────────────────────────────────────
+
+def cmd_list(args: argparse.Namespace) -> int:
+    account = args.account or os.environ.get("UBIK_ACCOUNT", "")
+    if not account:
+        _die(
+            "compte inconnu : passe --account <id> ou définis UBIK_ACCOUNT\n"
+            "  (ex : UBIK_ACCOUNT=c_founder ubik-garage list)"
+        )
+    out = _http("GET", f"{GARAGE_BASE}/api/vehicles",
+                headers={ACCOUNT_HEADER: account})
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    vehicles = out.get("vehicles", [])
+    print(f"# véhicules · compte {account} ({len(vehicles)})")
+    _print_vehicles_list(vehicles)
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    out = _http("GET", f"{GARAGE_BASE}/garage/vehicles/{args.vehicle_id}")
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    v = out.get("vehicle") or out
+    _print_vehicle(v)
+    return 0
+
+
+def cmd_equip(args: argparse.Namespace) -> int:
+    vid = args.vehicle_id
+    slot = args.slot_id
+    slug = args.slug
+
+    if slot == "vehicle":
+        # Vehicle-scope : memory_engine ou ambient_hook
+        body: dict = {"slug": slug}
+        if args.category:
+            body["category"] = args.category
+        if args.version:
+            body["version"] = args.version
+        out = _http("POST", f"{GARAGE_BASE}/garage/vehicles/{vid}/equip", body)
+    else:
+        # Seat-scope : skill / agent / mandat
+        body = {"slug": slug}
+        if args.category:
+            body["category"] = args.category
+        if args.is_mandate:
+            body["is_mandate"] = True
+        if args.version:
+            body["version"] = args.version
+        out = _http("POST",
+                    f"{GARAGE_BASE}/garage/vehicles/{vid}/seats/{slot}/equip",
+                    body)
+
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+
+    if not out.get("ok"):
+        code = out.get("code", "?")
+        detail = out.get("detail", "")
+        _die(f"equip échoué : {code} {detail}")
+
+    print(f"✓ équipé : {slug} → {slot} sur {vid}")
+    v = out.get("vehicle")
+    if v:
+        _print_vehicle(v)
+    return 0
+
+
+def cmd_unequip(args: argparse.Namespace) -> int:
+    vid = args.vehicle_id
+    slot = args.slot_id
+    slug = args.slug
+
+    if slot == "vehicle":
+        out = _http("DELETE",
+                    f"{GARAGE_BASE}/garage/vehicles/{vid}/components/{slug}")
+    else:
+        out = _http("DELETE",
+                    f"{GARAGE_BASE}/garage/vehicles/{vid}/seats/{slot}"
+                    f"/equipment/{slug}")
+
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+
+    if not out.get("ok"):
+        code = out.get("code", "?")
+        detail = out.get("detail", "")
+        _die(f"unequip échoué : {code} {detail}")
+
+    print(f"✓ déséquipé : {slug} ← {slot} sur {vid}")
+    v = out.get("vehicle")
+    if v:
+        _print_vehicle(v)
+    return 0
+
+
+# ── point d'entrée ────────────────────────────────────────────────────────────
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="ubik-garage",
+        description=(
+            "CLI compagnon du Panel Garage — wrapper mince sur l'API M2 (billing :8791)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemples :\n"
+            "  ubik-garage list --account c_founder\n"
+            "  ubik-garage show vehicle-developer-001\n"
+            "  ubik-garage equip  vehicle-developer-001 slot-1 ubik-security-auditor --category skill\n"
+            "  ubik-garage equip  vehicle-developer-001 vehicle ubik-memory-v1 --category memory\n"
+            "  ubik-garage unequip vehicle-developer-001 slot-1 ubik-security-auditor\n"
+            "  ubik-garage show   vehicle-developer-001 --json | jq .vehicle.seats\n"
+        ),
+    )
+    ap.add_argument("--json", action="store_true", help="Sortie JSON brute")
+    ap.add_argument("--account", default="",
+                    help="Compte (X-Ubik-Account). Défaut: $UBIK_ACCOUNT")
+
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    # list
+    sub.add_parser("list", help="Véhicules possédés du compte")
+
+    # show
+    p_show = sub.add_parser("show", help="Projection seats + composants d'un véhicule")
+    p_show.add_argument("vehicle_id", help="ID du véhicule (ex: vehicle-developer-001)")
+
+    # equip
+    p_eq = sub.add_parser(
+        "equip",
+        help="Équipe un item sur un seat (slot-N) ou sur le véhicule (vehicle)",
+    )
+    p_eq.add_argument("vehicle_id")
+    p_eq.add_argument(
+        "slot_id",
+        help="slot-N pour un seat, ou 'vehicle' pour memory_engine/ambient_hook",
+    )
+    p_eq.add_argument("slug", help="Slug du catalogue (ex: ubik-security-auditor)")
+    p_eq.add_argument("--category", default="",
+                      help="skill|agent|memory|hook (requis si le slug est ambigu)")
+    p_eq.add_argument("--is-mandate", action="store_true",
+                      help="Traite l'item comme un mandat (MOVE singleton)")
+    p_eq.add_argument("--version", default="",
+                      help="Version du catalogue (défaut: latest)")
+
+    # unequip
+    p_uneq = sub.add_parser(
+        "unequip",
+        help="Déséquipe un item d'un seat (slot-N) ou du véhicule (vehicle)",
+    )
+    p_uneq.add_argument("vehicle_id")
+    p_uneq.add_argument(
+        "slot_id",
+        help="slot-N pour un seat, ou 'vehicle' pour un composant véhicule",
+    )
+    p_uneq.add_argument("slug", help="Slug de l'item à retirer")
+
+    args = ap.parse_args()
+
+    dispatch = {
+        "list": cmd_list,
+        "show": cmd_show,
+        "equip": cmd_equip,
+        "unequip": cmd_unequip,
+    }
+    return dispatch[args.command](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
