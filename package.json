@@ -23,6 +23,8 @@
         "typescript": "^5"
     },
     "bin": {
-        "ubik-mcp": "./bin/ubik-mcp-server"
+        "ubik-mcp": "./bin/ubik-mcp-server",
+        "garage": "./bin/ubik-garage",
+        "ubik-garage": "./bin/ubik-garage"
     }
 }
