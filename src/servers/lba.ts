@@ -7,7 +7,7 @@
  *
  * Repo:    /home/damienldx/workspace/LBA-DESKTOP
  * Web:     /var/www/lba-desktop (served by Caddy on :8090)
- * Backend: lba-plan-service (:8504), ubik-system-lba (OAuth sidecar)
+ * Backend: lba-plan.service (USER unit, :8504), ubik-system-lba (system, OAuth sidecar)
  *
  * Safety:
  *   - default dry_run=true (caller must pass dry_run=false to actually deploy)
@@ -26,8 +26,30 @@ const execp = promisify(exec);
 
 const REPO_DIR         = "/home/damienldx/workspace/LBA-DESKTOP";
 const WEB_TARGET       = "/var/www/lba-desktop";
-const BACKEND_SERVICES = ["lba-plan-service", "ubik-system-lba"];
+// Backend services restarted after a deploy. The plan API canonically runs as a
+// USER unit (lba-plan.service under user@1001), NOT the stale system unit
+// `lba-plan-service.service` which is disabled and crashloops fighting for :8504
+// if started — restarting that one is a no-op that never reaches the serving
+// process. The OAuth sidecar is a system unit. Each entry carries its scope so we
+// invoke the right systemctl manager. The deploy backend (ubik-backend.service)
+// itself runs under user@1001 with XDG_RUNTIME_DIR set, so `systemctl --user`
+// works directly from this process.
+type BackendService = { unit: string; scope: "user" | "system" };
+const BACKEND_SERVICES: BackendService[] = [
+  { unit: "lba-plan.service", scope: "user" },
+  { unit: "ubik-system-lba",  scope: "system" },
+];
+// Stale system duplicate of the plan backend. Disabled, but if anything starts it
+// (an older deploy did) it crashloops on :8504 against the user unit. We stop it
+// best-effort before restarting so a deploy guarantees a single serving instance.
+const STALE_DUPLICATE_UNIT = "lba-plan-service.service";
 const REQUIRED_DIRS    = ["plan"];
+
+function systemctlCmd(verb: string, svc: BackendService): string {
+  return svc.scope === "user"
+    ? `systemctl --user ${verb} ${svc.unit}`
+    : `sudo /bin/systemctl ${verb} ${svc.unit}`;
+}
 
 type StepResult = {
   label: string;
@@ -125,12 +147,12 @@ const server = createMcpServer("ubik-lba");
 
 server.tool(
   "lba_desktop_deploiement",
-  "Deploy LBA-DESKTOP full-stack on dev-station-02: git pull <branch> + npm ci + npm build + rsync dist/ to /var/www/lba-desktop/ + systemctl restart backend services (lba-plan-service, ubik-system-lba). Default branch=main, with guard aborting if plan/ directory missing (protection against incident 2026-05-27). Default dry_run=true — caller must pass dry_run=false to actually deploy.",
+  "Deploy LBA-DESKTOP full-stack on dev-station-02: git pull <branch> + npm ci + npm build + rsync dist/ to /var/www/lba-desktop/ + restart backend services (lba-plan.service [user unit], ubik-system-lba [system]). Default branch=main, with guard aborting if plan/ directory missing (protection against incident 2026-05-27). Default dry_run=true — caller must pass dry_run=false to actually deploy.",
   {
     branch: z.string().default("main").describe("Git branch to deploy (default: main)."),
     dry_run: z.boolean().default(true).describe("If true (default), show what would happen without executing build/rsync/restart. Git fetch/checkout/pull and the safety guard run in both modes."),
     skip_frontend: z.boolean().default(false).describe("Skip npm ci + npm build + rsync /var/www/lba-desktop/."),
-    skip_backend: z.boolean().default(false).describe("Skip systemctl restart of backend services (lba-plan-service, ubik-system-lba)."),
+    skip_backend: z.boolean().default(false).describe("Skip restart of backend services (lba-plan.service [user], ubik-system-lba [system])."),
   },
   async ({ branch, dry_run, skip_frontend, skip_backend }) => {
     const startedAt = new Date().toISOString();
@@ -188,12 +210,20 @@ server.tool(
     }
 
     if (!skip_backend) {
+      // Best-effort: ensure the stale system duplicate isn't holding :8504.
+      // Non-fatal — it's normally already stopped/disabled.
+      steps.push(await step(
+        `stop_stale_${STALE_DUPLICATE_UNIT}`,
+        `sudo /bin/systemctl stop ${STALE_DUPLICATE_UNIT} || true`,
+        { dryRun: dry_run },
+      ));
+
       for (const svc of BACKEND_SERVICES) {
-        steps.push(await step(`restart_${svc}`, `sudo /bin/systemctl restart ${svc}`, { dryRun: dry_run }));
-        if (!steps.at(-1)!.ok) return fail(`restart ${svc} failed`);
+        steps.push(await step(`restart_${svc.unit}`, systemctlCmd("restart", svc), { dryRun: dry_run }));
+        if (!steps.at(-1)!.ok) return fail(`restart ${svc.unit} failed`);
       }
       for (const svc of BACKEND_SERVICES) {
-        steps.push(await step(`status_${svc}`, `systemctl is-active ${svc}`, { dryRun: dry_run }));
+        steps.push(await step(`status_${svc.unit}`, systemctlCmd("is-active", svc), { dryRun: dry_run }));
       }
     }
 
