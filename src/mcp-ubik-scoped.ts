@@ -25,7 +25,20 @@ import { resolvePerimeter, filterTools } from "./scoped-filter.js";
 
 const GW_URL = process.env.UBIK_GATEWAY_URL || "http://127.0.0.1:8902/mcp";
 const ROLE = (process.env.UBIK_GATEWAY_ROLE || process.env.UBIK_ROLE || "").trim();
-const SCOPE_FILE = (process.env.UBIK_GATEWAY_SCOPE_FILE || "").trim() || undefined;
+
+// Scope file : explicite (UBIK_GATEWAY_SCOPE_FILE) sinon DÉRIVÉ PAR CONVENTION du
+// rôle depuis la table role-bundles/ (SOURCE UNIQUE, la même que console_meca/M1).
+// Rend le proxy data-driven pour N rôles : console_meca n'a qu'à fournir UBIK_GATEWAY_ROLE,
+// le chemin du tools.scope suit la convention role-bundles/<role>/tools.scope.
+function resolveScopeFile(): string | undefined {
+  const explicit = (process.env.UBIK_GATEWAY_SCOPE_FILE || "").trim();
+  if (explicit) return explicit;
+  if (!ROLE) return undefined;
+  const home = process.env.HOME || "";
+  const conv = `${home}/.ubik-memory/role-bundles/${ROLE}/tools.scope`;
+  try { return fs.existsSync(conv) ? conv : undefined; } catch { return undefined; }
+}
+const SCOPE_FILE = resolveScopeFile();
 
 type Tool = { name: string; description?: string; inputSchema?: unknown };
 
