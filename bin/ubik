@@ -198,6 +198,10 @@ STDIO = {
     "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
     "lba-backend": _tsx("lba-backend.ts"),
     "relay": ["python3", os.path.join(_REAL_HOME, "workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
+    # workspace namespace (2026-06-20, politique CLI Damien): expose qubik_record_usage +
+    # qubik_suggest (STEP-0 feedback/auto-equip) au CLI apres le drop du MCP ubik cote worker.
+    # cold-spawn par appel (agent_workspace_* y figurent aussi, Docker = infrequent, OK).
+    "workspace": ["python3", os.path.join(REPO, "agents-local", "workspace-server.py")],
 }
 
 # ---- memory namespace: in-process via the ubik_memory package (same dispatch as
