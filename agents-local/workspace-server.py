@@ -483,7 +483,7 @@ def tool_suggest(args: dict) -> dict:
     """Query QUBIK on the VM for relevant tools and skills. Zero LLM cost — FTS5 only."""
     query = args.get("query", "").strip()
     limit = int(args.get("limit", 5))
-    agent_id = (args.get("agent_id") or "").strip()
+    agent_id = (args.get("agent_id") or os.environ.get("UBIK_AGENT_ID") or "").strip()
     if not query:
         return {"error": "query required"}
 
@@ -529,7 +529,7 @@ def tool_record_usage(args: dict) -> dict:
     """
     tool_name = args.get("tool_name", "").strip()
     query = args.get("query", "").strip()
-    agent_id = (args.get("agent_id") or "").strip()
+    agent_id = (args.get("agent_id") or os.environ.get("UBIK_AGENT_ID") or "").strip()
     if not tool_name:
         return {"error": "tool_name required"}
     if not query:
