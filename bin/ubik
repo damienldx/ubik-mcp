@@ -358,6 +358,38 @@ def _dispatch_500_fallback(args):
         sys.stderr.write(f"[fallback] impossible de lire state.json : {exc}\n")
 
 
+# Tools de l'équipement (STEP-0) à NE PAS créditer comme "tool utilisé pour la
+# tâche" : ce sont des meta-tools de découverte/adoption, pas l'exécution.
+_AUTOCLOSE_SKIP = {
+    "qubik_suggest", "qubik_record_usage",
+    "skills_recall", "skills_search", "agent_search",
+}
+
+
+def _maybe_autoclose(tool, result):
+    """Ferme la boucle du feedback qubik au moment de l'usage réel d'un tool.
+
+    Best-effort, non-bloquant, fail-safe : POST fire-and-forget à l'ENGINE qui
+    marque le qubik_suggest récent non bouclé de cet agent avec CE tool. Comble le
+    48% d'agents qui sautent l'étape [4] — sans dépendre de leur discipline, avec
+    le vrai nom du tool (robuste au CLI-first). N'ajoute jamais d'échec à l'appel.
+    """
+    agent = os.environ.get("UBIK_AGENT_ID", "").strip()
+    if not agent or tool in _AUTOCLOSE_SKIP:
+        return
+    if _is_applicative_failure(result):
+        return  # ne pas créditer un tool qui a échoué
+    try:
+        body = json.dumps({"agent_id": agent, "tool": tool, "window_min": 5}).encode()
+        req = urllib.request.Request(
+            f"{ENGINE_BASE}/v1/qubik/autoclose",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        urllib.request.urlopen(req, timeout=1.5).read()
+    except Exception:
+        pass  # jamais bloquer ni casser l'appel réel
+
+
 def main():
     p = argparse.ArgumentParser(prog="ubik", description="Unified one-shot CLI for the UBIK tool surface")
     p.add_argument("namespace", nargs="?", help="e.g. agent, engine")
@@ -411,6 +443,8 @@ def main():
     except Exception as e:  # noqa: BLE001
         _err(f"{type(e).__name__}: {e}", 1)
     _emit(result)
+    # Ferme la boucle feedback qubik (best-effort, après l'output) — voir _maybe_autoclose
+    _maybe_autoclose(a.tool, result)
     if _is_applicative_failure(result):
         raise SystemExit(1)
 
