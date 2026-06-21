@@ -331,6 +331,33 @@ def _err(msg, code):
     raise SystemExit(code)
 
 
+_ATELIER_STATE = os.path.join(_REAL_HOME, ".ubik-state", "atelier", "state.json")
+
+
+def _dispatch_500_fallback(args):
+    """After a 500 from atelier_dispatch_mission, read state.json to distinguish
+    a phantom 500 (state already saved) from a real failure (mission still pending)."""
+    plan_id = args.get("plan_id", "")
+    mission_n = args.get("mission_n")
+    try:
+        state = json.loads(open(_ATELIER_STATE).read())
+        missions = state.get("plans", {}).get(plan_id, {}).get("missions", [])
+        mission = next((m for m in missions if m.get("n") == mission_n), None)
+        status = mission.get("status") if mission else None
+        if status == "dispatched":
+            sys.stderr.write(
+                "⚠ Mission déjà dispatched (state sauvegardé) — relay send raté. "
+                "Envoie le brief manuellement via relay_send.\n"
+            )
+        else:
+            sys.stderr.write(
+                f"✗ 500 réel — mission toujours {status or 'pending/introuvable'}. "
+                "Escalade LEAD immédiatement.\n"
+            )
+    except Exception as exc:
+        sys.stderr.write(f"[fallback] impossible de lire state.json : {exc}\n")
+
+
 def main():
     p = argparse.ArgumentParser(prog="ubik", description="Unified one-shot CLI for the UBIK tool surface")
     p.add_argument("namespace", nargs="?", help="e.g. agent, engine")
@@ -378,6 +405,8 @@ def main():
     try:
         result = ns["exec"](a.tool, arguments)
     except urllib.error.HTTPError as e:
+        if e.code == 500 and a.tool == "atelier_dispatch_mission":
+            _dispatch_500_fallback(arguments)
         _err(f"backend HTTP {e.code}: {e.read().decode()[:300]}", 1)
     except Exception as e:  # noqa: BLE001
         _err(f"{type(e).__name__}: {e}", 1)
