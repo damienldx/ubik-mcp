@@ -304,6 +304,84 @@ def _wrap_relay(base):
 NAMESPACES["relay"] = _wrap_relay(NAMESPACES["relay"])
 
 
+# ---- workshop namespace: direct HTTP REST to UBIK backend :8765 ----
+_WORKSHOP_TOOLS = [
+    {"name": "list",
+     "description": "List all workshops.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "show",
+     "description": "Show a workshop by id.",
+     "inputSchema": {"type": "object", "required": ["id"],
+                     "properties": {"id": {"type": "string", "description": "Workshop id"}}}},
+    {"name": "create",
+     "description": "Create a new workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["name"],
+                     "properties": {
+                         "id":      {"type": "string", "description": "Optional stable id (e.g. ws-primus)"},
+                         "name":    {"type": "string"},
+                         "members": {"type": "array", "items": {"type": "string"}},
+                         "lead":    {"type": "string"},
+                     }}},
+    {"name": "rename",
+     "description": "Rename a workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["id", "name"],
+                     "properties": {"id": {"type": "string"}, "name": {"type": "string"}}}},
+    {"name": "lead-set",
+     "description": "Set the lead of a workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["id", "lead"],
+                     "properties": {"id": {"type": "string"}, "lead": {"type": "string"}}}},
+    {"name": "member-add",
+     "description": "Add a member to a workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["id", "member"],
+                     "properties": {"id": {"type": "string"}, "member": {"type": "string"}}}},
+    {"name": "member-remove",
+     "description": "Remove a member from a workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["id", "member"],
+                     "properties": {"id": {"type": "string"}, "member": {"type": "string"}}}},
+    {"name": "dissolve",
+     "description": "Dissolve (permanently delete) a workshop (lead|operator only).",
+     "inputSchema": {"type": "object", "required": ["id"],
+                     "properties": {"id": {"type": "string"}}}},
+]
+
+
+def _workshop_exec(tool, args):
+    h = _agent_headers()
+    ws_id = args.get("id", "")
+    if tool == "list":
+        out = _http("GET", f"{AGENT_BASE}/workshops", headers=h)
+    elif tool == "show":
+        out = _http("GET", f"{AGENT_BASE}/workshops/{ws_id}", headers=h)
+    elif tool == "create":
+        out = _http("POST", f"{AGENT_BASE}/workshops", args, headers=h)
+    elif tool == "rename":
+        out = _http("PATCH", f"{AGENT_BASE}/workshops/{ws_id}",
+                    {"name": args.get("name")}, headers=h)
+    elif tool == "lead-set":
+        out = _http("PATCH", f"{AGENT_BASE}/workshops/{ws_id}",
+                    {"lead": args.get("lead")}, headers=h)
+    elif tool == "member-add":
+        out = _http("PATCH", f"{AGENT_BASE}/workshops/{ws_id}",
+                    {"member_add": args.get("member")}, headers=h)
+    elif tool == "member-remove":
+        out = _http("PATCH", f"{AGENT_BASE}/workshops/{ws_id}",
+                    {"member_remove": args.get("member")}, headers=h)
+    elif tool == "dissolve":
+        out = _http("DELETE", f"{AGENT_BASE}/workshops/{ws_id}", headers=h)
+    else:
+        return f"[error] unknown workshop tool: {tool}"
+    try:
+        return json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return out
+
+
+NAMESPACES["workshop"] = {
+    "list": lambda: _WORKSHOP_TOOLS,
+    "exec": _workshop_exec,
+}
+
+
 def _emit(value):
     if isinstance(value, (dict, list)):
         sys.stdout.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
