@@ -1,0 +1,576 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "description": "Catalog mapping tool names to their situation trigger — used by generate_tools_table.py to produce the situation->tool table injected at boot. Source of situations; tools.scope is source of which tools are allowed per role.",
+    "format": "tool_name -> { situation, cli, note? }",
+    "cli_template": "ubik <ns> <tool> --args '{...}'"
+  },
+  "tools": {
+    "relay_send": {
+      "situation": "Envoyer un DM ciblé à un agent ou signaler une livraison",
+      "cli": "ubik relay relay_send --args '{\"to\":\"<slot>\",\"message\":\"...\"}'",
+      "note": "DM 1:1 ; utilise relay_channel_send pour un groupe"
+    },
+    "fleet_listen": {
+      "situation": "Attendre un rapport d'agent (long-poll bloquant, jamais boucler relay_read)",
+      "cli": "curl localhost:7894/wait/<agent_id>?timeout=60",
+      "note": "MCP fleet_listen ou curl — pas de route CLI ubik"
+    },
+    "todo_list": {
+      "situation": "Voir le board (mes tâches, tous les todos, filtre par assignee/tag)",
+      "cli": "ubik agent todo_list --args '{\"assignee\":\"<slot>\"}'",
+      "note": "À lancer AU BOOT et avant tout dispatch"
+    },
+    "todo_claim": {
+      "situation": "Prendre une carte atomiquement (todo → doing, assignee = moi)",
+      "cli": "ubik agent todo_claim --args '{\"id\":\"t_...\"}'"
+    },
+    "todo_status": {
+      "situation": "Glisser une carte sur le board (todo|doing|review|blocked|done)",
+      "cli": "ubik agent todo_status --args '{\"id\":\"t_...\",\"status\":\"review\"}'"
+    },
+    "todo_done": {
+      "situation": "Clore une tâche définitivement (ferme la boucle — COMMIT requis avant)",
+      "cli": "ubik agent todo_done --args '{\"id\":\"t_...\"}'"
+    },
+    "todo_comment": {
+      "situation": "Discussion ou blocage sur une carte (≠ DM — historique rattaché à la carte)",
+      "cli": "ubik agent todo_comment --args '{\"id\":\"t_...\",\"body\":\"...\"}'"
+    },
+    "todo_add": {
+      "situation": "Créer une nouvelle tâche sur le board (mission, bug, dette)",
+      "cli": "ubik agent todo_add --args '{\"title\":\"...\",\"brief\":\"...\",\"tags\":[\"sprint-X\"]}'"
+    },
+    "todo_assign": {
+      "situation": "Dispatcher une carte existante à un slot (LEAD uniquement)",
+      "cli": "ubik agent todo_assign --args '{\"id\":\"t_...\",\"assignee\":\"<slot>\"}'"
+    },
+    "ledger_record": {
+      "situation": "Persister une décision technique non-triviale (rationale ≥ 20 chars)",
+      "cli": "ubik agent ledger_record --args '{\"source\":\"<module>\",\"actor\":\"<slot>\",\"action\":\"...\",\"rationale\":\"...\"}'",
+      "note": "source+actor+action requis par le validateur central"
+    },
+    "ledger_query": {
+      "situation": "Interroger l'historique de décisions (filtres: actor, tags, date)",
+      "cli": "ubik agent ledger_query --args '{\"q\":\"<sujet>\",\"limit\":5}'"
+    },
+    "ledger_storylines": {
+      "situation": "Voir les storylines (fils de décisions par tag/module)",
+      "cli": "ubik agent ledger_storylines --args '{\"tag\":\"<tag>\"}'"
+    },
+    "ledger_summary": {
+      "situation": "Résumé des décisions récentes sur un périmètre",
+      "cli": "ubik agent ledger_summary --args '{\"q\":\"<sujet>\"}'"
+    },
+    "memory_recall": {
+      "situation": "Sujet mentionné (projet, techno, agent, personne) → rappel contextuel",
+      "cli": "ubik memory memory_recall --args '{\"query\":\"<sujet>\"}'"
+    },
+    "memory_save": {
+      "situation": "Fait durable à persister en mémoire longue (préférence, pattern)",
+      "cli": "ubik memory memory_save --args '{\"content\":\"...\"}'"
+    },
+    "memory_query": {
+      "situation": "Question analytique sur la base mémoire (SQL DuckDB : counts, joins, top-N)",
+      "cli": "ubik memory memory_query --args '{\"sql\":\"SELECT ...\"}'"
+    },
+    "memory_history": {
+      "situation": "Historique des entrées mémoire pour un agent/sujet",
+      "cli": "ubik memory memory_history --args '{\"agent_id\":\"<slot>\"}'"
+    },
+    "memory_show": {
+      "situation": "Afficher le contenu d'une entrée mémoire spécifique",
+      "cli": "ubik memory memory_show --args '{\"id\":\"...\"}'"
+    },
+    "dashboard_weather": {
+      "situation": "Météo fleet : état global santé/perfs (agents stuck, bricks down, sync drift)",
+      "cli": "ubik agent dashboard_weather"
+    },
+    "dashboard_list": {
+      "situation": "Liste détaillée des signaux système (après dashboard_weather pour zoom)",
+      "cli": "ubik agent dashboard_list"
+    },
+    "dashboard_post": {
+      "situation": "Poster un signal/alerte sur le dashboard système",
+      "cli": "ubik agent dashboard_post --args '{\"content\":\"...\",\"level\":\"info\"}'"
+    },
+    "ubik_brick_status": {
+      "situation": "Vérifier si un service/brick est down ou dégradé",
+      "cli": "ubik agent ubik_brick_status"
+    },
+    "atelier_propose_plan": {
+      "situation": "[Chef d'Atelier] Proposer un plan de sprint (scorecard intégrée)",
+      "cli": "ubik agent atelier_propose_plan --args '{...}'",
+      "note": "Outil Chef d'Atelier uniquement — LEAD brief, Chef exécute"
+    },
+    "atelier_decompose_missions": {
+      "situation": "[Chef d'Atelier] Découper le plan en missions/swimlanes (clusters × waves)",
+      "cli": "ubik agent atelier_decompose_missions --args '{...}'"
+    },
+    "atelier_dispatch_mission": {
+      "situation": "[Chef d'Atelier] Créer fork + GPS lock courant + relaie mission à chaque agent",
+      "cli": "ubik agent atelier_dispatch_mission --args '{...}'"
+    },
+    "atelier_update_progress": {
+      "situation": "[Chef d'Atelier] Mettre à jour l'avancement d'une mission",
+      "cli": "ubik agent atelier_update_progress --args '{...}'"
+    },
+    "atelier_complete_mission": {
+      "situation": "[Chef d'Atelier] Clore une mission dans le pipeline Atelier",
+      "cli": "ubik agent atelier_complete_mission --args '{...}'"
+    },
+    "atelier_log_deviation": {
+      "situation": "[Chef d'Atelier] Logger un écart par rapport au plan (non-bloquant)",
+      "cli": "ubik agent atelier_log_deviation --args '{...}'"
+    },
+    "atelier_revise_plan": {
+      "situation": "[Chef d'Atelier] Réviser un plan en cours (changement de scope)",
+      "cli": "ubik agent atelier_revise_plan --args '{...}'"
+    },
+    "atelier_complete_plan": {
+      "situation": "[Chef d'Atelier] Clôturer le sprint (winner selection + GPS unlock)",
+      "cli": "ubik agent atelier_complete_plan --args '{...}'"
+    },
+    "atelier_cancel_plan": {
+      "situation": "[Chef d'Atelier] Annuler un sprint (avec justification)",
+      "cli": "ubik agent atelier_cancel_plan --args '{...}'"
+    },
+    "atelier_get_state": {
+      "situation": "Vue d'ensemble du plan actif (qui fait quoi, état des forks, waves)",
+      "cli": "ubik agent atelier_get_state --args '{}'"
+    },
+    "project_create": {
+      "situation": "Créer un projet UBIK (multi-step ≥3 étapes, visible + persistant)",
+      "cli": "ubik agent project_create --args '{\"name\":\"...\",\"brief\":\"...\"}'"
+    },
+    "project_list": {
+      "situation": "Lister les projets actifs (avant dispatch, choisir ou créer)",
+      "cli": "ubik agent project_list --args '{\"status\":\"active\"}'"
+    },
+    "project_get": {
+      "situation": "Détail complet d'un projet (brief, forks, état)",
+      "cli": "ubik agent project_get --args '{\"id\":\"...\"}'"
+    },
+    "project_my_assignment": {
+      "situation": "Mon fork actif (quel projet/fork je porte en ce moment)",
+      "cli": "ubik agent project_my_assignment"
+    },
+    "project_update": {
+      "situation": "Mettre à jour les métadonnées d'un projet",
+      "cli": "ubik agent project_update --args '{\"id\":\"...\",\"status\":\"...\"}'"
+    },
+    "project_pulse": {
+      "situation": "Pulse rapide sur l'état d'un projet (signal de vie)",
+      "cli": "ubik agent project_pulse --args '{\"id\":\"...\"}'"
+    },
+    "project_fork_register": {
+      "situation": "Enregistrer un fork dans un projet",
+      "cli": "ubik agent project_fork_register --args '{...}'"
+    },
+    "project_fork_update": {
+      "situation": "Mettre à jour un fork (avancement, notes)",
+      "cli": "ubik agent project_fork_update --args '{...}'"
+    },
+    "project_fork_complete": {
+      "situation": "Clore un fork (livraison complète + commit hash)",
+      "cli": "ubik agent project_fork_complete --args '{...}'"
+    },
+    "project_fork_score": {
+      "situation": "Scorer un fork pour la sélection winner",
+      "cli": "ubik agent project_fork_score --args '{...}'"
+    },
+    "project_fork_add_note": {
+      "situation": "Ajouter une note sur un fork (observation, blocage)",
+      "cli": "ubik agent project_fork_add_note --args '{...}'"
+    },
+    "project_fork_delete": {
+      "situation": "Supprimer un fork (LEAD uniquement)",
+      "cli": "ubik agent project_fork_delete --args '{\"id\":\"...\"}'"
+    },
+    "project_announce_delivery": {
+      "situation": "Annoncer une livraison fork au projet parent",
+      "cli": "ubik agent project_announce_delivery --args '{...}'"
+    },
+    "project_select_winner": {
+      "situation": "[LEAD] Sélectionner le fork gagnant d'un sprint",
+      "cli": "ubik agent project_select_winner --args '{...}'"
+    },
+    "project_merge_winner": {
+      "situation": "[LEAD] Merger le fork winner dans le projet principal",
+      "cli": "ubik agent project_merge_winner --args '{...}'"
+    },
+    "project_delete": {
+      "situation": "Supprimer un projet (destructif — demander confirmation d'abord)",
+      "cli": "ubik agent project_delete --args '{\"id\":\"...\"}'"
+    },
+    "agent_get": {
+      "situation": "Fiche d'un agent fleet (profil, grade, crest, mandats actifs)",
+      "cli": "ubik agent agent_get --args '{\"id\":\"<slot>\"}'"
+    },
+    "agent_list": {
+      "situation": "Lister tous les agents fleet actifs",
+      "cli": "ubik agent agent_list"
+    },
+    "agent_get_xp": {
+      "situation": "XP et grade d'un agent (progression)",
+      "cli": "ubik agent agent_get_xp --args '{\"id\":\"<slot>\"}'"
+    },
+    "agent_refresh": {
+      "situation": "Rafraîchir la fiche d'un agent (après changement)",
+      "cli": "ubik agent agent_refresh --args '{\"id\":\"<slot>\"}'"
+    },
+    "agent_refresh_all": {
+      "situation": "Rafraîchir toutes les fiches d'agents (maintenance fleet)",
+      "cli": "ubik agent agent_refresh_all"
+    },
+    "agent_set_grade": {
+      "situation": "Override cérémonial du grade d'un agent (lead-only)",
+      "cli": "ubik agent agent_set_grade --args '{\"id\":\"<slot>\",\"grade\":\"...\"}'"
+    },
+    "agent_set_crest": {
+      "situation": "Changer le crest/emoji d'un agent",
+      "cli": "ubik agent agent_set_crest --args '{\"id\":\"<slot>\",\"crest\":\"🎯\"}'"
+    },
+    "agent_terminal": {
+      "situation": "[LEAD] Ouvrir un terminal vers un agent fleet",
+      "cli": "ubik agent agent_terminal --args '{\"id\":\"<slot>\"}'"
+    },
+    "fleet_agent_set_model": {
+      "situation": "[LEAD] Changer le modèle Claude d'un slot fleet",
+      "cli": "ubik agent fleet_agent_set_model --args '{...}'"
+    },
+    "fleet_memory_promote": {
+      "situation": "Promouvoir une mémoire agent → mémoire partagée fleet",
+      "cli": "ubik agent fleet_memory_promote --args '{\"key\":\"...\",\"content\":\"...\"}'"
+    },
+    "fleet_memory_get": {
+      "situation": "Lire une mémoire partagée fleet",
+      "cli": "ubik agent fleet_memory_get --args '{\"key\":\"...\"}'"
+    },
+    "fleet_memory_search": {
+      "situation": "Chercher dans la mémoire partagée fleet (sémantique)",
+      "cli": "ubik agent fleet_memory_search --args '{\"query\":\"...\"}'"
+    },
+    "fleet_memory_list": {
+      "situation": "Lister les mémoires partagées fleet (avec filtres)",
+      "cli": "ubik agent fleet_memory_list"
+    },
+    "fleet_memory_stats": {
+      "situation": "Stats de la mémoire fleet (taille, entrées récentes)",
+      "cli": "ubik agent fleet_memory_stats"
+    },
+    "memory_promote": {
+      "situation": "Promouvoir une entrée mémoire locale vers la flotte",
+      "cli": "ubik memory memory_promote --args '{\"id\":\"...\"}'"
+    },
+    "note_create": {
+      "situation": "Créer une note persistante (info utile hors mémoire UBIK)",
+      "cli": "ubik agent note_create --args '{\"subject\":\"...\",\"body\":\"...\"}'"
+    },
+    "note_update": {
+      "situation": "Modifier une note existante",
+      "cli": "ubik agent note_update --args '{\"id\":\"...\",\"body\":\"...\"}'"
+    },
+    "note_search": {
+      "situation": "Chercher dans les notes (full-text)",
+      "cli": "ubik agent note_search --args '{\"q\":\"...\"}'"
+    },
+    "note_list": {
+      "situation": "Lister toutes les notes (récentes en premier)",
+      "cli": "ubik agent note_list"
+    },
+    "note_get": {
+      "situation": "Lire une note spécifique par ID",
+      "cli": "ubik agent note_get --args '{\"id\":\"...\"}'"
+    },
+    "note_subjects": {
+      "situation": "Lister les sujets de notes (vue agrégée)",
+      "cli": "ubik agent note_subjects"
+    },
+    "autopipes_browse": {
+      "situation": "Parcourir le catalogue de skills/personas/mandats (sémantique 768-dim)",
+      "cli": "ubik agent autopipes_browse --args '{\"q\":\"<besoin>\"}'"
+    },
+    "autopipes_inventory": {
+      "situation": "Équipement actif de l'agent (cart + export markdown)",
+      "cli": "ubik agent autopipes_inventory"
+    },
+    "autopipes_cart_add": {
+      "situation": "Ajouter un skill à l'équipement (cart) d'un agent",
+      "cli": "ubik agent autopipes_cart_add --args '{\"skill_id\":\"...\",\"agent_id\":\"...\"}'"
+    },
+    "autopipes_cart_remove": {
+      "situation": "Retirer un skill de l'équipement (cart)",
+      "cli": "ubik agent autopipes_cart_remove --args '{\"skill_id\":\"...\",\"agent_id\":\"...\"}'"
+    },
+    "autopipes_cart_clear": {
+      "situation": "Vider l'équipement (cart) d'un agent",
+      "cli": "ubik agent autopipes_cart_clear --args '{\"agent_id\":\"...\"}'"
+    },
+    "autopipes_favorites_toggle": {
+      "situation": "Marquer/démarquer un skill comme favori",
+      "cli": "ubik agent autopipes_favorites_toggle --args '{\"skill_id\":\"...\"}'"
+    },
+    "skills_add_skill": {
+      "situation": "Ajouter ou mettre à jour un skill dans la bibliothèque locale",
+      "cli": "ubik skills skills_add_skill --args '{\"name\":\"...\",\"system_prompt\":\"...\"}'"
+    },
+    "skills_agent_search": {
+      "situation": "Chercher un persona/agent dans le catalogue (sémantique)",
+      "cli": "ubik skills agent_search --args '{\"query\":\"...\"}'"
+    },
+    "skills_skills_search_tools": {
+      "situation": "Chercher un MCP tool par description dans le catalogue (sémantique)",
+      "cli": "ubik skills skills_search_tools --args '{\"query\":\"...\"}'"
+    },
+    "skills_skills_analyze_schema": {
+      "situation": "Analyser le schéma d'une base SQLite externe (tables, colonnes, index)",
+      "cli": "ubik skills skills_analyze_schema --args '{\"path\":\"...\"}'"
+    },
+    "skills_skills_add_skill": {
+      "situation": "Ajouter ou mettre à jour un skill dans la bibliothèque",
+      "cli": "ubik skills skills_add_skill --args '{...}'"
+    },
+    "dashboard_post": {
+      "situation": "Poster un signal/alerte sur le dashboard système",
+      "cli": "ubik agent dashboard_post --args '{\"content\":\"...\",\"level\":\"info\"}'"
+    },
+    "dashboard_pin": {
+      "situation": "Épingler un signal important sur le dashboard",
+      "cli": "ubik agent dashboard_pin --args '{\"id\":\"...\"}'"
+    },
+    "dashboard_update": {
+      "situation": "Mettre à jour un signal dashboard existant",
+      "cli": "ubik agent dashboard_update --args '{\"id\":\"...\",\"content\":\"...\"}'"
+    },
+    "dashboard_react": {
+      "situation": "Réagir (emoji) à un signal dashboard",
+      "cli": "ubik agent dashboard_react --args '{\"id\":\"...\",\"emoji\":\"✅\"}'"
+    },
+    "bridges_state": {
+      "situation": "État des bridges MCP (quels serveurs MCP sont montés et actifs)",
+      "cli": "ubik agent bridges_state"
+    },
+    "memory_health": {
+      "situation": "Santé de la base mémoire UBIK (taille, intégrité, dernière sync)",
+      "cli": "ubik agent memory_health"
+    },
+    "fleet_agents": {
+      "situation": "Lister les agents fleet actifs sur le relay (avec provider et slot)",
+      "cli": "curl localhost:7894/agents",
+      "note": "Ou ubik agent fleet_list_agents"
+    },
+    "fleet_agent_events": {
+      "situation": "Voir les derniers events par agent (step/kind/detail — qui pense, appelle, idle)",
+      "cli": "ubik agent fleet_agent_events"
+    },
+    "inbox_summary": {
+      "situation": "Résumé de l'inbox (messages en attente, DMs non lus)",
+      "cli": "MCP inbox_summary (pas de route CLI ubik)"
+    },
+    "inbox_buckets": {
+      "situation": "Buckets de l'inbox (par type/sender)",
+      "cli": "MCP inbox_buckets"
+    },
+    "inbox_patterns": {
+      "situation": "Patterns de messages entrants (anomalies, spam)",
+      "cli": "MCP inbox_patterns"
+    },
+    "inbox_threads": {
+      "situation": "Threads de DMs par expediteur",
+      "cli": "MCP inbox_threads"
+    },
+    "gps_lookup": {
+      "situation": "Lookup GPS pour un slot (quel worktree/repo il porte)",
+      "cli": "ubik agent gps_lookup --args '{\"agent_id\":\"<slot>\"}'"
+    },
+    "gps_stats": {
+      "situation": "Stats GPS fleet (utilisation, locks actifs)",
+      "cli": "ubik agent gps_stats"
+    },
+    "gps_get_track_record": {
+      "situation": "Historique GPS d'un agent (missions passées)",
+      "cli": "ubik agent gps_get_track_record --args '{\"agent_id\":\"<slot>\"}'"
+    },
+    "gps_should_enrich": {
+      "situation": "Vérifier si un slot GPS doit être enrichi",
+      "cli": "ubik agent gps_should_enrich --args '{\"agent_id\":\"<slot>\"}'"
+    },
+    "gps_record_usage": {
+      "situation": "Enregistrer un usage GPS (feedback loop)",
+      "cli": "ubik agent gps_record_usage --args '{...}'"
+    },
+    "gps_invalidate": {
+      "situation": "Invalider/libérer un lock GPS (fin de mission)",
+      "cli": "ubik agent gps_invalidate --args '{\"agent_id\":\"<slot>\"}'"
+    },
+    "moltbook_approve": {
+      "situation": "Approuver une entrée moltbook (promote vers fleet-memory)",
+      "cli": "ubik agent moltbook_approve --args '{\"id\":\"...\"}'"
+    },
+    "moltbook_audit": {
+      "situation": "Auditer les entrées moltbook (validité, doublons)",
+      "cli": "ubik agent moltbook_audit"
+    },
+    "moltbook_feed": {
+      "situation": "Voir le feed moltbook (entrées récentes non approuvées)",
+      "cli": "ubik agent moltbook_feed"
+    },
+    "moltbook_drafts": {
+      "situation": "Voir les drafts moltbook (en attente d'approbation)",
+      "cli": "ubik agent moltbook_drafts"
+    },
+    "moltbook_draft": {
+      "situation": "Créer un draft moltbook",
+      "cli": "ubik agent moltbook_draft --args '{\"content\":\"...\"}'"
+    },
+    "temporal_ping": {
+      "situation": "Ping temporel (vérifier la cohérence temps archives vs maintenant)",
+      "cli": "ubik agent temporal_ping"
+    },
+    "artifact_get": {
+      "situation": "Lire un artefact ubik-memory par clé (projects/*, journal/*, global/*)",
+      "cli": "ubik agent artifact_get --args '{\"key\":\"<clé>\"}'"
+    },
+    "memory_activity_timeline": {
+      "situation": "Timeline d'activité mémoire (qui a écrit quoi et quand)",
+      "cli": "ubik memory memory_activity_timeline"
+    },
+    "memory_claude_history": {
+      "situation": "Historique des conversations Claude indexées en mémoire",
+      "cli": "ubik memory memory_claude_history"
+    },
+    "memory_claude_md_lookup": {
+      "situation": "Lookup dans les fichiers CLAUDE.md indexés (règles, contexte)",
+      "cli": "ubik memory memory_claude_md_lookup --args '{\"q\":\"...\"}'"
+    },
+    "memory_dms_search": {
+      "situation": "Chercher dans les DMs historiques (relay archive)",
+      "cli": "ubik memory memory_dms_search --args '{\"q\":\"...\"}'"
+    },
+    "memory_protocol_search": {
+      "situation": "Chercher dans les protocoles (convention, méthode référencée)",
+      "cli": "ubik agent protocol_search --args '{\"query\":\"...\"}'"
+    },
+    "memory_diff": {
+      "situation": "Diff de la mémoire entre deux dates (qu'est-ce qui a changé ?)",
+      "cli": "ubik memory memory_diff --args '{\"since\":\"...\"}'"
+    },
+    "context_search": {
+      "situation": "Chercher dans tout l'historique conversationnel (sémantique + keyword)",
+      "cli": "ubik memory context_search --args '{\"query\":\"...\",\"limit\":5}'"
+    },
+    "context_howto": {
+      "situation": "Trouver des procédures validées sur un sujet (comment faire X ?)",
+      "cli": "ubik memory context_howto --args '{\"topic\":\"<sujet>\"}'"
+    },
+    "context_journal_search": {
+      "situation": "Chercher dans les journaux quotidiens (narratifs d'équipe)",
+      "cli": "ubik memory context_journal_search --args '{\"query\":\"...\"}'"
+    },
+    "context_runbook": {
+      "situation": "Construire un runbook opérationnel pour un service/composant",
+      "cli": "ubik memory context_runbook --args '{\"service\":\"...\"}'"
+    },
+    "context_distill": {
+      "situation": "Distiller un topic en résumé chronologique depuis l'historique ENGINE",
+      "cli": "ubik memory context_distill --args '{\"topic\":\"...\"}'"
+    },
+    "protocol_get": {
+      "situation": "Lire le contenu complet d'un protocole (convention, spec)",
+      "cli": "ubik agent protocol_get --args '{\"id\":\"...\"}'"
+    },
+    "protocol_search": {
+      "situation": "Chercher un protocole par mot-clé (avant d'agir sur une convention)",
+      "cli": "ubik agent protocol_search --args '{\"query\":\"...\"}'"
+    },
+    "devkit_contract_read": {
+      "situation": "Lire le contrat d'un devkit (specs, interfaces attendues)",
+      "cli": "ubik agent devkit_contract_read --args '{\"id\":\"...\"}'"
+    },
+    "item_plan": {
+      "situation": "Planifier un item (architecte-items)",
+      "cli": "ubik agent item_plan --args '{...}'"
+    },
+    "item_assign": {
+      "situation": "Assigner un item à un slot",
+      "cli": "ubik agent item_assign --args '{...}'"
+    },
+    "item_prevalidate": {
+      "situation": "Pré-valider un item avant staging",
+      "cli": "ubik agent item_prevalidate --args '{...}'"
+    },
+    "staging_submit": {
+      "situation": "Soumettre un item en staging pour publication",
+      "cli": "ubik agent staging_submit --args '{...}'"
+    },
+    "catalog_publish": {
+      "situation": "Publier un item validé dans le catalogue",
+      "cli": "ubik agent catalog_publish --args '{...}'"
+    },
+    "set_panel": {
+      "situation": "[Pilot OS] Configurer un panel dans l'interface",
+      "cli": "ubik agent set_panel --args '{...}'"
+    },
+    "set_grid": {
+      "situation": "[Pilot OS] Configurer la grille de panneaux",
+      "cli": "ubik agent set_grid --args '{...}'"
+    },
+    "create_workspace": {
+      "situation": "[Pilot OS] Créer un workspace dans l'OS",
+      "cli": "ubik agent create_workspace --args '{...}'"
+    },
+    "switch_workspace": {
+      "situation": "[Pilot OS] Basculer sur un workspace",
+      "cli": "ubik agent switch_workspace --args '{...}'"
+    },
+    "rename_workspace": {
+      "situation": "[Pilot OS] Renommer un workspace",
+      "cli": "ubik agent rename_workspace --args '{...}'"
+    },
+    "list_panels": {
+      "situation": "[Pilot OS] Lister les panneaux actifs",
+      "cli": "ubik agent list_panels"
+    },
+    "os_fleet_state": {
+      "situation": "[Pilot OS] État de la fleet vu par l'OS",
+      "cli": "ubik agent os_fleet_state"
+    },
+    "os_thread_status": {
+      "situation": "[Pilot OS] Statut des threads de contexte",
+      "cli": "ubik agent os_thread_status"
+    },
+    "os_peek": {
+      "situation": "[Pilot OS] Observer un pane agent en direct",
+      "cli": "ubik-peek <agent_id>"
+    },
+    "os_recall": {
+      "situation": "[Pilot OS] Recall mémoire via l'OS",
+      "cli": "ubik agent os_recall --args '{\"query\":\"...\"}'"
+    },
+    "os_dashboard": {
+      "situation": "[Pilot OS] Dashboard OS (vue unifiée santé + fleet)",
+      "cli": "ubik agent os_dashboard"
+    },
+    "os_reboot_agent": {
+      "situation": "[Pilot OS] Redémarrer un agent fleet",
+      "cli": "ubik agent os_reboot_agent --args '{\"id\":\"<slot>\"}'"
+    },
+    "os_dm": {
+      "situation": "[Pilot OS] Envoyer un DM via l'OS",
+      "cli": "ubik agent os_dm --args '{\"to\":\"<slot>\",\"message\":\"...\"}'"
+    },
+    "project_archive": {
+      "situation": "Archiver un projet terminé (soft-delete, récupérable)",
+      "cli": "ubik agent project_archive --args '{\"id\":\"...\"}'"
+    },
+    "project_restore": {
+      "situation": "Restaurer un projet archivé",
+      "cli": "ubik agent project_restore --args '{\"id\":\"...\"}'"
+    },
+    "todo_link": {
+      "situation": "Lier une carte todo à un projet/ledger/mission (crée le rattachement)",
+      "cli": "ubik agent todo_link --args '{\"id\":\"t_...\",\"project\":\"...\"}'"
+    }
+  }
+}

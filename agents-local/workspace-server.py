@@ -518,7 +518,7 @@ def tool_abandon(args: dict) -> dict:
 
 
 def tool_suggest(args: dict) -> dict:
-    """Query QUBIK on the VM for relevant tools and skills. Zero LLM cost — FTS5 only."""
+    """Query QUBIK on the VM for relevant tools and skills. Semantic KNN (768-dim, primary) + FTS5 fallback. Zero LLM cost."""
     query = args.get("query", "").strip()
     limit = int(args.get("limit", 5))
     agent_id = (args.get("agent_id") or os.environ.get("UBIK_AGENT_ID") or "").strip()
@@ -615,15 +615,78 @@ def tool_prepull(_args: dict) -> dict:
     return {"prepull": results}
 
 
+def tool_generate_tools_table(args: dict) -> dict:
+    """Generate the situation→tool table for a role from its tools.scope [allow] section.
+
+    D1 Étage Réflexe: renders the curated situation→tool table for injection at boot.
+    Source unique = tools.scope. Falls back to raw tool name if no situation is curated.
+
+    Returns {role, table_md, missing_tools, row_count} where table_md is the markdown
+    table ready for injection. The boot hook (ubik-context-tools-boot.sh) calls this
+    and injects the result into the session context.
+    """
+    import subprocess
+    role = args.get("role", "").strip()
+    if not role:
+        return {"error": "role required (e.g. 'worker', 'lead', 'chef-atelier')"}
+
+    scope_dir = args.get("scope_dir", os.path.expanduser("~/.ubik-memory/role-bundles"))
+    fmt = args.get("format", "header")  # md | header | json
+
+    # The generator lives in ubik-mcp/scripts/generate_tools_table.py alongside
+    # workspace-server.py's parent repo. Path: relative to THIS file's directory.
+    script_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "scripts", "generate_tools_table.py"
+    )
+    # Resolve the installed/deployed path from ubik-mcp
+    if not os.path.exists(script_path):
+        # Fallback: look for it relative to the repo root
+        script_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "generate_tools_table.py"
+        )
+
+    if not os.path.exists(script_path):
+        return {"error": f"generate_tools_table.py not found at {script_path}"}
+
+    try:
+        result = subprocess.run(
+            ["python3", script_path, "--role", role, "--scope-dir", scope_dir, "--format", fmt],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": f"generator failed: {result.stderr.strip()}"}
+
+        output = result.stdout.strip()
+        if fmt == "json":
+            try:
+                return json.loads(output)
+            except json.JSONDecodeError:
+                return {"error": "generator returned invalid JSON", "raw": output[:500]}
+
+        # Count rows for metadata
+        row_count = sum(1 for line in output.splitlines() if line.startswith("| ") and "---" not in line and "Situation" not in line)
+        return {
+            "role": role,
+            "table_md": output,
+            "row_count": row_count,
+            "format": fmt,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": "generator timed out (10s)"}
+
+
 TOOLS = {
-    "agent_workspace_create":  tool_create,
-    "agent_workspace_exec":    tool_exec,
-    "agent_workspace_finish":  tool_finish,
-    "agent_workspace_status":  tool_status,
-    "agent_workspace_abandon": tool_abandon,
-    "agent_workspace_prepull": tool_prepull,
-    "qubik_suggest":           tool_suggest,
-    "qubik_record_usage":      tool_record_usage,
+    "agent_workspace_create":    tool_create,
+    "agent_workspace_exec":      tool_exec,
+    "agent_workspace_finish":    tool_finish,
+    "agent_workspace_status":    tool_status,
+    "agent_workspace_abandon":   tool_abandon,
+    "agent_workspace_prepull":   tool_prepull,
+    "qubik_suggest":             tool_suggest,
+    "qubik_record_usage":        tool_record_usage,
+    "generate_tools_table":      tool_generate_tools_table,
 }
 
 TOOL_SCHEMAS = [
@@ -745,6 +808,26 @@ TOOL_SCHEMAS = [
                 "agent_id": {"type": "string", "description": "Calling slot id (e.g. '6da176c2-agent-7'). Scopes the tool_used update to this slot's row."},
             },
             "required": ["tool_name", "query"],
+        },
+    },
+    {
+        "name": "generate_tools_table",
+        "description": (
+            "[D1 Étage Réflexe] Generate the situation→tool table for a role bundle. "
+            "Reads the role's tools.scope [allow] section (single source of truth) and "
+            "renders a curated | Situation | Réflexe | markdown table for boot injection. "
+            "Covers the 'courant' tier (role-specific known tools). "
+            "For rare/unknown tools use qubik_suggest (semantic long-tail). "
+            "The boot hook ubik-context-tools-boot.sh calls this at session start."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "role": {"type": "string", "description": "Role bundle name (e.g. 'worker', 'lead', 'chef-atelier', 'responsable-xp')"},
+                "scope_dir": {"type": "string", "description": "Path to role-bundles directory (default: ~/.ubik-memory/role-bundles)"},
+                "format": {"type": "string", "enum": ["md", "header", "json"], "description": "md=table only, header=boot injection block (default), json=raw rows"},
+            },
+            "required": ["role"],
         },
     },
 ]
