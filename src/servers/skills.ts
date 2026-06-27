@@ -32,6 +32,40 @@ config({ path: path.join(process.cwd(), ".env") });
 const STORE_DIR  = path.join(os.homedir(), ".ubik-mcp");
 const STORE_PATH = path.join(STORE_DIR, "skills.db");
 
+// Étape 5 (2026-06-27): registry whitelist — agent_search only returns curated personas.
+// Source: ~/.ubik-memory/autopipes/library/registry.yaml (personas section).
+const REGISTRY_PATH = path.join(os.homedir(), ".ubik-memory", "autopipes", "library", "registry.yaml");
+let _registryIds: Set<string> | null = null;
+
+function loadRegistryIds(): Set<string> {
+  if (_registryIds !== null) return _registryIds;
+  try {
+    if (!fs.existsSync(REGISTRY_PATH)) {
+      process.stderr.write("[ubik-skills] registry.yaml not found — agent_search unfiltered\n");
+      _registryIds = new Set();
+      return _registryIds;
+    }
+    const raw = fs.readFileSync(REGISTRY_PATH, "utf-8");
+    // Minimal YAML parse: extract persona IDs from lines like `  - { id: foo, ... }`
+    const ids = new Set<string>();
+    let inPersonas = false;
+    for (const line of raw.split("\n")) {
+      if (/^personas\s*:/.test(line)) { inPersonas = true; continue; }
+      if (inPersonas && /^[a-z#]/.test(line.trim()) && !line.startsWith(" ")) { inPersonas = false; }
+      if (inPersonas) {
+        const m = line.match(/\bid\s*:\s*["']?([a-z0-9_-]+)["']?/i);
+        if (m) ids.add(m[1]);
+      }
+    }
+    _registryIds = ids;
+    process.stderr.write(`[ubik-skills] registry loaded — ${ids.size} curated persona IDs\n`);
+  } catch (e) {
+    process.stderr.write(`[ubik-skills] registry load error: ${e}\n`);
+    _registryIds = new Set();
+  }
+  return _registryIds;
+}
+
 // Primary skill source: the ENGINE catalog (single source of truth, holds the
 // authoritative system_prompts in skills.metadata). The bundled JSON is kept
 // only as an offline fallback when the engine DB is unavailable.
@@ -782,6 +816,9 @@ server.tool(
         hits[0].recommended_action = ratio >= 0.45 ? "train_now" : ratio >= 0.30 ? "explore" : "skip_train";
       }
 
+      // Étape 5: restrict to curated registry whitelist only.
+      const regIds = loadRegistryIds();
+
       // Semantic path
       const vecCount = (db.prepare(
         "SELECT COUNT(*) AS n FROM skill_vectors WHERE key LIKE 'agent/%'"
@@ -805,6 +842,7 @@ server.tool(
           const hits: Hit[] = [];
           for (const r of ranked) {
             const h = rowToHit(r.key, r.content, r.score);
+            if (regIds.size > 0 && !regIds.has(h.id)) continue;
             if (args.autonomy && h.autonomy && h.autonomy !== args.autonomy) continue;
             hits.push(h);
             if (hits.length >= top_k) break;
@@ -812,6 +850,7 @@ server.tool(
           computeRecommended(hits);
           return ok({
             mission: args.mission, mode: "semantic", result_count: hits.length, results: hits,
+            registry_size: regIds.size,
             tip: hits[0]?.recommended_action === "train_now"
               ? `Top match is strong — call agent_train(id="${hits[0].id}") to load the manifest.`
               : hits.length ? "Multiple candidates — review the shortlist before training." : "No matches. Broaden the query.",
@@ -830,6 +869,7 @@ server.tool(
         const score = terms.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
         if (score === 0) continue;
         const h = rowToHit(r.key, r.content, score);
+        if (regIds.size > 0 && !regIds.has(h.id)) continue;
         if (args.autonomy && h.autonomy && h.autonomy !== args.autonomy) continue;
         scored.push(h);
       }

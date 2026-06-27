@@ -382,6 +382,89 @@ NAMESPACES["workshop"] = {
 }
 
 
+# ---- docs namespace: DOCS DRIVE (KB de référence curée), REST vers backend :8765 ----
+# Route vers l'API backend (et NON le module ubik_memory.docs_drive en local) :
+# le backend tourne en HOME opérateur (systemd) donc tape le drive ~/.ubik-docs
+# de l'opérateur. Un agent fleet shellant le module verrait son propre HOME de
+# slot (drive vide) — prod-home-trap. Lecture = search/read/ls/tree/stats ;
+# écriture/curation = mkdir/move/rename/ingest/rm.
+_DOCS_TOOLS = [
+    {"name": "stats", "description": "DOCS DRIVE: counts (files, chunks, embeddings).",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "search", "description": "DOCS DRIVE: recherche sémantique dans la KB de référence.",
+     "inputSchema": {"type": "object", "required": ["query"], "properties": {
+         "query": {"type": "string"}, "limit": {"type": "integer", "description": "défaut 8"},
+         "path_prefix": {"type": "string", "description": "limiter à un sous-dossier"}}}},
+    {"name": "read", "description": "DOCS DRIVE: lit le contenu d'un document.",
+     "inputSchema": {"type": "object", "required": ["path"], "properties": {
+         "path": {"type": "string"}, "max_chars": {"type": "integer", "description": "défaut 20000"}}}},
+    {"name": "ls", "description": "DOCS DRIVE: liste un dossier.",
+     "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "défaut '.'"}}}},
+    {"name": "tree", "description": "DOCS DRIVE: arborescence d'un dossier.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "max_depth": {"type": "integer", "description": "défaut 3"}}}},
+    {"name": "mkdir", "description": "DOCS DRIVE: crée un dossier (curation).",
+     "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}},
+    {"name": "move", "description": "DOCS DRIVE: déplace un fichier/dossier (curation).",
+     "inputSchema": {"type": "object", "required": ["src", "dst"], "properties": {
+         "src": {"type": "string"}, "dst": {"type": "string"}}}},
+    {"name": "rename", "description": "DOCS DRIVE: renomme un fichier/dossier (curation).",
+     "inputSchema": {"type": "object", "required": ["src", "new_name"], "properties": {
+         "src": {"type": "string"}, "new_name": {"type": "string"}}}},
+    {"name": "ingest", "description": "DOCS DRIVE: (ré)indexe un chemin (curation).",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "force": {"type": "boolean"}}}},
+    {"name": "rm", "description": "DOCS DRIVE: supprime un fichier/dossier (curation).",
+     "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}},
+]
+
+
+def _docs_exec(tool, args):
+    from urllib.parse import urlencode
+    h = _agent_headers()
+    base = f"{AGENT_BASE}/api/docs"
+    if tool == "stats":
+        out = _http("GET", f"{base}/stats", headers=h)
+    elif tool == "ls":
+        out = _http("GET", f"{base}/ls?" + urlencode({"path": args.get("path", ".")}), headers=h)
+    elif tool == "tree":
+        out = _http("GET", f"{base}/tree?" + urlencode(
+            {"path": args.get("path", "."), "max_depth": int(args.get("max_depth", 3))}), headers=h)
+    elif tool == "read":
+        out = _http("GET", f"{base}/read?" + urlencode(
+            {"path": args.get("path", ""), "max_chars": int(args.get("max_chars", 20000))}), headers=h)
+    elif tool == "search":
+        out = _http("POST", f"{base}/search", {
+            "query": args.get("query", ""), "limit": int(args.get("limit", 8)),
+            "path_prefix": args.get("path_prefix")}, headers=h)
+    elif tool == "mkdir":
+        out = _http("POST", f"{base}/mkdir", {"path": args.get("path", "")}, headers=h)
+    elif tool == "move":
+        out = _http("POST", f"{base}/move", {"src": args.get("src", ""), "dst": args.get("dst", "")}, headers=h)
+    elif tool == "rename":
+        out = _http("POST", f"{base}/rename",
+                    {"src": args.get("src", ""), "new_name": args.get("new_name", "")}, headers=h)
+    elif tool == "ingest":
+        body = {"force": bool(args.get("force"))}
+        if args.get("path"):
+            body["path"] = args["path"]
+        out = _http("POST", f"{base}/ingest", body, headers=h)
+    elif tool == "rm":
+        out = _http("DELETE", f"{base}/rm?" + urlencode({"path": args.get("path", "")}), headers=h)
+    else:
+        return f"[error] unknown docs tool: {tool}"
+    try:
+        return json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return out
+
+
+NAMESPACES["docs"] = {
+    "list": lambda: _DOCS_TOOLS,
+    "exec": _docs_exec,
+}
+
+
 def _emit(value):
     if isinstance(value, (dict, list)):
         sys.stdout.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")

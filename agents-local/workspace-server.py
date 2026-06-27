@@ -33,6 +33,44 @@ from urllib.parse import urlparse
 
 REGISTRY_DIR = Path.home() / ".ubik-workspace"
 REGISTRY_DB = REGISTRY_DIR / "registry.db"
+
+# Autopipes registry — curated persona whitelist (étape 5, 2026-06-27).
+_AUTOPIPES_REGISTRY = Path.home() / ".ubik-memory" / "autopipes" / "library" / "registry.yaml"
+_registry_persona_ids: set[str] | None = None
+
+
+def _load_registry_persona_ids() -> set[str]:
+    """Load curated persona IDs from registry.yaml. Cached after first load."""
+    global _registry_persona_ids
+    if _registry_persona_ids is not None:
+        return _registry_persona_ids
+    ids: set[str] = set()
+    try:
+        import yaml  # type: ignore
+        if _AUTOPIPES_REGISTRY.exists():
+            with open(_AUTOPIPES_REGISTRY) as f:
+                reg = yaml.safe_load(f)
+            ids = {p["id"] for p in (reg.get("personas") or []) if p.get("id")}
+    except Exception:
+        # yaml not installed: minimal line-regex fallback
+        try:
+            if _AUTOPIPES_REGISTRY.exists():
+                in_personas = False
+                for line in _AUTOPIPES_REGISTRY.read_text().splitlines():
+                    if line.startswith("personas:"):
+                        in_personas = True
+                        continue
+                    if in_personas and line and not line[0].isspace():
+                        in_personas = False
+                    if in_personas:
+                        import re as _re
+                        m = _re.search(r"\bid\s*:\s*[\"']?([a-z0-9_-]+)[\"']?", line)
+                        if m:
+                            ids.add(m.group(1))
+        except Exception:
+            pass
+    _registry_persona_ids = ids
+    return ids
 WORKSPACE_ROOT = Path("/tmp")
 WORKSPACE_PREFIX = "agent-ws-"
 
@@ -507,7 +545,17 @@ def tool_suggest(args: dict) -> dict:
         line = line.strip()
         if line.startswith("{"):
             try:
-                return json.loads(line)
+                result = json.loads(line)
+                # Étape 5 (2026-06-27): filter agents to registry whitelist only.
+                # Tools and skills are from the tool catalog (not data/agents/*.md) — untouched.
+                if isinstance(result.get("agents"), list):
+                    curated = _load_registry_persona_ids()
+                    if curated:
+                        result["agents"] = [
+                            a for a in result["agents"] if a.get("id") in curated
+                        ]
+                        result["_registry_filter"] = f"{len(curated)} curated personas"
+                return result
             except json.JSONDecodeError:
                 pass
 
