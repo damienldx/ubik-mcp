@@ -416,6 +416,20 @@ _DOCS_TOOLS = [
          "path": {"type": "string"}, "force": {"type": "boolean"}}}},
     {"name": "rm", "description": "DOCS DRIVE: supprime un fichier/dossier (curation).",
      "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}},
+    {"name": "draft_create",
+     "description": ("DOCS DRIVE: cree EN UN GESTE un draft narratif "
+                      "_drafts/<repo>/<slug>.md (frontmatter status:draft/author/date "
+                      "obligatoire, indexe immediatement) + la carte todo-board "
+                      "'draft-curation' qui pointe dessus (LEAD curationne via le board "
+                      "existant, pas de nouveau panel)."),
+     "inputSchema": {"type": "object", "required": ["repo", "slug"], "properties": {
+         "repo": {"type": "string", "description": "depot/module concerne (ex 'LBA-DESKTOP')."},
+         "slug": {"type": "string", "description": "identifiant court du draft (ex 'sync-notes')."},
+         "title": {"type": "string", "description": "titre lisible (defaut = slug)."},
+         "content": {"type": "string", "description": "corps markdown initial (optionnel)."},
+         "author": {"type": "string", "description": "defaut UBIK_AGENT_ID de l'appelant."},
+         "tags": {"type": "array", "items": {"type": "string"},
+                  "description": "tags additionnels sur la carte (draft-curation toujours ajoute)."}}}},
 ]
 
 
@@ -451,6 +465,16 @@ def _docs_exec(tool, args):
         out = _http("POST", f"{base}/ingest", body, headers=h)
     elif tool == "rm":
         out = _http("DELETE", f"{base}/rm?" + urlencode({"path": args.get("path", "")}), headers=h)
+    elif tool == "draft_create":
+        body = {
+            "repo": args.get("repo", ""),
+            "slug": args.get("slug", ""),
+            "title": args.get("title"),
+            "content": args.get("content", ""),
+            "author": args.get("author") or os.environ.get("UBIK_AGENT_ID", ""),
+            "tags": args.get("tags") or [],
+        }
+        out = _http("POST", f"{base}/draft_create", body, headers=h)
     else:
         return f"[error] unknown docs tool: {tool}"
     try:
