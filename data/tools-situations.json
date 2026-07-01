@@ -572,6 +572,11 @@
       "situation": "Capturer un insight/analyse narrative avant qu'il se perde (audit technique livré, fin de session) sans écrire un doc evergreen complet",
       "cli": "ubik docs draft_create --args '{\"repo\":\"<repo>\",\"slug\":\"<slug>\",\"content\":\"...\"}'",
       "note": "Écrit _drafts/<repo>/<slug>.md (indexé) + ouvre une carte todo tag draft-curation pour curation LEAD (promotion/fusion/archive) — pas un doc final, juste un geste de capture"
+    },
+    "docs_search": {
+      "situation": "Vérifier si une spec/composant existe déjà avant de proposer une nouvelle implémentation (KB de référence curée)",
+      "cli": "ubik docs search --args '{\"query\":\"<composant ou domaine>\"}'",
+      "note": "Spec d'architecture intentionnelle — distinct de `ubik memory context_search` (décisions passées en session)"
     }
   }
 }
