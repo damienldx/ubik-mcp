@@ -75,6 +75,7 @@ const SERVERS: UpstreamServer[] = [
   { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
   { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
   { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
+  { name: "whatsapp",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "whatsapp.ts")],  tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "lba",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba.ts")],       tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "memory",    command: "/home/damienldx/.local/bin/ubik-memory-mcp", args: [], tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "agent",     command: "python3", args: ["/home/damienldx/.ubik-agent/mcp-ubik-local.py"], tools: [] },

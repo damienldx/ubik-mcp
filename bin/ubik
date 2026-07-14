@@ -196,6 +196,7 @@ STDIO = {
     "system": _tsx("system.ts"), "lba": _tsx("lba.ts"),
     "skills": _tsx("skills.ts"), "crawl": _tsx("crawl.ts"),
     "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
+    "whatsapp": _tsx("whatsapp.ts"),
     "lba-backend": _tsx("lba-backend.ts"),
     "relay": ["python3", os.path.join(_REAL_HOME, "workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
     # workspace namespace (2026-06-20, politique CLI Damien): expose qubik_record_usage +
