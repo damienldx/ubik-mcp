@@ -1062,7 +1062,7 @@ def _os_html_preview_open(args):
             "prévisualisation l'ouvre côté front (canal SSE).")
 
 
-_OS_TOOLS = [
+_OS_TOOLS_B = [
     {"name": "os_thread_status",
      "description": "Lit le remplissage de contexte (fill %) de chaque agent — la donnée du panel Threads.",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -1131,7 +1131,7 @@ _OS_TOOLS = [
                      "properties": {"agent_id": {"type": "string", "description": "Id de l'agent (ex: 6da176c2-agent-5)."}}}},
 ]
 
-_OS_HANDLERS = {
+_OS_HANDLERS_B = {
     "os_thread_status": _os_thread_status,
     "os_quota_status": _os_quota_status,
     "os_agent_detail": _os_agent_detail,
@@ -1151,14 +1151,14 @@ _OS_HANDLERS = {
 
 
 def _os_exec(tool, args):
-    handler = _OS_HANDLERS.get(tool)
+    handler = _OS_HANDLERS_B.get(tool)
     if handler is None:
         return f"[error] unknown os tool: {tool}"
     return handler(args)
 
 
 NAMESPACES["os"] = {
-    "list": lambda: _OS_TOOLS,
+    "list": lambda: _OS_TOOLS_B,
     "exec": _os_exec,
 }
 
