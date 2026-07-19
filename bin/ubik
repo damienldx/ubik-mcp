@@ -1150,15 +1150,199 @@ _OS_HANDLERS_B = {
 }
 
 
+# ── Cluster C (plan_b6e7b02a, mission #3, Caton) ──────────────────────────────
+# Portage mécanique des intentions UI pures de intentions_server.py (kit
+# janus-home, slot 6da176c2-agent-12). Mécanisme PRÉSERVÉ À L'IDENTIQUE (audit
+# du code réel, cf UBIK/docs/janus/CLUSTER-C-CLI-MAPPING.md pour le détail
+# verbe-par-verbe) : l'appel MCP actuel republie via _relay_cockpit_tool_use()
+# -> POST /api/cockpit/tool_use {name, input} (backend/services/
+# janus_chat_service.py, endpoint 'cockpit_tool_use_relay') -> stream_hub
+# republie sur le canal SSE 'janus' en tool_use status:start -> le front
+# WorkspaceContext applique l'effet réel. `ubik os <verbe>` fait EXACTEMENT
+# ce même POST — best-effort, fire-and-forget, aucun retour utile attendu
+# (même contrat que _relay_cockpit_tool_use côté serveur : erreur réseau
+# avalée, jamais remontée comme échec applicatif).
+#
+# Scope final (arbitrage Daedalus + relecture Atlas, ui-architect, ledger
+# l_3baed09a67) : 36 verbes portables sur les 44 du brief initial.
+#   - 20 relay SSE pur (set_panel, set_grid, create_workspace, ...)
+#   - 10 "action" intra-panel (git_open_file, git_set_repo, panel_action, ...)
+#     — même relais générique : le bridge synchrone _pilot_bridge() côté
+#     serveur ne s'active QUE si une session Scribe Pilot est ouverte,
+#     absente pour un appel CLI (cas par défaut) — Atlas a validé que
+#     l'effet visible sur le panel EST la valeur pour ces 10, pas de rupture
+#     de contrat.
+#   - 6 HTTP direct (get_workspace_state, list_workspaces, os_save_layout,
+#     os_list_layouts, spawn_scribe, kill_scribe) — PAS le relay SSE, vrai
+#     contrat backend :8765, handlers dédiés ci-dessous.
+# Exclus (8) : 7 verbes "lecture" (git_get_state, git_list_tree, git_log,
+# git_show_commit, git_show_diff, git_search, panel_get_state) — un ack-only
+# casserait leur contrat (leur raison d'être est la donnée retournée),
+# décision Atlas de les sortir du scope plutôt que dupliquer un mauvais
+# chemin ; git_log/git_show_diff ont un équivalent direct dans le namespace
+# engine (engine.git_log / engine.git_diff), les 5 autres (git_get_state,
+# git_list_tree, git_show_commit, git_search, panel_get_state) n'ont PAS
+# d'équivalent CLI — ce sont de la donnée UI panel ou une lecture de dépôt
+# non couverte, hors scope de cette mission. + 1 tui_peek : whitelisté au
+# manifest pilot-os.yaml mais jamais implémenté côté serveur (aucune entrée
+# TOOLS, aucun handler _execute_os) — verbe fantôme, rien à porter.
+
+def _os_relay_intent(tool, args):
+    """Portage CLI générique des 30 verbes relay SSE / action intra-panel :
+    même POST backend que l'appel MCP actuel (cf commentaire de tête)."""
+    try:
+        _os_backend_http("POST", "/api/cockpit/tool_use", {"name": tool, "input": args or {}})
+    except Exception as exc:
+        return f"[error] relais cockpit indisponible ({_os_classify_error(exc)}): {exc}"
+    return (f"Intention '{tool}' relayée au cockpit (effet appliqué côté front "
+            f"si une fenêtre est ouverte).")
+
+
+def _os_make_relay_handler(tool_name):
+    def _handler(args):
+        return _os_relay_intent(tool_name, args)
+    return _handler
+
+
+_OS_RELAY_VERBS_C = [
+    # 20 — relay SSE pur
+    "set_panel", "set_grid", "create_workspace", "switch_workspace",
+    "rename_workspace", "delete_workspace", "list_panels", "close_panel",
+    "restore_layout", "swap_panels", "reorder_workspaces", "resize_slot",
+    "set_theme", "set_font", "open_side_panel", "close_side_panel",
+    "tui_view", "tui_live", "open_scribe", "close_scribe",
+    # 10 — action intra-panel (relay générique en usage CLI, cf commentaire)
+    "card_interact", "git_back", "git_goto", "git_open_file",
+    "git_set_branch", "git_set_repo", "git_set_tab", "navigate_tab",
+    "panel_action", "terminal_connect",
+]
+
+
+def _os_get_workspace_state(args):
+    d = _os_backend_http("GET", "/api/workspaces/state")
+    if not d.get("published"):
+        return "Aucun cockpit n'a publié son état (front fermé, ou pas encore chargé)."
+    slots = d.get("slots", [])
+    occ = "\n".join(f"    slot {s['slot']}: {s['panelId'] or '(vide)'}" for s in slots)
+    return (f"Cockpit actif : « {d.get('name', '?')} » — grille {d.get('grid')} "
+            f"({d.get('slot_count')} slots) — {d.get('workspace_count')} espace(s) "
+            f"ouvert(s).\n{occ}")
+
+
+def _os_list_workspaces_c(args):
+    d = _os_backend_http("GET", "/api/workspaces")
+    if not d.get("published"):
+        return "Aucun cockpit n'a publié son état (impossible de lister les espaces)."
+    wss = d.get("workspaces", [])
+    if not wss:
+        return "Aucun espace de travail."
+    lines = ["Espaces de travail ouverts :"]
+    for w in wss:
+        star = " ← actif" if w.get("active") else ""
+        lines.append(f"  • {w.get('name', '?')} (id={w.get('id', '?')[:8]}…, "
+                     f"grille {w.get('grid')}){star}")
+    return "\n".join(lines)
+
+
+def _os_save_layout(args):
+    nm = (args.get("name") or "").strip()
+    if not nm:
+        return "[error] name requis"
+    res = _os_backend_http("POST", "/api/workspaces/layouts", {"name": nm})
+    if not res.get("ok"):
+        return f"Sauvegarde impossible : {res.get('error', 'aucun état publié')}."
+    return f"Layout « {nm} » sauvegardé ({res.get('count')} au total)."
+
+
+def _os_list_layouts_c(args):
+    res = _os_backend_http("GET", "/api/workspaces/layouts")
+    lays = res.get("layouts", [])
+    if not lays:
+        return "Aucun layout sauvegardé."
+    lines = ["Layouts sauvegardés :"]
+    for l in lays:
+        lines.append(f"  • {l.get('name')} ({l.get('workspace_count', 0)} espace(s))")
+    return "\n".join(lines)
+
+
+def _os_spawn_scribe(args):
+    slot = args.get("slot", 0)
+    payload = {"slot": slot}
+    doc = args.get("doc") if args.get("doc") is not None else args.get("initial_md")
+    if doc is not None:
+        payload["doc"] = doc
+    if args.get("session_id"):
+        payload["session_id"] = args["session_id"]
+    data = _os_backend_http("POST", "/api/scribe-pilot/spawn", payload)
+    if not isinstance(data, dict) or not data.get("ok"):
+        return f"[error] échec spawn Scribe Pilot : {data}"
+    sid = data.get("session_id")
+    verb = "réutilisée" if data.get("reused") else "instanciée"
+    return (f"Scribe Pilot — session live {verb} (slot {slot}), id {sid}, "
+            f"modèle {data.get('model')}.")
+
+
+def _os_kill_scribe(args):
+    sid = args.get("session_id")
+    if not sid:
+        return "[error] kill_scribe : session_id requis (renvoyé par spawn_scribe)."
+    data = _os_backend_http("POST", "/api/scribe-pilot/kill", {"session_id": sid})
+    if not isinstance(data, dict) or not data.get("ok"):
+        return f"[error] échec kill Scribe Pilot : {data}"
+    killed = data.get("killed")
+    return f"Scribe Pilot — session {sid} {'tuée' if killed else 'déjà absente'}."
+
+
+_OS_TOOLS_C = [
+    {"name": v, "description": f"Intention UI (Cluster C, relay SSE) — cf UBIK/docs/janus/CLUSTER-C-CLI-MAPPING.md.",
+     "inputSchema": {"type": "object", "properties": {}}}
+    for v in _OS_RELAY_VERBS_C
+] + [
+    {"name": "get_workspace_state",
+     "description": "État réel du cockpit actif (nom, grille, slots occupés, nb d'espaces ouverts). HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "list_workspaces",
+     "description": "Liste les espaces de travail ouverts (id, nom, grille, actif). HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "os_save_layout",
+     "description": "Sauvegarde la disposition courante des panels sous un nom. HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object", "required": ["name"],
+                     "properties": {"name": {"type": "string", "description": "Nom du layout à sauvegarder."}}}},
+    {"name": "os_list_layouts",
+     "description": "Liste les layouts (agencements) nommés sauvegardés. HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "spawn_scribe",
+     "description": "Ouvre l'Office Scribe dans un slot et instancie la session live. HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object",
+                     "properties": {"slot": {"type": "integer", "description": "Emplacement cible (défaut 0)."},
+                                    "doc": {"type": "string", "description": "Markdown initial du document (optionnel)."},
+                                    "session_id": {"type": "string", "description": "Réutilise une session existante (optionnel)."}}}},
+    {"name": "kill_scribe",
+     "description": "Tue la session Scribe Pilot live. HTTP direct, PAS un relay SSE.",
+     "inputSchema": {"type": "object", "required": ["session_id"],
+                     "properties": {"session_id": {"type": "string", "description": "Id de session (renvoyé par spawn_scribe)."}}}},
+]
+
+_OS_HANDLERS_C = {v: _os_make_relay_handler(v) for v in _OS_RELAY_VERBS_C}
+_OS_HANDLERS_C.update({
+    "get_workspace_state": _os_get_workspace_state,
+    "list_workspaces": _os_list_workspaces_c,
+    "os_save_layout": _os_save_layout,
+    "os_list_layouts": _os_list_layouts_c,
+    "spawn_scribe": _os_spawn_scribe,
+    "kill_scribe": _os_kill_scribe,
+})
+
+
 def _os_exec(tool, args):
-    handler = _OS_HANDLERS_B.get(tool)
+    handler = _OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool)
     if handler is None:
         return f"[error] unknown os tool: {tool}"
     return handler(args)
 
 
 NAMESPACES["os"] = {
-    "list": lambda: _OS_TOOLS_B,
+    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C,
     "exec": _os_exec,
 }
 
