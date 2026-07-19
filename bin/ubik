@@ -1333,6 +1333,217 @@ _OS_HANDLERS_D = {
 }
 
 
+# ── Phase 1, Lot 2 (plan_7a96d95f, mission #2, Caton) ─────────────────────────
+
+def _os_distill(args):
+    q = (args.get("query") or "").strip()
+    if not q:
+        return "[error] query requis"
+    d = memory_exec("context_distill", {"query": q})
+    txt = d.get("distillation") or d.get("summary") or d.get("text") or "" if isinstance(d, dict) else str(d)
+    return txt.strip()[:1500] or f"Rien à distiller sur « {q} »."
+
+
+def _os_howto(args):
+    topic = (args.get("topic") or "").strip()
+    if not topic:
+        return "[error] topic requis"
+    d = memory_exec("context_howto", {"topic": topic})
+    txt = d.get("howto") or d.get("answer") or d.get("text") or d.get("summary") or "" if isinstance(d, dict) else str(d)
+    return txt.strip()[:1500] or f"Aucune procédure trouvée pour « {topic} »."
+
+
+def _os_channel_send(args):
+    cid = str(args.get("channel_id", "")).strip()
+    msg = (args.get("message") or "").strip()
+    if not cid or not msg:
+        return "[error] channel_id et message requis"
+    _os_relay_http("POST", f"/send/channel:{cid}", {"from": _OS_SELF_ID, "message": msg})
+    return f"Message posté sur le canal '{cid}'."
+
+
+def _os_channel_read(args):
+    cid = str(args.get("channel_id", "")).strip()
+    if not cid:
+        return "[error] channel_id requis"
+    limit = args.get("limit") if isinstance(args.get("limit"), int) else 10
+    items = _os_relay_http("GET", f"/radio?channel=channel:{cid}&limit={limit}")
+    if not isinstance(items, list) or not items:
+        return f"Canal '{cid}' : aucun message."
+    lines = [f"Canal '{cid}' ({len(items)} messages) :"]
+    for m in items[:limit]:
+        ts = (m.get("at") or "")[:16]
+        frm = m.get("from_label") or m.get("from") or "?"
+        txt = (m.get("message") or m.get("text") or "").replace("\n", " ")
+        lines.append(f"  • [{ts}] {frm}: {txt[:140]}")
+    return "\n".join(lines)
+
+
+_OS_COCKPIT_BRIDGE_ID = "cockpit-web"
+
+
+def _os_cockpit_reply(args):
+    txt = (args.get("text") or "").strip()
+    if not txt:
+        return "[error] text requis"
+    _os_relay_http("POST", f"/send/{_OS_COCKPIT_BRIDGE_ID}", {"from": _OS_SELF_ID, "message": txt})
+    return "Réponse envoyée au panel cockpit."
+
+
+_OS_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9][\w:-]{1,63}$")
+_OS_PRIMUS_ID = os.environ.get("UBIK_LEAD_ID", "6da176c2-agent-0")
+
+
+def _os_vehicle_of(agent_id):
+    if not agent_id or "-agent-" not in agent_id:
+        return None
+    return agent_id.split("-agent-", 1)[0] or None
+
+
+def _os_read_lead(vehicle_id):
+    try:
+        with open("/home/damienldx/.ubik-memory/lead.json") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    vmap = data.get("vehicles")
+    if isinstance(vmap, dict):
+        return vmap.get(vehicle_id)
+    legacy = data.get("agent_id")
+    return legacy if _os_vehicle_of(legacy) == vehicle_id else None
+
+
+def _os_lead_for(agent_id):
+    vid = _os_vehicle_of(agent_id)
+    return _os_read_lead(vid) if vid else None
+
+
+def _os_dm(args):
+    to = str(args.get("to", "")).strip()
+    msg = (args.get("message") or "").strip()
+    if not to or not msg:
+        return "[error] to et message requis"
+    if not _OS_AGENT_ID_RE.match(to):
+        return f"[error] Destinataire invalide : {to!r}. Attendu un agent_id fleet (ex: 6da176c2-agent-7)."
+    _os_relay_http("POST", f"/send/{to}", {"from": _OS_SELF_ID, "message": msg})
+    if to == _os_lead_for(to):
+        if to == _OS_PRIMUS_ID:
+            return ("Passé à Lord Primus (arbitrage cross-fleet / périmètre dev). MAINTENANT, "
+                    "réponds au demandeur en UNE phrase claire : « Ça relève de l'arbitrage "
+                    "cross-fleet, je passe la main à Lord Primus. »")
+        return (f"Coordonné en direct (lead↔lead) avec {to}, lead du véhicule "
+                f"{_os_vehicle_of(to)}. MAINTENANT, réponds au demandeur en UNE phrase claire : "
+                f"« Je coordonne ça directement avec le lead concerné ({to}). »")
+    return f"Message envoyé à {to}."
+
+
+def _os_agent_history(args):
+    aid = str(args.get("agent_id", "")).strip()
+    if not aid:
+        return "[error] agent_id requis"
+    d = memory_exec("context_agent_activity", {"agent": aid})
+    txt = (d.get("summary") or d.get("text") or json.dumps(d)[:1200]) if isinstance(d, dict) else str(d)
+    return txt.strip()[:1500] or f"Aucune activité pour {aid}."
+
+
+def _os_radio_recent(args):
+    limit = args.get("limit") if isinstance(args.get("limit"), int) else 10
+    items = _os_relay_http("GET", f"/radio?channel=general&limit={limit}")
+    if not isinstance(items, list) or not items:
+        return "Radio #general : aucun message récent."
+    lines = ["Radio #general (récents) :"]
+    for m in items[:limit]:
+        ts = (m.get("at") or "")[:16]
+        frm = m.get("from_label") or m.get("from") or "?"
+        txt = (m.get("message") or m.get("text") or "").replace("\n", " ")
+        lines.append(f"  • [{ts}] {frm}: {txt[:140]}")
+    return "\n".join(lines)
+
+
+def _os_session_recap(args):
+    q = (args.get("query") or "").strip()
+    if not q:
+        return "[error] query requis (id de session ou mots-clés)"
+    d = memory_exec("context_session_summary", {"session_id_or_query": q})
+    txt = (d.get("summary") or d.get("text") or json.dumps(d)[:1200]) if isinstance(d, dict) else str(d)
+    return txt.strip()[:1500] or f"Aucune session pour « {q} »."
+
+
+def _os_daily_digest(args):
+    import time as _time
+    date = (args.get("date") or "").strip() or _time.strftime("%Y-%m-%d")
+    d = memory_exec("context_daily_digest", {"date": date})
+    if not isinstance(d, dict):
+        return str(d)[:1200] or f"Rien pour {date}."
+    s = d.get("sessions", {})
+    lg = d.get("ledger", {})
+    dm = d.get("dms", {})
+    forks = d.get("forks_delivered", [])
+    lines = [f"Journée {date} :",
+             f"  • {s.get('count', 0)} sessions ({s.get('total_duration', '?')}, "
+             f"{s.get('total_messages', 0)} messages)",
+             f"  • {lg.get('total', 0)} décisions au ledger",
+             f"  • {dm.get('count', 0)} DM ({dm.get('unique_senders', 0)} émetteurs)",
+             f"  • {len(forks)} forks livrés"]
+    tops = lg.get("top_actions") or []
+    if tops:
+        lines.append("  Top décisions : " + ", ".join(
+            str(t.get("action", t) if isinstance(t, dict) else t)[:50] for t in tops[:3]))
+    return "\n".join(lines)
+
+
+_OS_TOOLS_E = [
+    {"name": "os_distill",
+     "description": "Distille tout ce qu'on sait sur un sujet depuis la mémoire conversationnelle.",
+     "inputSchema": {"type": "object", "required": ["query"], "properties": {"query": {"type": "string"}}}},
+    {"name": "os_howto",
+     "description": "Cherche une procédure validée pour « comment faire X ? ».",
+     "inputSchema": {"type": "object", "required": ["topic"], "properties": {"topic": {"type": "string"}}}},
+    {"name": "os_channel_send",
+     "description": "Poste sur un canal relay scope (#general ou canal éphémère) — wake scoped, pas de DM 1:1.",
+     "inputSchema": {"type": "object", "required": ["channel_id", "message"],
+                     "properties": {"channel_id": {"type": "string"}, "message": {"type": "string"}}}},
+    {"name": "os_channel_read",
+     "description": "Lit l'historique d'un canal relay.",
+     "inputSchema": {"type": "object", "required": ["channel_id"],
+                     "properties": {"channel_id": {"type": "string"}, "limit": {"type": "integer"}}}},
+    {"name": "os_cockpit_reply",
+     "description": "Ferme la boucle réponse du panel web cockpit (chat direct opérateur<->Ubik).",
+     "inputSchema": {"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}}},
+    {"name": "os_dm",
+     "description": "DM un agent ou véhicule (coordination lead<->lead si la cible est un lead).",
+     "inputSchema": {"type": "object", "required": ["to", "message"],
+                     "properties": {"to": {"type": "string"}, "message": {"type": "string"}}}},
+    {"name": "os_agent_history",
+     "description": "Historique d'activité d'un agent (sessions, décisions, DM récents).",
+     "inputSchema": {"type": "object", "required": ["agent_id"], "properties": {"agent_id": {"type": "string"}}}},
+    {"name": "os_radio_recent",
+     "description": "Lit les derniers messages radio #general de la fleet (broadcasts).",
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer"}}}},
+    {"name": "os_session_recap",
+     "description": "Résumé structuré d'une session passée (par id ou mots-clés).",
+     "inputSchema": {"type": "object", "required": ["query"], "properties": {"query": {"type": "string"}}}},
+    {"name": "os_daily_digest",
+     "description": "Digest d'une journée : sessions + ledger + DM + forks livrés.",
+     "inputSchema": {"type": "object", "properties": {"date": {"type": "string"}}}},
+]
+
+_OS_HANDLERS_E = {
+    "os_distill": _os_distill,
+    "os_howto": _os_howto,
+    "os_channel_send": _os_channel_send,
+    "os_channel_read": _os_channel_read,
+    "os_cockpit_reply": _os_cockpit_reply,
+    "os_dm": _os_dm,
+    "os_agent_history": _os_agent_history,
+    "os_radio_recent": _os_radio_recent,
+    "os_session_recap": _os_session_recap,
+    "os_daily_digest": _os_daily_digest,
+}
+
+
 _OS_TOOLS_B = [
     {"name": "os_thread_status",
      "description": "Lit le remplissage de contexte (fill %) de chaque agent — la donnée du panel Threads.",
@@ -1606,14 +1817,15 @@ _OS_HANDLERS_C.update({
 
 
 def _os_exec(tool, args):
-    handler = _OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool) or _OS_HANDLERS_D.get(tool)
+    handler = (_OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool)
+               or _OS_HANDLERS_D.get(tool) or _OS_HANDLERS_E.get(tool))
     if handler is None:
         return f"[error] unknown os tool: {tool}"
     return handler(args)
 
 
 NAMESPACES["os"] = {
-    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C + _OS_TOOLS_D,
+    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C + _OS_TOOLS_D + _OS_TOOLS_E,
     "exec": _os_exec,
 }
 
