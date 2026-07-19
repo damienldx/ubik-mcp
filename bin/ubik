@@ -1347,6 +1347,67 @@ NAMESPACES["os"] = {
 }
 
 
+# ── Namespace 'janus' (plan_289f5a14, mission #4, Caton) ─────────────────────
+# Lecture seule des 2 panneaux Billets/Événements du Panel Ubik. Réexpose les
+# endpoints déjà livrés côté backend M2 (commit 7f76955, backend/services/
+# janus_chat_service.py : GET /api/janus/billet, GET /api/janus/events) — pas
+# de nouvelle logique métier, juste l'enregistrement CLI (même pattern que les
+# namespaces agent/memory/os existants : list + exec en dict). Réutilisable par
+# toute la fleet pour superviser les panneaux, pas seulement Ubik (décision
+# Damien, cf brief).
+_JANUS_TOOLS = [
+    {"name": "billet_read",
+     "description": "Lit le contenu courant du panneau Billets (Panel Ubik) — GET /api/janus/billet. Lecture seule.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "events_read",
+     "description": "Lit le contenu courant du panneau Événements (Panel Ubik) — GET /api/janus/events. Lecture seule.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    # plan_815773a5 mission #1 (Caton) : billet_write — écrit un billet via
+    # write_billet() (storage mécanique M2), exposé sur POST /api/janus/billet
+    # (endpoint ajouté par cette même mission, backend/services/janus_chat_
+    # service.py commit 2a4c235, symétrique du GET ci-dessus). Aucune fenêtre
+    # glissante recodée ici — déjà gérée côté write_billet.
+    {"name": "billet_write",
+     "description": "Écrit un billet dans le panneau Billets (Panel Ubik) — POST /api/janus/billet {text}. Fenêtre glissante + signal SSE déjà gérés côté backend (write_billet).",
+     "inputSchema": {"type": "object", "required": ["text"],
+                     "properties": {"text": {"type": "string", "description": "Texte du billet à écrire."}}}},
+]
+
+
+def _janus_read(path):
+    out = _http("GET", AGENT_BASE.rstrip("/") + path, headers=_agent_headers())
+    return json.loads(out) if out else {}
+
+
+def _janus_billet_write(args):
+    text = (args or {}).get("text", "")
+    if not (text or "").strip():
+        return "[error] text requis"
+    out = _http("POST", AGENT_BASE.rstrip("/") + "/api/janus/billet",
+                body={"text": text}, headers=_agent_headers())
+    return json.loads(out) if out else {}
+
+
+_JANUS_HANDLERS = {
+    "billet_read": lambda args: _janus_read("/api/janus/billet"),
+    "events_read": lambda args: _janus_read("/api/janus/events"),
+    "billet_write": _janus_billet_write,
+}
+
+
+def _janus_exec(tool, args):
+    handler = _JANUS_HANDLERS.get(tool)
+    if handler is None:
+        return f"[error] unknown janus tool: {tool}"
+    return handler(args)
+
+
+NAMESPACES["janus"] = {
+    "list": lambda: _JANUS_TOOLS,
+    "exec": _janus_exec,
+}
+
+
 def _emit(value):
     if isinstance(value, (dict, list)):
         sys.stdout.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
