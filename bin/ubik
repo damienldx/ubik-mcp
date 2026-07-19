@@ -1062,6 +1062,277 @@ def _os_html_preview_open(args):
             "prévisualisation l'ouvre côté front (canal SSE).")
 
 
+# ── Phase 1 (plan_7a96d95f, mission #2, Caton) ────────────────────────────────
+# Portage mécanique des tools _OS_TOOLS restants — exécution DIRECTE via
+# _execute_os() côté serveur (kit/janus-home/intentions_server.py, slot
+# 6da176c2-agent-12), ZÉRO dépendance SSE, contrairement au relay Cluster C.
+# Audit source : ledger l_4b598c0160 (Palladio). Wrap 1:1 du comportement
+# réel (mêmes endpoints/mêmes tools `ubik agent`/`ubik memory` sous-jacents).
+
+def _os_fleet_state(args):
+    agents = _os_relay_http("GET", "/agents")
+    vehicles = _os_relay_http("GET", "/vehicles")
+    lines = ["AGENTS :"]
+    for aid, a in sorted((agents or {}).items()):
+        lines.append(f"  {a.get('label', aid)} ({aid}) — pending={a.get('pending', 0)} — vu {a.get('last_seen', '?')}")
+    lines.append("VÉHICULES :")
+    vobj = vehicles if isinstance(vehicles, dict) else {}
+    for vid, v in vobj.items():
+        nm = v.get("name", vid) if isinstance(v, dict) else str(v)
+        lines.append(f"  {vid} — {nm}")
+    return "\n".join(lines)
+
+
+def _os_recall(args):
+    q = (args.get("query") or "").strip()
+    if not q:
+        return "[error] query requis"
+    limit = args.get("limit") if isinstance(args.get("limit"), int) else 5
+    operator = (args.get("operator") or "").strip().upper()
+    if operator in ("AND", "OR"):
+        terms = [t for t in q.split() if t]
+        d = memory_exec("context_multi_search", {"queries": terms, "operator": operator})
+    else:
+        d = memory_exec("context_search", {"query": q, "limit": limit})
+    matches = d.get("matches", []) if isinstance(d, dict) else []
+    if not matches:
+        return f"Aucun souvenir trouvé pour « {q} »."
+    lines = [f"Mémoire OS — « {q} » ({len(matches)} résultats) :"]
+    for m in matches[:limit]:
+        ts = (m.get("ts") or "")[:16]
+        snip = (m.get("snippet") or m.get("text") or "").strip().replace("\n", " ")
+        src = m.get("from_agent") or m.get("host") or m.get("kind") or ""
+        lines.append(f"  • [{ts}] {src}: {snip[:160]}")
+    return "\n".join(lines)
+
+
+_PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _os_memory_save(args):
+    content = (args.get("content") or "").strip()
+    if not content:
+        return "[error] content requis"
+    mtype = (args.get("type") or "").strip()
+    project = (args.get("project") or "").strip()
+    if project and not _PROJECT_NAME_RE.match(project):
+        return f"[error] Nom de projet invalide : {project!r}."
+    payload = {"content": content}
+    if mtype:
+        payload["type"] = mtype
+    if project:
+        payload["project"] = project
+    d = memory_exec("memory_save", payload)
+    if isinstance(d, dict) and d.get("ok") is False:
+        return f"[error] Échec sauvegarde mémoire : {d.get('error', d)}"
+    dest = (d.get("path") or d.get("file")) if isinstance(d, dict) else None
+    return f"Mémoire enregistrée ({dest or project or mtype or 'decisions'})."
+
+
+def _os_ledger_record(args):
+    source = (args.get("source") or "").strip()
+    action = (args.get("action") or "").strip()
+    if not source or not action:
+        return "[error] source (str) et action (str) requis"
+    role = (args.get("role") or "event").strip()
+    if role not in ("setup", "event", "turn", "resolution"):
+        role = "event"
+    actor = (args.get("actor") or "").strip() or _OS_SELF_ID
+    rationale = (args.get("rationale") or "").strip()
+    tags = args.get("tags")
+    payload = {"source": source, "action": action, "actor": actor, "role": role}
+    if rationale:
+        payload["rationale"] = rationale
+    if isinstance(tags, list) and tags:
+        payload["tags"] = [str(t) for t in tags]
+    d = agent_exec("ledger_record", payload)
+    if isinstance(d, dict) and d.get("ok") is False:
+        return f"[error] Échec enregistrement ledger : {d.get('error', d)}"
+    entry = d.get("entry") or {} if isinstance(d, dict) else {}
+    eid = entry.get("id") or "?"
+    warn = (" (rationale <20 car., tagué short-rationale)"
+            if role in ("turn", "resolution") and len(rationale) < 20 else "")
+    return f"Décision tracée au ledger ({eid}){warn}."
+
+
+def _os_dashboard(args):
+    return _os_dashboard_text()
+
+
+def _os_sprints(args):
+    return _os_sprints_text()
+
+
+def _os_decisions(args):
+    limit = args.get("limit") if isinstance(args.get("limit"), int) else 5
+    return _os_decisions_text(limit)
+
+
+def _os_inbox(args):
+    limit = args.get("limit") if isinstance(args.get("limit"), int) else 5
+    q = (args.get("query") or "").strip()
+    payload = {"to_agent": _OS_SELF_ID, "limit": limit, "query": q or "message récent"}
+    d = memory_exec("context_dm_search", payload)
+    dms = []
+    if isinstance(d, dict):
+        dms = d.get("dms") or d.get("matches") or d.get("results") or []
+    if not dms:
+        return "Boîte de réception vide (aucun DM récent)."
+    lines = ["DM récents :"]
+    for m in dms[:limit]:
+        ts = (m.get("ts") or m.get("at") or "")[:16]
+        frm = m.get("from_agent") or m.get("from") or "?"
+        txt = (m.get("snippet") or m.get("message") or m.get("text") or "").replace("\n", " ")
+        lines.append(f"  • [{ts}] {frm}: {txt[:160]}")
+    return "\n".join(lines)
+
+
+def _os_todos(args):
+    status = (args.get("status") or "").strip()
+    assignee = (args.get("assignee") or "").strip()
+    tag = (args.get("tag") or "").strip()
+    sort_by = (args.get("sort_by") or "").strip()
+    search = (args.get("search") or "").strip()
+    tool_args = {}
+    if status:
+        tool_args["status"] = status
+    if assignee:
+        tool_args["assignee"] = assignee
+    if tag:
+        tool_args["tag"] = tag
+    if sort_by:
+        tool_args["sort_by"] = sort_by
+    if search:
+        tool_args["search"] = search
+    d = agent_exec("todo_list", tool_args)
+    if isinstance(d, dict) and not d.get("ok", True) and d.get("error"):
+        return f"[error] Échec lecture board : {d['error']}"
+    todos = d.get("todos") or d.get("items") or d.get("results") or [] if isinstance(d, dict) else []
+    if not status:
+        todos = [t for t in todos if t.get("status") != "done"]
+    total = len(todos)
+    try:
+        limit = int(args.get("limit")) if args.get("limit") is not None else 25
+    except (TypeError, ValueError):
+        limit = 25
+    limit = max(1, min(limit, 200))
+    try:
+        offset = int(args.get("offset")) if args.get("offset") is not None else 0
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+    page = todos[offset:offset + limit]
+    if not page:
+        return ("Aucune tâche ouverte." if not (status or assignee or tag or search)
+                else "Aucune tâche pour ces filtres.")
+    filt = " · ".join(
+        x for x in [status, (f"→{assignee}" if assignee else ""), (f"#{tag}" if tag else ""),
+                    (f"\"{search}\"" if search else ""), (f"tri:{sort_by}" if sort_by else "")]
+        if x
+    ) or "ouvertes"
+    hdr = f"Tableau de mission ({total} {filt}"
+    hdr += f", page {offset}-{offset + len(page)}" if total > len(page) or offset else ""
+    lines = [hdr + ") :"]
+    for t in page:
+        pr = t.get("priority") or t.get("prio") or ""
+        st = t.get("status", "?")
+        title = t.get("title") or t.get("subject") or "?"
+        asg = t.get("assignee") or ""
+        suffix = f" → {asg}" if asg else ""
+        tid = t.get("id") or "?"
+        created = (t.get("created_at") or "")[:10]
+        updated = (t.get("updated_at") or "")[:10]
+        dates = f" (créé:{created} maj:{updated})" if created or updated else ""
+        lines.append(f"  • [{tid}] [{st}{('/' + pr) if pr else ''}] {title[:90]}{suffix}{dates}")
+    if offset + len(page) < total:
+        lines.append(f"  … +{total - offset - len(page)} autres (offset={offset + len(page)} pour la suite).")
+    return "\n".join(lines)
+
+
+def _os_todo_get(args):
+    tid = (args.get("id") or "").strip()
+    if not tid:
+        return "[error] id requis"
+    d = agent_exec("todo_list", {})
+    todos = d.get("todos") or [] if isinstance(d, dict) else []
+    t = next((x for x in todos if x.get("id") == tid), None)
+    if not t:
+        return f"Carte '{tid}' introuvable."
+    lines = [f"Carte {t.get('id')} — {t.get('title', '?')}",
+             f"  statut   : {t.get('status', '?')}  ·  priorité : {t.get('priority', '?')}",
+             f"  assignee : {t.get('assignee') or '(non assignée)'}",
+             f"  tags     : {', '.join(t.get('tags') or []) or '(aucun)'}",
+             f"  créée par: {t.get('created_by', '?')}  ·  maj : {(t.get('updated_at') or '')[:19]}"]
+    if t.get("brief"):
+        lines.append(f"  brief    : {str(t['brief'])[:500]}")
+    if t.get("link"):
+        lines.append(f"  lien     : {json.dumps(t['link'], ensure_ascii=False)}")
+    cmts = t.get("comments") or []
+    if cmts:
+        lines.append(f"  commentaires ({len(cmts)}) :")
+        for c in cmts[-5:]:
+            lines.append(f"    • [{(c.get('at') or '')[:16]}] {c.get('author', '?')}: {str(c.get('text', ''))[:140]}")
+    return "\n".join(lines)
+
+
+_OS_TOOLS_D = [
+    {"name": "os_fleet_state",
+     "description": "Vue d'ensemble de la fleet : agents (pending, last_seen) + véhicules.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "os_recall",
+     "description": "Mémoire conversationnelle de l'OS — recherche sémantique (simple ou multi-termes AND/OR).",
+     "inputSchema": {"type": "object", "required": ["query"],
+                     "properties": {"query": {"type": "string"}, "limit": {"type": "integer"},
+                                    "operator": {"type": "string", "description": "AND|OR pour une recherche multi-termes."}}}},
+    {"name": "os_memory_save",
+     "description": "Écrit un fait/décision en mémoire longue durée (proxy CLI memory_save).",
+     "inputSchema": {"type": "object", "required": ["content"],
+                     "properties": {"content": {"type": "string"}, "type": {"type": "string"},
+                                    "project": {"type": "string"}}}},
+    {"name": "os_ledger_record",
+     "description": "Enregistre au ledger fleet une décision non triviale.",
+     "inputSchema": {"type": "object", "required": ["source", "action"],
+                     "properties": {"source": {"type": "string"}, "action": {"type": "string"},
+                                    "role": {"type": "string"}, "actor": {"type": "string"},
+                                    "rationale": {"type": "string"}, "tags": {"type": "array"}}}},
+    {"name": "os_dashboard",
+     "description": "Météo santé globale de la fleet.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "os_sprints",
+     "description": "Liste les sprints/projets atelier (nom, statut, nb de forks). Lecture seule.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "os_decisions",
+     "description": "Dernières décisions au ledger.",
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer"}}}},
+    {"name": "os_inbox",
+     "description": "DM récents adressés à l'appelant.",
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer"}, "query": {"type": "string"}}}},
+    {"name": "os_todos",
+     "description": "Tableau de mission canonique — filtrable statut/assignee/tag/tri/recherche, paginé.",
+     "inputSchema": {"type": "object",
+                     "properties": {"status": {"type": "string"}, "assignee": {"type": "string"},
+                                    "tag": {"type": "string"}, "sort_by": {"type": "string"},
+                                    "search": {"type": "string"}, "limit": {"type": "integer"},
+                                    "offset": {"type": "integer"}}}},
+    {"name": "os_todo_get",
+     "description": "Lit une carte todo précise par id.",
+     "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}}},
+]
+
+_OS_HANDLERS_D = {
+    "os_fleet_state": _os_fleet_state,
+    "os_recall": _os_recall,
+    "os_memory_save": _os_memory_save,
+    "os_ledger_record": _os_ledger_record,
+    "os_dashboard": _os_dashboard,
+    "os_sprints": _os_sprints,
+    "os_decisions": _os_decisions,
+    "os_inbox": _os_inbox,
+    "os_todos": _os_todos,
+    "os_todo_get": _os_todo_get,
+}
+
+
 _OS_TOOLS_B = [
     {"name": "os_thread_status",
      "description": "Lit le remplissage de contexte (fill %) de chaque agent — la donnée du panel Threads.",
@@ -1335,14 +1606,14 @@ _OS_HANDLERS_C.update({
 
 
 def _os_exec(tool, args):
-    handler = _OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool)
+    handler = _OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool) or _OS_HANDLERS_D.get(tool)
     if handler is None:
         return f"[error] unknown os tool: {tool}"
     return handler(args)
 
 
 NAMESPACES["os"] = {
-    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C,
+    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C + _OS_TOOLS_D,
     "exec": _os_exec,
 }
 
