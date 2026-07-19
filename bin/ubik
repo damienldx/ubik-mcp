@@ -1254,9 +1254,12 @@ def _os_todo_get(args):
     if not tid:
         return "[error] id requis"
     d = agent_exec("todo_list", {})
+    ok = d.get("ok", True) if isinstance(d, dict) else True
     todos = d.get("todos") or [] if isinstance(d, dict) else []
     t = next((x for x in todos if x.get("id") == tid), None)
     if not t:
+        if not ok:
+            return f"[error] Échec lecture board : {d.get('error')}"
         return f"Carte '{tid}' introuvable."
     lines = [f"Carte {t.get('id')} — {t.get('title', '?')}",
              f"  statut   : {t.get('status', '?')}  ·  priorité : {t.get('priority', '?')}",
@@ -1420,13 +1423,25 @@ def _os_lead_for(agent_id):
     return _os_read_lead(vid) if vid else None
 
 
+# Raffine _OS_PRIMUS_ID depuis le lead.json live (véhicule dev 6da176c2), sauf
+# si UBIK_LEAD_ID est pin explicitement — port fidèle de intentions_server.py
+# L150-157 (fix incident t_dd3519812d, misroute lead DM lors d'un changement de
+# slot lead 2026-07-02 : coder le slot en dur reproduit EXACTEMENT ce bug dès
+# que le lead change, même si le fallback matche par coïncidence aujourd'hui).
+if "UBIK_LEAD_ID" not in os.environ:
+    _os_dyn_primus = _os_read_lead("6da176c2")
+    if _os_dyn_primus:
+        _OS_PRIMUS_ID = _os_dyn_primus
+
+
 def _os_dm(args):
     to = str(args.get("to", "")).strip()
     msg = (args.get("message") or "").strip()
     if not to or not msg:
         return "[error] to et message requis"
     if not _OS_AGENT_ID_RE.match(to):
-        return f"[error] Destinataire invalide : {to!r}. Attendu un agent_id fleet (ex: 6da176c2-agent-7)."
+        return (f"[error] Destinataire invalide : {to!r}. Attendu un agent_id fleet (ex: "
+                f"6da176c2-agent-7, pilotos-agent-0). Liste via os_fleet_state.")
     _os_relay_http("POST", f"/send/{to}", {"from": _OS_SELF_ID, "message": msg})
     if to == _os_lead_for(to):
         if to == _OS_PRIMUS_ID:
