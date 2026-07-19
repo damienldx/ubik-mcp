@@ -1362,6 +1362,15 @@ _JANUS_TOOLS = [
     {"name": "events_read",
      "description": "Lit le contenu courant du panneau Événements (Panel Ubik) — GET /api/janus/events. Lecture seule.",
      "inputSchema": {"type": "object", "properties": {}}},
+    # plan_815773a5 mission #1 (Caton) : billet_write — écrit un billet via
+    # write_billet() (storage mécanique M2), exposé sur POST /api/janus/billet
+    # (endpoint ajouté par cette même mission, backend/services/janus_chat_
+    # service.py commit 2a4c235, symétrique du GET ci-dessus). Aucune fenêtre
+    # glissante recodée ici — déjà gérée côté write_billet.
+    {"name": "billet_write",
+     "description": "Écrit un billet dans le panneau Billets (Panel Ubik) — POST /api/janus/billet {text}. Fenêtre glissante + signal SSE déjà gérés côté backend (write_billet).",
+     "inputSchema": {"type": "object", "required": ["text"],
+                     "properties": {"text": {"type": "string", "description": "Texte du billet à écrire."}}}},
 ]
 
 
@@ -1370,9 +1379,19 @@ def _janus_read(path):
     return json.loads(out) if out else {}
 
 
+def _janus_billet_write(args):
+    text = (args or {}).get("text", "")
+    if not (text or "").strip():
+        return "[error] text requis"
+    out = _http("POST", AGENT_BASE.rstrip("/") + "/api/janus/billet",
+                body={"text": text}, headers=_agent_headers())
+    return json.loads(out) if out else {}
+
+
 _JANUS_HANDLERS = {
     "billet_read": lambda args: _janus_read("/api/janus/billet"),
     "events_read": lambda args: _janus_read("/api/janus/events"),
+    "billet_write": _janus_billet_write,
 }
 
 
