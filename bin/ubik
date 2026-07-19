@@ -1544,6 +1544,469 @@ _OS_HANDLERS_E = {
 }
 
 
+# ── Phase 1, Lot 3 (plan_7a96d95f, mission #2, Caton) ─────────────────────────
+
+def _os_watch_set(args):
+    q = (args.get("query") or "").strip()
+    if not q:
+        return "[error] query requis"
+    payload = {"action": "set", "query": q}
+    if args.get("label"):
+        payload["label"] = str(args["label"])
+    d = memory_exec("context_watch", payload)
+    if isinstance(d, dict):
+        wid = d.get("watch_id") or d.get("id") or "?"
+        return f"Veille posée sur « {q} » (id={wid})."
+    return f"Veille posée sur « {q} »."
+
+
+def _os_refuse(args):
+    reason = (args.get("reason") or "").strip()
+    if not reason:
+        return "[error] reason requis"
+    req = (args.get("request") or "").strip()
+    action = f"REFUS JANUS : {reason}" + (f" (demande: {req})" if req else "")
+    agent_exec("ledger_record", {
+        "source": "pilot-os/refus", "actor": _OS_SELF_ID, "action": action,
+        "rationale": "Frontière négative : action déclinée par Pilot OS.",
+        "tags": ["pilot-os", "refus", "frontiere-negative"],
+    })
+    return f"Refus tracé au ledger : {reason}"
+
+
+def _os_docs_search(args):
+    query = (args.get("query") or "").strip()
+    if not query:
+        return "[error] query requis pour os_docs_search"
+    payload = {"query": query, "limit": int(args.get("limit") or 8)}
+    if args.get("path_prefix"):
+        payload["path_prefix"] = args["path_prefix"]
+    data = _os_backend_http("POST", "/api/docs/search", payload, timeout=15.0)
+    if not data.get("ok", False):
+        return f"[error] Erreur recherche Docs Drive : {data.get('error', 'inconnue')[:200]}"
+    hits = data.get("hits") or []
+    if not hits:
+        return f"Aucun résultat Docs Drive pour « {query} »."
+    lines = [f"Résultats Docs Drive pour « {query} » ({len(hits)}) :"]
+    for h in hits:
+        snippet = (h.get("snippet") or "").strip()
+        lines.append(f"  • {h.get('rel_path')} (score {h.get('score')})"
+                     + (f"\n      {snippet}" if snippet else ""))
+    return "\n".join(lines)
+
+
+def _os_docs_ls(args):
+    path = (args.get("path") or ".").strip() or "."
+    qs = urllib.parse.urlencode({"path": path})
+    data = _os_backend_http("GET", f"/api/docs/ls?{qs}")
+    if not data.get("ok", False):
+        return f"[error] Erreur Docs Drive (ls) : {data.get('error', 'inconnue')[:200]}"
+    if data.get("type") == "file":
+        return f"{data.get('rel_path')} — fichier, {data.get('size')} octets."
+    entries = data.get("entries") or []
+    if not entries:
+        return f"Répertoire vide : {data.get('rel_path') or path}."
+    lines = [f"Docs Drive {data.get('rel_path') or path} ({len(entries)} entrée(s)) :"]
+    for e in entries:
+        tag = "/" if e.get("type") == "dir" else ""
+        lines.append(f"  • {e.get('name')}{tag}")
+    return "\n".join(lines)
+
+
+def _os_docs_tree(args):
+    path = (args.get("path") or ".").strip() or "."
+    max_depth = int(args.get("max_depth") or 3)
+    qs = urllib.parse.urlencode({"path": path, "max_depth": max_depth})
+    data = _os_backend_http("GET", f"/api/docs/tree?{qs}")
+    if not data.get("ok", False):
+        return f"[error] Erreur Docs Drive (tree) : {data.get('error', 'inconnue')[:200]}"
+    tree_txt = data.get("tree") or ""
+    if not tree_txt.strip():
+        return f"Arbre vide : {data.get('rel_path') or path}."
+    return f"{data.get('rel_path') or path} :\n{tree_txt}"
+
+
+def _os_docs_read(args):
+    path = (args.get("path") or "").strip()
+    if not path:
+        return "[error] path requis pour os_docs_read"
+    qs = urllib.parse.urlencode({"path": path, "max_chars": 8000})
+    data = _os_backend_http("GET", f"/api/docs/read?{qs}")
+    if not data.get("ok", False):
+        return f"[error] Erreur Docs Drive (read) : {data.get('error', 'inconnue')[:200]}"
+    content = data.get("content") or ""
+    if data.get("truncated"):
+        content += f"\n…[tronqué — {data.get('chars')} chars au total dans la Drive]"
+    return content or f"(fichier vide : {path})"
+
+
+def _os_orchestration_track(args):
+    plan_id = (args.get("plan_id") or "").strip()
+    if not plan_id:
+        return "[error] plan_id requis pour os_orchestration_track"
+    payload = {"plan_id": plan_id}
+    if args.get("template"):
+        payload["template"] = str(args["template"])
+    d = agent_exec("orchestration_track_step", payload)
+    if not isinstance(d, dict) or not d.get("ok", False):
+        return f"[error] Échec orchestration_track_step ({plan_id}) : {d.get('error', d) if isinstance(d, dict) else d}"
+    view = d.get("view") or {}
+    return (f"{view.get('title', plan_id)} [{view.get('type', '?')}] :\n"
+            f"{json.dumps(view, ensure_ascii=False, indent=2)}\n\n"
+            "Pour l'afficher, appelle `ubik os tui_view` avec CE `view` EXACT (copie-le tel quel).")
+
+
+def _os_ws_enroll_agent(aid, vid):
+    """Best-effort : ajoute aid au workshop de son véhicule (port fidèle de
+    _ws_enroll_agent, closure interne de _execute_os('os_spawn_slot'))."""
+    try:
+        wl = _os_backend_http("GET", "/workshops", timeout=4.0)
+        for ws in (wl.get("workshops") or []):
+            if any(m.startswith(f"{vid}-agent-") for m in (ws.get("members") or [])):
+                if aid not in (ws.get("members") or []):
+                    _os_backend_http("PATCH", f"/workshops/{ws['id']}", {"member_add": aid}, timeout=4.0)
+                break
+    except Exception:
+        pass
+
+
+def _os_spawn_slot(args):
+    """Port fidèle de _execute_os('os_spawn_slot') : spawn + tmux_target forcé +
+    auto-enrollment workshop + CASCADE si le slot spawné est le lead du véhicule
+    (spawn aussi chef-atelier/chef-equipe résolus dans les carts, t_0f52755eb2)."""
+    vehicle_id = (args.get("vehicle_id") or "").strip()
+    spawn_args = {"vehicle_id": vehicle_id, "slot": args.get("slot")}
+    if args.get("provider"):
+        spawn_args["provider"] = args["provider"]
+    d = agent_exec("fleet_spawn_slot", spawn_args)
+    if not isinstance(d, dict) or not d.get("ok", False):
+        return f"[error] Échec spawn slot : {d.get('error', d) if isinstance(d, dict) else d}"
+    agent_id = d.get("agent_id") or f"{vehicle_id}-agent-{args.get('slot')}"
+    spawned = [agent_id]
+
+    try:
+        _os_backend_http("POST", f"/register/{agent_id}", {"tmux_target": agent_id}, timeout=4.0)
+    except Exception:
+        pass
+    _os_ws_enroll_agent(agent_id, vehicle_id)
+
+    try:
+        if vehicle_id and _os_read_lead(vehicle_id) == agent_id:
+            import glob as _glob
+            ap_dir = "/home/damienldx/.ubik-memory/autopipes"
+            pat = os.path.join(ap_dir, f"cart_{vehicle_id}-agent-*.json")
+            for cp in sorted(_glob.glob(pat)):
+                try:
+                    with open(cp, encoding="utf-8") as cf:
+                        cc = json.load(cf)
+                    caid = (cc.get("agent_id") or "").strip()
+                    if not caid or caid == agent_id:
+                        continue
+                    mandats = [it.get("id") for it in (cc.get("items") or []) if it.get("type") == "mandat"]
+                    if any(m in ("chef-atelier", "chef-equipe") for m in mandats):
+                        slot_n = int(caid.rsplit("-agent-", 1)[-1])
+                        sp = agent_exec("fleet_spawn_slot", {
+                            "vehicle_id": vehicle_id, "slot": slot_n,
+                            "provider": args.get("provider") or "claude",
+                        })
+                        if isinstance(sp, dict) and sp.get("ok"):
+                            spawned.append(caid)
+                            try:
+                                _os_backend_http("POST", f"/register/{caid}", {"tmux_target": caid}, timeout=4.0)
+                            except Exception:
+                                pass
+                            _os_ws_enroll_agent(caid, vehicle_id)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    s = ", ".join(spawned)
+    cascade = f" Cascade : {len(spawned)} agents." if len(spawned) > 1 else ""
+    return f"Spawné : {s} (effet live tmux).{cascade}"
+
+
+_OS_REBOOT_LOCK_S = 30.0
+_os_recent_reboots = {}
+
+
+def _os_reboot_agent(args):
+    import time as _time
+    vid = str(args.get("vehicle_id", "")).strip()
+    slot = args.get("slot")
+    if not vid or not isinstance(slot, int):
+        return "[error] vehicle_id (str) et slot (int) requis"
+    if not bool(args.get("confirm")):
+        return (f"⚠️ Reboot de {vid}-agent-{slot} = action DESTRUCTIVE (l'agent perd son tour "
+                f"en cours). Rien n'a été fait. Pour exécuter, rappelle os_reboot_agent avec "
+                f"confirm=true.")
+    key = f"{vid}:{slot}"
+    now = _time.time()
+    if now - _os_recent_reboots.get(key, 0) < _OS_REBOOT_LOCK_S:
+        return (f"Reboot de {vid}-agent-{slot} déjà demandé il y a moins de "
+                f"{int(_OS_REBOOT_LOCK_S)}s — j'évite le double-kill. Attends qu'il revienne "
+                f"(os_reboot_status).")
+    _os_recent_reboots[key] = now
+    agent_id = f"{vid}-agent-{slot}"
+    result = agent_exec("fleet_slot_boot", {"agent_id": agent_id})
+    if isinstance(result, dict) and result.get("ok"):
+        return f"Reboot de {agent_id} CONFIRMÉ (session réellement redémarrée)."
+    down = result.get("down") or {} if isinstance(result, dict) else {}
+    up = result.get("up") or {} if isinstance(result, dict) else {}
+    if down and not down.get("ok"):
+        return f"[error] Reboot de {agent_id} ÉCHOUÉ (arrêt) : {down.get('result', down)}"
+    if up and not up.get("ok"):
+        return f"[error] Reboot de {agent_id} ÉCHOUÉ (relance) : {up.get('result', up)}"
+    return f"[error] Reboot de {agent_id} ÉCHOUÉ : {result}"
+
+
+def _os_reboot_workshop(args):
+    """Port mécanique de _execute_os('os_reboot_workshop') — relayout canonique
+    du noyau (lead/chef-atelier/chef-equipe -> slots 0/1/2), kill+purge+respawn
+    de TOUT le véhicule, définitions worker [3-11] préservées. Action infra à
+    large rayon : gated confirm=true + idempotence (30s), comme l'original."""
+    import glob as _glob
+    import shutil as _sh
+    import time as _time
+    vid = str(args.get("vehicle_id", "")).strip()
+    if not vid:
+        return "[error] vehicle_id requis"
+    lead_file = "/home/damienldx/.ubik-memory/lead.json"
+    mem_dir = "/home/damienldx/.ubik-memory"
+    ap_dir = os.path.join(mem_dir, "autopipes")
+    ag_dir = os.path.join(mem_dir, "agents")
+    lead_id = _os_read_lead(vid)
+    canon = {"lead": 0, "chef-atelier": 1, "chef-equipe": 2}
+    all_carts = {}
+    core = {}
+    for cp in sorted(_glob.glob(os.path.join(ap_dir, f"cart_{vid}-agent-*.json"))):
+        try:
+            with open(cp, encoding="utf-8") as cf:
+                cc = json.load(cf)
+        except Exception:
+            continue
+        caid = (cc.get("agent_id") or "").strip()
+        try:
+            sn = int(caid.rsplit("-agent-", 1)[-1])
+        except (ValueError, IndexError):
+            continue
+        all_carts[sn] = (caid, cp, cc)
+        mandats = [it.get("id") for it in (cc.get("items") or []) if it.get("type") == "mandat"]
+        if (caid == lead_id or "lead" in mandats) and "lead" not in core:
+            core["lead"] = sn
+        for mk in ("chef-atelier", "chef-equipe"):
+            if mk in mandats and mk not in core:
+                core[mk] = sn
+    missing = [k for k in canon if k not in core]
+    if missing:
+        return f"[error] Rôle(s) noyau introuvable(s) pour {vid} : {missing} — j'annule par sécurité (rien touché)."
+    relayout = [{"mk": mk, "from": core[mk], "to": to} for mk, to in canon.items()]
+    canon_slots = set(canon.values())
+    if not bool(args.get("confirm")):
+        moves = " ; ".join(f"{r['mk']} {r['from']}→{r['to']}" for r in relayout)
+        return (f"⚠️ reboot dev workshop {vid} = RELAYOUT CANONIQUE (destructif). Déplace le "
+                f"noyau : {moves}. KILL de TOUS les slots du véhicule {sorted(all_carts)} ; "
+                f"backup + purge de tous les carts/fiches ; réécriture canonique du noyau sur "
+                f"[0,1,2] (persona migrée) ; respawn 0/1/2 ; lead.json→{vid}-agent-0. "
+                f"Définitions worker [3-11] PRÉSERVÉES. Rien fait. Rappelle avec confirm=true.")
+    key = f"reboot_workshop:{vid}"
+    now = _time.time()
+    if now - _os_recent_reboots.get(key, 0) < _OS_REBOOT_LOCK_S:
+        return f"reboot dev workshop {vid} déjà demandé il y a moins de {int(_OS_REBOOT_LOCK_S)}s — j'évite le double-kill."
+    _os_recent_reboots[key] = now
+    errs = []
+    new_carts = {}
+    new_fiches = {}
+    for r in relayout:
+        to = r["to"]
+        aid_to = f"{vid}-agent-{to}"
+        src_aid, src_cp, src_cart = all_carts[r["from"]]
+        nc = dict(src_cart)
+        nc["agent_id"] = aid_to
+        new_carts[to] = nc
+        txt = None
+        try:
+            with open(os.path.join(ag_dir, f"{src_aid}.md"), encoding="utf-8") as ff:
+                txt = ff.read()
+        except Exception:
+            txt = None
+        if txt is not None:
+            txt = re.sub(r'(?m)^agent_id:.*$', f'agent_id: {aid_to}', txt, count=1)
+            txt = re.sub(r'(?m)^slot:.*$', f'slot: {to}', txt, count=1)
+        new_fiches[to] = txt
+    bdir = os.path.join(ap_dir, f"_backup_reboot_{vid}")
+    try:
+        os.makedirs(bdir, exist_ok=True)
+        for sn, (aid, cp, cc) in all_carts.items():
+            try:
+                _sh.copy2(cp, os.path.join(bdir, os.path.basename(cp)))
+            except Exception as e:
+                errs.append(f"backup cart {sn}: {e}")
+            f = os.path.join(ag_dir, f"{aid}.md")
+            if os.path.exists(f):
+                try:
+                    _sh.copy2(f, os.path.join(bdir, os.path.basename(f)))
+                except Exception as e:
+                    errs.append(f"backup fiche {sn}: {e}")
+    except Exception as e:
+        errs.append(f"backup dir: {e}")
+    killed = []
+    for sn in sorted(all_carts):
+        try:
+            _os_relay_http("POST", "/admin/send/console-meca",
+                            {"from": _OS_SELF_ID, "message": f"agent-remove:{vid}:{sn}"})
+            killed.append(sn)
+        except Exception as e:
+            errs.append(f"kill {sn}: {e}")
+    for sn, (aid, cp, cc) in all_carts.items():
+        for p in (cp, os.path.join(ag_dir, f"{aid}.md")):
+            try:
+                os.remove(p)
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                errs.append(f"purge {sn} ({os.path.basename(p)}): {e}")
+    for r in relayout:
+        to = r["to"]
+        aid_to = f"{vid}-agent-{to}"
+        try:
+            with open(os.path.join(ap_dir, f"cart_{aid_to}.json"), "w", encoding="utf-8") as wf:
+                json.dump(new_carts[to], wf, ensure_ascii=False, indent=2)
+        except Exception as e:
+            errs.append(f"write cart {to}: {e}")
+        if new_fiches.get(to):
+            try:
+                with open(os.path.join(ag_dir, f"{aid_to}.md"), "w", encoding="utf-8") as wf:
+                    wf.write(new_fiches[to])
+            except Exception as e:
+                errs.append(f"write fiche {to}: {e}")
+    for sn, (aid, cp, cc) in all_carts.items():
+        if sn in core.values() or sn in canon_slots:
+            continue
+        try:
+            with open(os.path.join(ap_dir, f"cart_{aid}.json"), "w", encoding="utf-8") as wf:
+                json.dump(cc, wf, ensure_ascii=False, indent=2)
+        except Exception as e:
+            errs.append(f"preserve cart {sn}: {e}")
+        bak_f = os.path.join(bdir, f"{aid}.md")
+        if os.path.exists(bak_f):
+            try:
+                _sh.copy2(bak_f, os.path.join(ag_dir, f"{aid}.md"))
+            except Exception as e:
+                errs.append(f"preserve fiche {sn}: {e}")
+    try:
+        try:
+            with open(lead_file, encoding="utf-8") as lf:
+                ld = json.load(lf)
+        except Exception:
+            ld = {}
+        if not isinstance(ld, dict):
+            ld = {}
+        vm = ld.get("vehicles")
+        if not isinstance(vm, dict):
+            vm = {}
+            ld["vehicles"] = vm
+        vm[vid] = f"{vid}-agent-0"
+        with open(lead_file, "w", encoding="utf-8") as lf:
+            json.dump(ld, lf, ensure_ascii=False)
+    except Exception as e:
+        errs.append(f"lead.json: {e}")
+    spawned = []
+    for to in sorted(canon_slots):
+        try:
+            sp = agent_exec("fleet_spawn_slot", {"vehicle_id": vid, "slot": to, "provider": "claude"})
+            if isinstance(sp, dict) and sp.get("ok"):
+                spawned.append(to)
+                aid_sp = f"{vid}-agent-{to}"
+                caps_ok = False
+                for _attempt in range(5):
+                    try:
+                        _os_backend_http("POST", f"/register/{aid_sp}",
+                                          {"tmux_target": aid_sp, "capabilities": ["fleet", "claude"]},
+                                          timeout=4.0)
+                    except Exception:
+                        pass
+                    try:
+                        cur = (_os_relay_http("GET", "/agents") or {}).get(aid_sp, {})
+                        if "fleet" in (cur.get("capabilities") or []):
+                            caps_ok = True
+                            break
+                    except Exception:
+                        pass
+                    _time.sleep(1.5)
+                if not caps_ok:
+                    errs.append(f"capabilities {to}: 'fleet' absent après {aid_sp} respawn")
+            else:
+                errs.append(f"spawn {to}: {sp.get('error', sp) if isinstance(sp, dict) else sp}")
+        except Exception as e:
+            errs.append(f"spawn {to}: {e}")
+    moves = ", ".join(f"{r['mk']} {r['from']}→{r['to']}" for r in relayout)
+    msg = (f"reboot dev workshop {vid} CANONIQUE : noyau relocalisé ({moves}), "
+           f"tués {sorted(killed)}, respawn {sorted(spawned)}, lead.json→{vid}-agent-0. "
+           f"Défs worker [3-11] préservées. Backup: {bdir}.")
+    if errs:
+        msg += " ⚠️ erreurs: " + "; ".join(errs)
+    return msg
+
+
+_OS_TOOLS_F = [
+    {"name": "os_watch_set",
+     "description": "Pose une veille persistante sur un sujet (déclenchée à la relecture).",
+     "inputSchema": {"type": "object", "required": ["query"],
+                     "properties": {"query": {"type": "string"}, "label": {"type": "string"}}}},
+    {"name": "os_refuse",
+     "description": "Décline explicitement une action hors périmètre / sans autorisation (log du refus).",
+     "inputSchema": {"type": "object", "required": ["reason"],
+                     "properties": {"reason": {"type": "string"}, "request": {"type": "string"}}}},
+    {"name": "os_docs_search",
+     "description": "Recherche sémantique dans Docs Drive (KB de référence curée).",
+     "inputSchema": {"type": "object", "required": ["query"],
+                     "properties": {"query": {"type": "string"}, "limit": {"type": "integer"},
+                                    "path_prefix": {"type": "string"}}}},
+    {"name": "os_docs_read",
+     "description": "Lit un document Docs Drive, tronqué proprement au-delà d'une taille max.",
+     "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}},
+    {"name": "os_docs_ls",
+     "description": "Liste le contenu d'un répertoire de Docs Drive (un niveau).",
+     "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+    {"name": "os_docs_tree",
+     "description": "Arborescence récursive (bornée en profondeur) d'un répertoire Docs Drive.",
+     "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "max_depth": {"type": "integer"}}}},
+    {"name": "os_orchestration_track",
+     "description": "Lecture seule sur l'état atelier réel, rend une peinture tui_view.",
+     "inputSchema": {"type": "object", "required": ["plan_id"],
+                     "properties": {"plan_id": {"type": "string"}, "template": {"type": "string"}}}},
+    {"name": "os_spawn_slot",
+     "description": "Spawne UN slot agent d'un véhicule (effet live, geste operator/landing).",
+     "inputSchema": {"type": "object", "required": ["vehicle_id", "slot"],
+                     "properties": {"vehicle_id": {"type": "string"}, "slot": {"type": "integer"},
+                                    "provider": {"type": "string"}}}},
+    {"name": "os_reboot_agent",
+     "description": "Reboot direct d'un agent d'un véhicule. DESTRUCTIF — requiert confirm=true.",
+     "inputSchema": {"type": "object", "required": ["vehicle_id", "slot"],
+                     "properties": {"vehicle_id": {"type": "string"}, "slot": {"type": "integer"},
+                                    "confirm": {"type": "boolean"}}}},
+    {"name": "os_reboot_workshop",
+     "description": "Reboot groupe des slots canoniques d'un workshop (relayout lead/chef-atelier/"
+                    "chef-equipe -> 0/1/2). Action infra à large rayon — requiert confirm=true.",
+     "inputSchema": {"type": "object", "required": ["vehicle_id"],
+                     "properties": {"vehicle_id": {"type": "string"}, "confirm": {"type": "boolean"}}}},
+]
+
+_OS_HANDLERS_F = {
+    "os_watch_set": _os_watch_set,
+    "os_refuse": _os_refuse,
+    "os_docs_search": _os_docs_search,
+    "os_docs_read": _os_docs_read,
+    "os_docs_ls": _os_docs_ls,
+    "os_docs_tree": _os_docs_tree,
+    "os_orchestration_track": _os_orchestration_track,
+    "os_spawn_slot": _os_spawn_slot,
+    "os_reboot_agent": _os_reboot_agent,
+    "os_reboot_workshop": _os_reboot_workshop,
+}
+
+
 _OS_TOOLS_B = [
     {"name": "os_thread_status",
      "description": "Lit le remplissage de contexte (fill %) de chaque agent — la donnée du panel Threads.",
@@ -1818,14 +2281,15 @@ _OS_HANDLERS_C.update({
 
 def _os_exec(tool, args):
     handler = (_OS_HANDLERS_B.get(tool) or _OS_HANDLERS_C.get(tool)
-               or _OS_HANDLERS_D.get(tool) or _OS_HANDLERS_E.get(tool))
+               or _OS_HANDLERS_D.get(tool) or _OS_HANDLERS_E.get(tool)
+               or _OS_HANDLERS_F.get(tool))
     if handler is None:
         return f"[error] unknown os tool: {tool}"
     return handler(args)
 
 
 NAMESPACES["os"] = {
-    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C + _OS_TOOLS_D + _OS_TOOLS_E,
+    "list": lambda: _OS_TOOLS_B + _OS_TOOLS_C + _OS_TOOLS_D + _OS_TOOLS_E + _OS_TOOLS_F,
     "exec": _os_exec,
 }
 
