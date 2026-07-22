@@ -12,10 +12,16 @@ câblage que ubik-peek/ubik-tty/ubik-wall.
 18 tools DATA (client/rentabilité/portefeuille/recherche/analytics/admin) —
 mission #2 plan_9d722ce9, Caton — sans Depends(current_user) côté backend.
 
-13 tools GRAPH/TODO (mail/calendrier/teams/todo/mission-request/visite) — mission
-#3 plan_9d722ce9, Vidocq (10 initiaux) + mission #1 plan_91c9dfb4 (lba_mission_
-request, lba_todo_task_create) + mission #1 plan_13812401 (lba_visite_creer,
-POST /api/me/evenements, contrat CONTRACT_ajout_manuel_visite.md) — EXIGENT Depends(current_user) réel (auth
+20 tools GRAPH/TODO (mail/calendrier/teams/todo/mission-request/visite/
+procedures) — mission #3 plan_9d722ce9, Vidocq (10 initiaux) + mission #1
+plan_91c9dfb4 (lba_mission_request, lba_todo_task_create) + mission #1
+plan_13812401 (lba_visite_creer, POST /api/me/evenements, contrat CONTRACT_
+ajout_manuel_visite.md) + mission #1 plan CLI Bridge Bacchus/procedures
+(lba_procedure_creer/mine/modifier/supprimer/soumettre/liste/themes, 7 tools
+— /api/me/procedures/* L9703-9802 lba_api.py + procedures_db.py ; volontai-
+rement PAS de wrapper pour /api/me/procedures/queue ni /{id}/validate,
+réservés backoffice@lba-boissons.fr Depends(_require_backoffice), hors
+scope Bacchus/seat — jamais de compte de service backoffice) — EXIGENT Depends(current_user) réel (auth
 Microsoft déléguée per-utilisateur, pas de compte de service). Le CLI porte
 la session du TITULAIRE DU SEAT appelant via un ticket-exchange dédié (cf
 _mint_cli_session_jwt ci-dessous — décision Damien arb_050496c8b4 option B,
@@ -61,6 +67,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
     "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
+    "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
+    "lba_procedure_supprimer", "lba_procedure_soumettre",
+    "lba_procedure_liste", "lba_procedure_themes",
 })
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
@@ -175,6 +184,12 @@ def _post(path: str, payload: dict, headers: dict | None = None) -> str:
 
 def _patch(path: str, payload: dict, headers: dict | None = None) -> str:
     return _write(path, payload, "PATCH", headers)
+
+
+def _delete(path: str, headers: dict | None = None) -> str:
+    """DELETE sans corps significatif (lba_procedure_supprimer) — l'endpoint
+    backend ne déclare pas de payload, un body vide est ignoré sans risque."""
+    return _write(path, {}, "DELETE", headers)
 
 
 def _write(path: str, payload: dict, method: str, headers: dict | None = None) -> str:
@@ -442,6 +457,62 @@ TOOLS = [
             "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "observations": {"type": "string", "description": "optionnel"}}},
     },
+    # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
+    # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
+    # PAS de wrapper pour /queue ni /{id}/validate : réservés
+    # backoffice@lba-boissons.fr (Depends(_require_backoffice)), hors scope
+    # Bacchus/seat (jamais de compte de service backoffice).
+    {
+        "name": "lba_procedure_creer",
+        "description": ("[ÉCRITURE] Crée une procédure en brouillon (auteur = session courante) — "
+                         "POST /api/me/procedures."),
+        "inputSchema": {"type": "object", "required": ["titre", "theme", "contenu"], "properties": {
+            "titre": {"type": "string"},
+            "theme": {"type": "string", "description": "l'un des 6 thèmes verrouillés — cf lba_procedure_themes"},
+            "contenu": {"type": "string"}}},
+    },
+    {
+        "name": "lba_procedure_mine",
+        "description": ("Mes procédures, tous statuts confondus (brouillon/en_attente/publie) — "
+                         "GET /api/me/procedures/mine."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_procedure_modifier",
+        "description": ("[ÉCRITURE] Modifie une procédure — auteur uniquement, brouillon "
+                         "uniquement (409 si déjà soumise) — PATCH /api/me/procedures/{id}."),
+        "inputSchema": {"type": "object", "required": ["procedure_id"], "properties": {
+            "procedure_id": {"type": "string"},
+            "titre": {"type": "string", "description": "optionnel"},
+            "theme": {"type": "string", "description": "optionnel — l'un des 6 thèmes verrouillés"},
+            "contenu": {"type": "string", "description": "optionnel"}}},
+    },
+    {
+        "name": "lba_procedure_supprimer",
+        "description": ("[ÉCRITURE] Supprime une procédure — auteur uniquement, brouillon "
+                         "uniquement (409 si déjà soumise) — DELETE /api/me/procedures/{id}."),
+        "inputSchema": {"type": "object", "required": ["procedure_id"], "properties": {
+            "procedure_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_procedure_soumettre",
+        "description": ("[ÉCRITURE] Soumet une procédure (brouillon -> en_attente) — auteur "
+                         "uniquement — POST /api/me/procedures/{id}/submit."),
+        "inputSchema": {"type": "object", "required": ["procedure_id"], "properties": {
+            "procedure_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_procedure_liste",
+        "description": ("Procédures PUBLIÉES, filtrables par thème (absent = toutes) — "
+                         "GET /api/me/procedures."),
+        "inputSchema": {"type": "object", "properties": {
+            "theme": {"type": "string", "description": "optionnel — l'un des 6 thèmes verrouillés"}}},
+    },
+    {
+        "name": "lba_procedure_themes",
+        "description": "Les 6 thèmes verrouillés du panel Procedures — GET /api/me/procedures/themes.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -509,6 +580,27 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "datefin": args.get("datefin"), "observations": args.get("observations")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _post("/api/me/evenements", payload, headers)
+    if tool == "lba_procedure_creer":
+        return _post("/api/me/procedures", {
+            "titre": _req(args, "titre"), "theme": _req(args, "theme"),
+            "contenu": _req(args, "contenu")}, headers)
+    if tool == "lba_procedure_mine":
+        return _get("/api/me/procedures/mine", {}, headers)
+    if tool == "lba_procedure_modifier":
+        procedure_id = _req(args, "procedure_id")
+        raw = {"titre": args.get("titre"), "theme": args.get("theme"), "contenu": args.get("contenu")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _patch(f"/api/me/procedures/{procedure_id}", payload, headers)
+    if tool == "lba_procedure_supprimer":
+        procedure_id = _req(args, "procedure_id")
+        return _delete(f"/api/me/procedures/{procedure_id}", headers)
+    if tool == "lba_procedure_soumettre":
+        procedure_id = _req(args, "procedure_id")
+        return _post(f"/api/me/procedures/{procedure_id}/submit", {}, headers)
+    if tool == "lba_procedure_liste":
+        return _get("/api/me/procedures", {"theme": args.get("theme")}, headers)
+    if tool == "lba_procedure_themes":
+        return _get("/api/me/procedures/themes", {}, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {

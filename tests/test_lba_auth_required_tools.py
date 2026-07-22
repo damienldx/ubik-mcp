@@ -7,6 +7,10 @@ même whitelist/pattern d'appel réutilisés, endpoints déjà live sur :8504).
 Étendu mission #1 plan_13812401 (lba_visite_creer, POST /api/me/evenements,
 contrat CONTRACT_ajout_manuel_visite.md — même pattern d'appel, RBAC
 anti-spoofing déjà géré côté backend, non réimplémenté côté CLI).
+Étendu mission #1 plan CLI Bridge Bacchus/procedures (7 tools
+lba_procedure_creer/mine/modifier/supprimer/soumettre/liste/themes,
+/api/me/procedures/* lba_api.py L9703-9802 déjà live — PAS de wrapper pour
+/queue ni /{id}/validate, réservés backoffice@lba-boissons.fr).
 
 Ce que ce fichier protège : `bin/lba` est un script extensionless (pas
 `bin/lba.py`), chargé ici via importlib comme `tests/test_relay_no_response_
@@ -57,6 +61,9 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
     "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
+    "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
+    "lba_procedure_supprimer", "lba_procedure_soumettre",
+    "lba_procedure_liste", "lba_procedure_themes",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -299,6 +306,164 @@ def test_lba_visite_creer_passes_idutilisateur_override_when_present(monkeypatch
         "libelle": "RDV", "date": "2026-07-25T09:00:00Z", "idUtilisateur": 101}, "22fcf4a5-agent-1")
     assert captured["payload"]["idUtilisateur"] == 101
 
+
+# ── Wiring des 7 tools Procedures (mission #1, plan CLI Bridge Bacchus/
+# procedures) — câblage path/payload/headers ; /queue et /{id}/validate ne
+# sont volontairement PAS wrappés (backoffice@lba-boissons.fr uniquement).
+
+def test_lba_procedure_creer_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_procedure_creer", {
+        "titre": "Procédure X", "theme": "Litige clients", "contenu": "Étapes..."}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/me/procedures"
+    assert captured["payload"] == {
+        "titre": "Procédure X", "theme": "Litige clients", "contenu": "Étapes..."}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_procedure_creer_requires_titre_theme_contenu(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    for missing_args in ({"theme": "Litige clients", "contenu": "x"},
+                          {"titre": "x", "contenu": "x"},
+                          {"titre": "x", "theme": "Litige clients"}):
+        try:
+            lba._exec("lba_procedure_creer", missing_args, "22fcf4a5-agent-1")
+            raise AssertionError(f"devait lever LbaCliError pour {missing_args}")
+        except lba.LbaCliError:
+            pass
+
+
+def test_lba_procedure_mine_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_procedure_mine", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures/mine"
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_procedure_modifier_patches_expected_path_and_omits_absent_fields(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_procedure_modifier", {
+        "procedure_id": "proc-1", "titre": "Nouveau titre"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures/proc-1"
+    assert captured["payload"] == {"titre": "Nouveau titre"}
+    assert "theme" not in captured["payload"]
+    assert "contenu" not in captured["payload"]
+
+
+def test_lba_procedure_modifier_requires_procedure_id(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_procedure_modifier", {"titre": "sans id"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (procedure_id manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_procedure_supprimer_deletes_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_delete(path, headers=None):
+        captured["path"] = path
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_delete", _fake_delete)
+    lba._exec("lba_procedure_supprimer", {"procedure_id": "proc-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures/proc-1"
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_procedure_soumettre_posts_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_procedure_soumettre", {"procedure_id": "proc-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures/proc-1/submit"
+    assert captured["payload"] == {}
+
+
+def test_lba_procedure_liste_gets_expected_path_with_theme(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        captured["params"] = params
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_procedure_liste", {"theme": "Tarification"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures"
+    assert captured["params"] == {"theme": "Tarification"}
+
+
+def test_lba_procedure_liste_omits_theme_when_absent(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["params"] = params
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_procedure_liste", {}, "22fcf4a5-agent-1")
+    assert captured["params"] == {"theme": None}
+
+
+def test_lba_procedure_themes_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_procedure_themes", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/procedures/themes"
 
 
 # ── Runner sans pytest (convention du repo — cf test_relay_no_response_repro.py) ──
