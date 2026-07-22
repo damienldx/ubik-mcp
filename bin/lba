@@ -1,35 +1,69 @@
 #!/usr/bin/env python3
-"""lba — CLI sibling pour les tools DATA Bacchus (LBA Desktop), zéro MCP.
+"""lba — CLI sibling pour les tools DATA + Graph/Todo Bacchus (LBA Desktop),
+zéro MCP.
 
-Mappe les 18 tools lba_* en lecture seule vers les endpoints non-authentifiés
-:8504 /api/bacchus/* (plan_service.py, plan/bacchus_*_tools.py) — même
-politique "CLI tools first" que `ubik`/`ubik-activity`/`ubik-peek`, mais
-implanté comme sibling autonome (bin/lba, symlinké ~/.local/bin/lba) plutôt
-qu'un namespace de plus dans bin/ubik : domaine LBA/Bacchus distinct du
-tronc UBIK fleet, même schéma de câblage que ubik-peek/ubik-tty/ubik-wall.
+Mappe les tools lba_* vers les endpoints :8504 /api/bacchus/* + /api/me/todo/*
+(plan_service.py, plan/bacchus_*_tools.py) — même politique "CLI tools first"
+que `ubik`/`ubik-activity`/`ubik-peek`, implanté comme sibling autonome
+(bin/lba, symlinké ~/.local/bin/lba) plutôt qu'un namespace de plus dans
+bin/ubik : domaine LBA/Bacchus distinct du tronc UBIK fleet, même schéma de
+câblage que ubik-peek/ubik-tty/ubik-wall.
 
-Périmètre STRICT : les 18 tools DATA (client/rentabilité/portefeuille/
-recherche/analytics/admin), tous sans Depends(current_user) côté backend.
-Les tools Graph/Mail/Calendrier/Teams (auth réelle) sont hors scope — wave
-suivante (mission séparée, cf brief #2 plan_9d722ce9).
+18 tools DATA (client/rentabilité/portefeuille/recherche/analytics/admin) —
+mission #2 plan_9d722ce9, Caton — sans Depends(current_user) côté backend.
+
+10 tools GRAPH/TODO (mail/calendrier/teams/todo) — mission #3 plan_9d722ce9,
+Vidocq — EXIGENT Depends(current_user) réel (auth Microsoft déléguée
+per-utilisateur, pas de compte de service). Le CLI porte la session du
+TITULAIRE DU SEAT appelant via un ticket-exchange dédié (cf
+_mint_cli_session_jwt ci-dessous — décision Damien arb_050496c8b4 option B,
+mirroir du pattern bacchus_terminal_ticket.py/pty_server.py::mint_ticket,
+secret DISTINCT de LBA_JWT_SECRET, jamais le secret maître de session ne
+sort vers les seats). Résolution de l'agent_id appelant : env
+UBIK_AGENT_ID/RELAY_AGENT_ID (identité du seat courant), ou --agent-id
+explicite pour un usage manuel/test — jamais un agent_id arbitraire choisi
+en dur, jamais de fallback silencieux sur un seat générique.
 
 Usage:
     lba <tool> --args '<json-object>'   # invoque un tool, retourne le JSON
-    lba --list                          # liste les 18 tools (nom + description)
+    lba --list                          # liste les tools (nom + description)
     lba <tool> --schema                 # imprime le schéma JSON d'un tool
+    lba <tool> --args '...' --agent-id 22fcf4a5-agent-1   # override identité seat (tools Graph/Todo)
 
-Env: LBA_PLAN_BASE (défaut http://127.0.0.1:8504)
+Env: LBA_PLAN_BASE (défaut http://127.0.0.1:8504), LBA_CLI_SESSION_SECRET_PATH
+(défaut /home/damienldx/.lba-desktop/cli-session.secret — même chemin ABSOLU
+que côté backend, cf bacchus_cli_session.py : un process CLI tournant dans un
+seat fleet a son propre $HOME isolé, `~` n'y résoudrait PAS vers le même
+fichier que le backend).
 """
 from __future__ import annotations
 import argparse
+import hmac
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
+from hashlib import sha256
 from urllib.parse import quote, urlencode
 
 BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
+
+# ── Tools Graph/Todo nécessitant une session réelle (mission #3) ───────────
+# Whitelist POSITIVE : seuls ces noms déclenchent le ticket-exchange —
+# les 18 tools DATA de Caton restent inchangés, zéro session requise.
+_AUTH_REQUIRED_TOOLS = frozenset({
+    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre",
+    "lba_calendar_liste", "lba_calendar_creer",
+    "lba_teams_conversations", "lba_teams_repondre",
+    "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
+})
+
+_CLI_SESSION_SECRET_PATH = os.environ.get(
+    "LBA_CLI_SESSION_SECRET_PATH", "/home/damienldx/.lba-desktop/cli-session.secret"
+)
+_CLI_SESSION_TICKET_TTL_SEC = 60
 
 
 def _seg(value) -> str:
@@ -43,12 +77,81 @@ class LbaCliError(Exception):
     """Erreur réseau/HTTP distincte d'une réponse vide — jamais avalée en silence."""
 
 
-def _get(path: str, params: dict) -> str:
+def _resolve_agent_id(explicit: str | None) -> str:
+    """Identité du seat fleet appelant — jamais devinée. --agent-id explicite
+    en priorité (usage manuel/test, même convention que pty_server.py
+    --mint-ticket), sinon UBIK_AGENT_ID/RELAY_AGENT_ID (identité du seat
+    courant, même convention que les tools relay_* — cf relay_send : "le
+    sender est votre propre identité enregistrée")."""
+    agent_id = explicit or os.environ.get("UBIK_AGENT_ID") or os.environ.get("RELAY_AGENT_ID")
+    if not agent_id:
+        raise LbaCliError(
+            "impossible de résoudre l'agent_id du seat appelant "
+            "(ni --agent-id, ni UBIK_AGENT_ID/RELAY_AGENT_ID) — requis pour les tools Graph/Todo"
+        )
+    return agent_id
+
+
+def _mint_cli_session_jwt(agent_id: str) -> str:
+    """Ticket-exchange (mission #3, décision arb_050496c8b4 option B) : mint
+    localement une preuve HMAC courte (secret dédié, JAMAIS LBA_JWT_SECRET —
+    même algorithme que pty_server.py::mint_ticket, agent_id:expiry), puis
+    l'échange contre un VRAI JWT lba_session à TTL court auprès de
+    POST /api/bacchus/cli/session (bacchus_cli_session.py). Le JWT résultant
+    est scopé à l'email du TITULAIRE du seat `agent_id` — 403 si cet
+    agent_id n'est rattaché à aucun seat business dédié (jamais un compte de
+    service)."""
+    try:
+        with open(_CLI_SESSION_SECRET_PATH, "rb") as f:
+            secret = f.read()
+    except OSError as e:
+        raise LbaCliError(
+            f"secret CLI-session illisible ({_CLI_SESSION_SECRET_PATH}) — "
+            f"le backend LBA-DESKTOP (bacchus_cli_session.py) n'a peut-être jamais démarré: {e}"
+        ) from e
+    if not secret:
+        raise LbaCliError(f"secret CLI-session vide ({_CLI_SESSION_SECRET_PATH})")
+
+    expiry = int(time.time()) + _CLI_SESSION_TICKET_TTL_SEC
+    proof = hmac.new(secret, f"{agent_id}:{expiry}".encode(), sha256).hexdigest()
+
+    body = json.dumps({"agent_id": agent_id, "expiry": expiry, "proof": proof}).encode()
+    req = urllib.request.Request(
+        f"{BASE}/api/bacchus/cli/session", data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            resp = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode(errors="replace")[:300]
+        except Exception:
+            pass
+        raise LbaCliError(f"ticket-exchange échoué — HTTP {e.code} {e.reason}" + (f": {detail}" if detail else "")) from e
+    except urllib.error.URLError as e:
+        raise LbaCliError(f"ticket-exchange injoignable ({e.reason})") from e
+
+    return resp["jwt"]
+
+
+def _auth_headers(tool: str, agent_id: str | None) -> dict:
+    """Header Authorization: Bearer <jwt> pour les tools Graph/Todo
+    uniquement (whitelist _AUTH_REQUIRED_TOOLS) — les 18 tools DATA
+    n'appellent jamais cette fonction, zéro régression sur leur flux."""
+    if tool not in _AUTH_REQUIRED_TOOLS:
+        return {}
+    jwt_token = _mint_cli_session_jwt(_resolve_agent_id(agent_id))
+    return {"Authorization": f"Bearer {jwt_token}"}
+
+
+def _get(path: str, params: dict, headers: dict | None = None) -> str:
     q = {k: v for k, v in params.items() if v is not None}
     url = f"{BASE}{path}"
     if q:
         url += "?" + urlencode(q)
-    req = urllib.request.Request(url, method="GET")
+    req = urllib.request.Request(url, method="GET", headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.read().decode()
@@ -61,6 +164,33 @@ def _get(path: str, params: dict) -> str:
         raise LbaCliError(f"GET {url} — HTTP {e.code} {e.reason}" + (f": {body}" if body else "")) from e
     except urllib.error.URLError as e:
         raise LbaCliError(f"GET {url} — injoignable ({e.reason})") from e
+
+
+def _post(path: str, payload: dict, headers: dict | None = None) -> str:
+    return _write(path, payload, "POST", headers)
+
+
+def _patch(path: str, payload: dict, headers: dict | None = None) -> str:
+    return _write(path, payload, "PATCH", headers)
+
+
+def _write(path: str, payload: dict, method: str, headers: dict | None = None) -> str:
+    url = f"{BASE}{path}"
+    body = json.dumps(payload).encode()
+    hdrs = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body_txt = ""
+        try:
+            body_txt = e.read().decode(errors="replace")[:500]
+        except Exception:
+            pass
+        raise LbaCliError(f"{method} {url} — HTTP {e.code} {e.reason}" + (f": {body_txt}" if body_txt else "")) from e
+    except urllib.error.URLError as e:
+        raise LbaCliError(f"{method} {url} — injoignable ({e.reason})") from e
 
 
 def _req(args: dict, name: str):
@@ -196,12 +326,119 @@ TOOLS = [
         "description": "Mapping rep_code -> id_prisma — GET /api/bacchus/admin/rep-codes.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # ── Graph/Todo (mission #3 plan_9d722ce9) — Depends(current_user) réel,
+    # session portée via ticket-exchange (cf _mint_cli_session_jwt) ─────────
+    {
+        "name": "lba_mail_liste",
+        "description": "Messages Outlook de l'utilisateur connecté (session réelle) — GET /api/bacchus/mail/liste.",
+        "inputSchema": {"type": "object", "properties": {
+            "top": {"type": "integer", "description": "défaut 25, max 50"},
+            "page_token": {"type": "string"}}},
+    },
+    {
+        "name": "lba_mail_lire",
+        "description": "Corps complet d'un message Outlook — GET /api/bacchus/mail/{message_id}.",
+        "inputSchema": {"type": "object", "required": ["message_id"], "properties": {
+            "message_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_mail_repondre",
+        "description": "[ÉCRITURE] Répond à un message Outlook (reply/replyAll) — POST /api/bacchus/mail/{message_id}/repondre.",
+        "inputSchema": {"type": "object", "required": ["message_id", "comment"], "properties": {
+            "message_id": {"type": "string"}, "comment": {"type": "string"},
+            "reply_all": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
+        "name": "lba_calendar_liste",
+        "description": "Événements calendrier de l'utilisateur connecté — GET /api/bacchus/calendar/liste.",
+        "inputSchema": {"type": "object", "properties": {
+            "top": {"type": "integer", "description": "défaut 20, max 100"},
+            "start_date_time": {"type": "string", "description": "ISO 8601"},
+            "end_date_time": {"type": "string", "description": "ISO 8601"}}},
+    },
+    {
+        "name": "lba_calendar_creer",
+        "description": "[ÉCRITURE] Crée un événement calendrier — POST /api/bacchus/calendar/creer.",
+        "inputSchema": {"type": "object", "required": ["subject", "start", "end"], "properties": {
+            "subject": {"type": "string"}, "start": {"type": "string", "description": "ISO 8601"},
+            "end": {"type": "string", "description": "ISO 8601"}, "timeZone": {"type": "string", "description": "défaut UTC"},
+            "body": {"type": "string"}, "isHtml": {"type": "boolean"},
+            "attendees": {"type": "string", "description": "CSV d'emails"}}},
+    },
+    {
+        "name": "lba_teams_conversations",
+        "description": "Chats Teams de l'utilisateur connecté — GET /api/bacchus/teams/conversations.",
+        "inputSchema": {"type": "object", "properties": {"top": {"type": "integer", "description": "défaut 20, max 50"}}},
+    },
+    {
+        "name": "lba_teams_repondre",
+        "description": "[ÉCRITURE] Envoie un message dans une conversation Teams existante — POST /api/bacchus/teams/repondre.",
+        "inputSchema": {"type": "object", "required": ["chat_id", "message"], "properties": {
+            "chat_id": {"type": "string"}, "message": {"type": "string"}}},
+    },
+    {
+        "name": "lba_todo_lists",
+        "description": "Todo lists Outlook de l'utilisateur connecté — GET /api/me/todo/lists.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_todo_tasks",
+        "description": "Tâches d'une todo list Outlook — GET /api/me/todo/lists/{list_id}/tasks.",
+        "inputSchema": {"type": "object", "required": ["list_id"], "properties": {
+            "list_id": {"type": "string"},
+            "include_completed": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
+        "name": "lba_todo_task_status",
+        "description": "[ÉCRITURE] Change le statut (et l'importance) d'une tâche todo — PATCH /api/me/todo/tasks/{task_id}/status.",
+        "inputSchema": {"type": "object", "required": ["task_id", "status"], "properties": {
+            "task_id": {"type": "string"},
+            "status": {"type": "string", "description": "notStarted|inProgress|completed|waitingOnOthers|deferred"},
+            "importance": {"type": "string", "description": "low|normal|high (optionnel)"},
+            "list_id": {"type": "string", "description": "optionnel — défaut la defaultList Outlook"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
 
-def _exec(tool: str, args: dict):
+def _exec(tool: str, args: dict, agent_id: str | None = None):
+    headers = _auth_headers(tool, agent_id)
+    if tool == "lba_mail_liste":
+        return _get("/api/bacchus/mail/liste", {
+            "top": args.get("top", 25), "page_token": args.get("page_token")}, headers)
+    if tool == "lba_mail_lire":
+        message_id = _req(args, "message_id")
+        return _get(f"/api/bacchus/mail/{message_id}", {}, headers)
+    if tool == "lba_mail_repondre":
+        message_id = _req(args, "message_id")
+        return _post(f"/api/bacchus/mail/{message_id}/repondre", {
+            "comment": _req(args, "comment"), "reply_all": args.get("reply_all", False)}, headers)
+    if tool == "lba_calendar_liste":
+        return _get("/api/bacchus/calendar/liste", {
+            "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
+            "end_date_time": args.get("end_date_time")}, headers)
+    if tool == "lba_calendar_creer":
+        return _post("/api/bacchus/calendar/creer", {
+            "subject": _req(args, "subject"), "start": _req(args, "start"), "end": _req(args, "end"),
+            "timeZone": args.get("timeZone"), "body": args.get("body"), "isHtml": args.get("isHtml", False),
+            "attendees": args.get("attendees")}, headers)
+    if tool == "lba_teams_conversations":
+        return _get("/api/bacchus/teams/conversations", {"top": args.get("top", 20)}, headers)
+    if tool == "lba_teams_repondre":
+        return _post("/api/bacchus/teams/repondre", {
+            "chat_id": _req(args, "chat_id"), "message": _req(args, "message")}, headers)
+    if tool == "lba_todo_lists":
+        return _get("/api/me/todo/lists", {}, headers)
+    if tool == "lba_todo_tasks":
+        list_id = _req(args, "list_id")
+        return _get(f"/api/me/todo/lists/{list_id}/tasks", {
+            "includeCompleted": args.get("include_completed", False)}, headers)
+    if tool == "lba_todo_task_status":
+        task_id = _req(args, "task_id")
+        return _patch(f"/api/me/todo/tasks/{task_id}/status", {
+            "status": _req(args, "status"), "importance": args.get("importance"),
+            "list_id": args.get("list_id")}, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
@@ -273,8 +510,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("tool", nargs="?", help="nom du tool lba_* (ex: lba_client_fiche)")
     p.add_argument("--args", help="arguments JSON du tool, ex: '{\"code\":\"DIRILA\"}'")
-    p.add_argument("--list", action="store_true", help="liste les 18 tools (nom + description)")
+    p.add_argument("--list", action="store_true", help="liste les tools (nom + description)")
     p.add_argument("--schema", action="store_true", help="imprime le schéma JSON du tool donné")
+    p.add_argument("--agent-id", help="override l'identité du seat appelant (tools Graph/Todo uniquement — "
+                                       "défaut UBIK_AGENT_ID/RELAY_AGENT_ID)")
     a = p.parse_args()
 
     if a.list or not a.tool:
@@ -297,7 +536,7 @@ def main():
         sys.exit(2)
 
     try:
-        raw = _exec(a.tool, args)
+        raw = _exec(a.tool, args, agent_id=a.agent_id)
     except LbaCliError as e:
         print(f"lba: {e}", file=sys.stderr)
         sys.exit(1)
