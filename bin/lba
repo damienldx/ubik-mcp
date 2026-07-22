@@ -12,10 +12,11 @@ câblage que ubik-peek/ubik-tty/ubik-wall.
 18 tools DATA (client/rentabilité/portefeuille/recherche/analytics/admin) —
 mission #2 plan_9d722ce9, Caton — sans Depends(current_user) côté backend.
 
-10 tools GRAPH/TODO (mail/calendrier/teams/todo) — mission #3 plan_9d722ce9,
-Vidocq — EXIGENT Depends(current_user) réel (auth Microsoft déléguée
-per-utilisateur, pas de compte de service). Le CLI porte la session du
-TITULAIRE DU SEAT appelant via un ticket-exchange dédié (cf
+12 tools GRAPH/TODO (mail/calendrier/teams/todo/mission-request) — mission #3
+plan_9d722ce9, Vidocq (10 initiaux) + mission #1 plan_91c9dfb4 (lba_mission_
+request, lba_todo_task_create) — EXIGENT Depends(current_user) réel (auth
+Microsoft déléguée per-utilisateur, pas de compte de service). Le CLI porte
+la session du TITULAIRE DU SEAT appelant via un ticket-exchange dédié (cf
 _mint_cli_session_jwt ci-dessous — décision Damien arb_050496c8b4 option B,
 mirroir du pattern bacchus_terminal_ticket.py/pty_server.py::mint_ticket,
 secret DISTINCT de LBA_JWT_SECRET, jamais le secret maître de session ne
@@ -58,6 +59,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
+    "lba_mission_request", "lba_todo_task_create",
 })
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
@@ -397,6 +399,26 @@ TOOLS = [
             "importance": {"type": "string", "description": "low|normal|high (optionnel)"},
             "list_id": {"type": "string", "description": "optionnel — défaut la defaultList Outlook"}}},
     },
+    {
+        "name": "lba_mission_request",
+        "description": ("[ÉCRITURE] Crée une demande de mission à un collaborateur (notif Teams "
+                         "best-effort) — POST /api/me/missions/request."),
+        "inputSchema": {"type": "object", "required": ["destinataire_email", "titre"], "properties": {
+            "destinataire_email": {"type": "string"}, "titre": {"type": "string"},
+            "description": {"type": "string"},
+            "importance": {"type": "string", "description": "low|normal|high (optionnel, défaut normal)"}}},
+    },
+    {
+        "name": "lba_todo_task_create",
+        "description": ("[ÉCRITURE] Crée une tâche libre dans une todo list Outlook — "
+                         "POST /api/me/todo/lists/{list_id}/tasks."),
+        "inputSchema": {"type": "object", "required": ["list_id", "title"], "properties": {
+            "list_id": {"type": "string"}, "title": {"type": "string"},
+            "importance": {"type": "string", "description": "low|normal|high (optionnel)"},
+            "dueDateTime": {"type": "string", "description": "ISO 8601 (optionnel)"},
+            "timeZone": {"type": "string", "description": "IANA, défaut UTC (optionnel)"},
+            "body": {"type": "string", "description": "texte simple (optionnel)"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -439,6 +461,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _patch(f"/api/me/todo/tasks/{task_id}/status", {
             "status": _req(args, "status"), "importance": args.get("importance"),
             "list_id": args.get("list_id")}, headers)
+    if tool == "lba_mission_request":
+        return _post("/api/me/missions/request", {
+            "destinataire_email": _req(args, "destinataire_email"), "titre": _req(args, "titre"),
+            "description": args.get("description"), "importance": args.get("importance")}, headers)
+    if tool == "lba_todo_task_create":
+        list_id = _req(args, "list_id")
+        return _post(f"/api/me/todo/lists/{list_id}/tasks", {
+            "title": _req(args, "title"), "importance": args.get("importance"),
+            "dueDateTime": args.get("dueDateTime"), "timeZone": args.get("timeZone"),
+            "body": args.get("body")}, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
