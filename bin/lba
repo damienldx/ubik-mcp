@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""lba — CLI sibling pour les tools DATA Bacchus (LBA Desktop), zéro MCP.
+
+Mappe les 18 tools lba_* en lecture seule vers les endpoints non-authentifiés
+:8504 /api/bacchus/* (plan_service.py, plan/bacchus_*_tools.py) — même
+politique "CLI tools first" que `ubik`/`ubik-activity`/`ubik-peek`, mais
+implanté comme sibling autonome (bin/lba, symlinké ~/.local/bin/lba) plutôt
+qu'un namespace de plus dans bin/ubik : domaine LBA/Bacchus distinct du
+tronc UBIK fleet, même schéma de câblage que ubik-peek/ubik-tty/ubik-wall.
+
+Périmètre STRICT : les 18 tools DATA (client/rentabilité/portefeuille/
+recherche/analytics/admin), tous sans Depends(current_user) côté backend.
+Les tools Graph/Mail/Calendrier/Teams (auth réelle) sont hors scope — wave
+suivante (mission séparée, cf brief #2 plan_9d722ce9).
+
+Usage:
+    lba <tool> --args '<json-object>'   # invoque un tool, retourne le JSON
+    lba --list                          # liste les 18 tools (nom + description)
+    lba <tool> --schema                 # imprime le schéma JSON d'un tool
+
+Env: LBA_PLAN_BASE (défaut http://127.0.0.1:8504)
+"""
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from urllib.parse import urlencode
+
+BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
+
+
+class LbaCliError(Exception):
+    """Erreur réseau/HTTP distincte d'une réponse vide — jamais avalée en silence."""
+
+
+def _get(path: str, params: dict) -> str:
+    q = {k: v for k, v in params.items() if v is not None}
+    url = f"{BASE}{path}"
+    if q:
+        url += "?" + urlencode(q)
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode(errors="replace")[:500]
+        except Exception:
+            pass
+        raise LbaCliError(f"GET {url} — HTTP {e.code} {e.reason}" + (f": {body}" if body else "")) from e
+    except urllib.error.URLError as e:
+        raise LbaCliError(f"GET {url} — injoignable ({e.reason})") from e
+
+
+def _req(args: dict, name: str):
+    """Paramètre requis — erreur explicite plutôt qu'un KeyError opaque."""
+    if name not in args or args[name] in (None, ""):
+        raise LbaCliError(f"paramètre requis manquant: {name}")
+    return args[name]
+
+
+TOOLS = [
+    {
+        "name": "lba_client_fiche",
+        "description": "Fiche complète d'un client (code, période) — GET /api/bacchus/client/{code}/fiche.",
+        "inputSchema": {"type": "object", "required": ["code", "date_from", "date_to"], "properties": {
+            "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_historique_visites",
+        "description": "Historique des visites traitées d'un client — GET /api/bacchus/client/{code}/historique-visites.",
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 200, max 3000"}}},
+    },
+    {
+        "name": "lba_client_recouvrement_statut",
+        "description": "Statut recouvrement (solde + badges) d'un client — GET /api/bacchus/client/{code}/recouvrement-statut.",
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_simulateur_prix",
+        "description": ("Simulation de pricing client x famille (cascade PARTIELLE, niveau tarif "
+                         "famille-article dédié SKIP) — GET /api/bacchus/client/{code}/simulateur-prix/{famille}."),
+        "inputSchema": {"type": "object", "required": ["code", "famille"], "properties": {
+            "code": {"type": "string"}, "famille": {"type": "string"},
+            "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_extrait_compte",
+        "description": "Extrait de compte (écritures 411, exercice courant) par tiers_id — GET /api/bacchus/client/tiers/{tiers_id}/extrait-compte.",
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {"tiers_id": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_client_relance_preview",
+        "description": ("DRY-RUN preview du template relance/blocage, SANS ENVOI — "
+                         "GET /api/bacchus/client/tiers/{tiers_id}/relance/preview. "
+                         "Le pendant WRITE (envoi Graph) est hors scope V1."),
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
+            "tiers_id": {"type": "integer"},
+            "kind": {"type": "string", "description": "'relance' (défaut) ou 'blocage'"}}},
+    },
+    {
+        "name": "lba_rentabilite_produits",
+        "description": "Rentabilité produits de l'année, filtrable/paginée — GET /api/bacchus/rentabilite/produits.",
+        "inputSchema": {"type": "object", "required": ["annee"], "properties": {
+            "annee": {"type": "integer"}, "representant": {"type": "string"}, "famille": {"type": "string"},
+            "sousfamille": {"type": "string"}, "q": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_rentabilite_clients",
+        "description": "Rentabilité clients de l'année, filtrable/paginée — GET /api/bacchus/rentabilite/clients.",
+        "inputSchema": {"type": "object", "required": ["annee"], "properties": {
+            "annee": {"type": "integer"}, "representant": {"type": "string"}, "q": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_tdc_kpis",
+        "description": ("KPIs TDC N/N-1 (sémantique TDC, PAS CRM Client) — GET /api/bacchus/rentabilite/tdc-kpis. "
+                         "granularite+periode_ref requis si months absent."),
+        "inputSchema": {"type": "object", "properties": {
+            "granularite": {"type": "string", "description": "JOUR|SEMAINE|MOIS|ANNEE"},
+            "periode_ref": {"type": "string"}, "months": {"type": "string", "description": "CSV YYYY-MM"},
+            "rep_code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_clients_sans_visites",
+        "description": "Clients du portefeuille sans visite depuis le 1er janvier — GET /api/bacchus/portefeuille/clients-sans-visites.",
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "défaut 500, max 2000"}, "marque": {"type": "string"}}},
+    },
+    {
+        "name": "lba_produits_dormants",
+        "description": "Stock dormant, tous produits, trié jours_sans_mouvement décroissant — GET /api/bacchus/portefeuille/produits-dormants.",
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "défaut 5000, max 10000 (plafond de sécurité)"}}},
+    },
+    {
+        "name": "lba_kpis_portefeuille",
+        "description": "KPIs portefeuille complet (CA/marge/nb clients/panier moyen) sur période — GET /api/bacchus/portefeuille/kpis.",
+        "inputSchema": {"type": "object", "required": ["date_from", "date_to"], "properties": {
+            "date_from": {"type": "string", "description": "YYYY-MM-DD"}, "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+            "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois exact"}}},
+    },
+    {
+        "name": "lba_dso_client",
+        "description": "DSO (Days Sales Outstanding) portefeuille, filtrable sur un code client — GET /api/bacchus/portefeuille/dso.",
+        "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_agenda_representants",
+        "description": "Agenda hebdomadaire des représentants (dépend prisma-api:8506) — GET /api/bacchus/portefeuille/agenda-representants.",
+        "inputSchema": {"type": "object", "properties": {"week": {"type": "string", "description": "ISO week YYYY-WW, défaut semaine courante"}}},
+    },
+    {
+        "name": "lba_portefeuille_liste",
+        "description": "Portefeuille complet avec CA sur la période (source PRISMA-live) — GET /api/bacchus/portefeuille/liste.",
+        "inputSchema": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "défaut 90, max 365"},
+            "limit": {"type": "integer", "description": "défaut 500, max 5000"}}},
+    },
+    {
+        "name": "lba_recherche_client",
+        "description": "Auto-complete client (nom/raison sociale approximatif -> code exact) — GET /api/bacchus/recherche/client.",
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {
+            "q": {"type": "string", "description": "min 2 caractères"},
+            "limit": {"type": "integer", "description": "défaut 20, max 50"}}},
+    },
+    {
+        "name": "lba_analytics_explorer",
+        "description": ("Explorateur analytique multi-KPI DuckDB — GET /api/bacchus/analytics/explorer. "
+                         "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend."),
+        "inputSchema": {"type": "object", "properties": {
+            "kpis": {"type": "string", "description": "défaut ca,marge,ca_ttc,commandes,pct_app,pct_gte10art,cashflow"},
+            "rep": {"type": "integer", "description": "idPersonneRepresentant PRISMA — préférer rep_code"},
+            "rep_code": {"type": "string"}, "famille": {"type": "string"}, "article": {"type": "string"},
+            "granularite": {"type": "string", "description": "ANNEE|MOIS|SEMAINE|JOUR, défaut MOIS"},
+            "n_points": {"type": "integer", "description": "défaut 12, max 60"}}},
+    },
+    {
+        "name": "lba_rep_codes",
+        "description": "Mapping rep_code -> id_prisma — GET /api/bacchus/admin/rep-codes.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
+
+_TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
+
+
+def _exec(tool: str, args: dict):
+    if tool == "lba_client_fiche":
+        code = _req(args, "code")
+        return _get(f"/api/bacchus/client/{code}/fiche", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_client_historique_visites":
+        code = _req(args, "code")
+        return _get(f"/api/bacchus/client/{code}/historique-visites", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to"),
+            "limit": args.get("limit", 200)})
+    if tool == "lba_client_recouvrement_statut":
+        code = _req(args, "code")
+        return _get(f"/api/bacchus/client/{code}/recouvrement-statut", {})
+    if tool == "lba_client_simulateur_prix":
+        code, famille = _req(args, "code"), _req(args, "famille")
+        return _get(f"/api/bacchus/client/{code}/simulateur-prix/{famille}", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to")})
+    if tool == "lba_client_extrait_compte":
+        tiers_id = _req(args, "tiers_id")
+        return _get(f"/api/bacchus/client/tiers/{tiers_id}/extrait-compte", {})
+    if tool == "lba_client_relance_preview":
+        tiers_id = _req(args, "tiers_id")
+        return _get(f"/api/bacchus/client/tiers/{tiers_id}/relance/preview", {
+            "kind": args.get("kind", "relance")})
+    if tool == "lba_rentabilite_produits":
+        return _get("/api/bacchus/rentabilite/produits", {
+            "annee": _req(args, "annee"), "representant": args.get("representant"),
+            "famille": args.get("famille"), "sousfamille": args.get("sousfamille"),
+            "q": args.get("q"), "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_rentabilite_clients":
+        return _get("/api/bacchus/rentabilite/clients", {
+            "annee": _req(args, "annee"), "representant": args.get("representant"),
+            "q": args.get("q"), "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_tdc_kpis":
+        return _get("/api/bacchus/rentabilite/tdc-kpis", {
+            "granularite": args.get("granularite"), "periode_ref": args.get("periode_ref"),
+            "months": args.get("months"), "rep_code": args.get("rep_code")})
+    if tool == "lba_clients_sans_visites":
+        return _get("/api/bacchus/portefeuille/clients-sans-visites", {
+            "limit": args.get("limit", 500), "marque": args.get("marque")})
+    if tool == "lba_produits_dormants":
+        return _get("/api/bacchus/portefeuille/produits-dormants", {"limit": args.get("limit", 5000)})
+    if tool == "lba_kpis_portefeuille":
+        return _get("/api/bacchus/portefeuille/kpis", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
+            "months": args.get("months")})
+    if tool == "lba_dso_client":
+        return _get("/api/bacchus/portefeuille/dso", {"code": args.get("code")})
+    if tool == "lba_agenda_representants":
+        return _get("/api/bacchus/portefeuille/agenda-representants", {"week": args.get("week")})
+    if tool == "lba_portefeuille_liste":
+        return _get("/api/bacchus/portefeuille/liste", {
+            "days": args.get("days", 90), "limit": args.get("limit", 500)})
+    if tool == "lba_recherche_client":
+        return _get("/api/bacchus/recherche/client", {
+            "q": _req(args, "q"), "limit": args.get("limit", 20)})
+    if tool == "lba_analytics_explorer":
+        return _get("/api/bacchus/analytics/explorer", {
+            "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
+            "famille": args.get("famille"), "article": args.get("article"),
+            "granularite": args.get("granularite", "MOIS"), "n_points": args.get("n_points", 12)})
+    if tool == "lba_rep_codes":
+        return _get("/api/bacchus/admin/rep-codes", {})
+    raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="lba", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("tool", nargs="?", help="nom du tool lba_* (ex: lba_client_fiche)")
+    p.add_argument("--args", help="arguments JSON du tool, ex: '{\"code\":\"DIRILA\"}'")
+    p.add_argument("--list", action="store_true", help="liste les 18 tools (nom + description)")
+    p.add_argument("--schema", action="store_true", help="imprime le schéma JSON du tool donné")
+    a = p.parse_args()
+
+    if a.list or not a.tool:
+        print(json.dumps([{"name": t["name"], "description": t["description"]} for t in TOOLS],
+                          indent=2, ensure_ascii=False))
+        return
+
+    if a.tool not in _TOOLS_BY_NAME:
+        print(f"lba: tool inconnu: {a.tool!r} — voir `lba --list`", file=sys.stderr)
+        sys.exit(2)
+
+    if a.schema:
+        print(json.dumps(_TOOLS_BY_NAME[a.tool]["inputSchema"], indent=2, ensure_ascii=False))
+        return
+
+    try:
+        args = json.loads(a.args) if a.args else {}
+    except json.JSONDecodeError as e:
+        print(f"lba: --args invalide (JSON): {e}", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        raw = _exec(a.tool, args)
+    except LbaCliError as e:
+        print(f"lba: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        print(json.dumps(json.loads(raw), indent=2, ensure_ascii=False))
+    except (json.JSONDecodeError, TypeError):
+        print(raw)
+
+
+if __name__ == "__main__":
+    main()
