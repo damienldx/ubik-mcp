@@ -27,9 +27,16 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
+
+
+def _seg(value) -> str:
+    """Encode un segment de PATH (code/tiers_id/famille) — safe='' pour ne
+    pas laisser passer un '/' ou un caractère spécial tel quel dans l'URL
+    (même classe de bug que e63bc22)."""
+    return quote(str(value), safe="")
 
 
 class LbaCliError(Exception):
@@ -196,26 +203,27 @@ _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
 def _exec(tool: str, args: dict):
     if tool == "lba_client_fiche":
-        code = _req(args, "code")
+        code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
     if tool == "lba_client_historique_visites":
-        code = _req(args, "code")
+        code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/historique-visites", {
             "date_from": args.get("date_from"), "date_to": args.get("date_to"),
             "limit": args.get("limit", 200)})
     if tool == "lba_client_recouvrement_statut":
-        code = _req(args, "code")
+        code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/recouvrement-statut", {})
     if tool == "lba_client_simulateur_prix":
-        code, famille = _req(args, "code"), _req(args, "famille")
+        code = _seg(_req(args, "code"))
+        famille = _seg(_req(args, "famille"))
         return _get(f"/api/bacchus/client/{code}/simulateur-prix/{famille}", {
             "date_from": args.get("date_from"), "date_to": args.get("date_to")})
     if tool == "lba_client_extrait_compte":
-        tiers_id = _req(args, "tiers_id")
+        tiers_id = _seg(_req(args, "tiers_id"))
         return _get(f"/api/bacchus/client/tiers/{tiers_id}/extrait-compte", {})
     if tool == "lba_client_relance_preview":
-        tiers_id = _req(args, "tiers_id")
+        tiers_id = _seg(_req(args, "tiers_id"))
         return _get(f"/api/bacchus/client/tiers/{tiers_id}/relance/preview", {
             "kind": args.get("kind", "relance")})
     if tool == "lba_rentabilite_produits":
