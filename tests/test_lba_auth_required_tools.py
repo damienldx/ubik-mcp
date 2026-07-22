@@ -4,6 +4,9 @@ plan_9d722ce9, décision arb_050496c8b4 option B) — re-gate Bertillon
 (verdict "changements demandés" : archi validée, zéro test automatisé).
 Étendu mission #1 plan_91c9dfb4 (lba_mission_request, lba_todo_task_create,
 même whitelist/pattern d'appel réutilisés, endpoints déjà live sur :8504).
+Étendu mission #1 plan_13812401 (lba_visite_creer, POST /api/me/evenements,
+contrat CONTRACT_ajout_manuel_visite.md — même pattern d'appel, RBAC
+anti-spoofing déjà géré côté backend, non réimplémenté côté CLI).
 
 Ce que ce fichier protège : `bin/lba` est un script extensionless (pas
 `bin/lba.py`), chargé ici via importlib comme `tests/test_relay_no_response_
@@ -53,7 +56,7 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
-    "lba_mission_request", "lba_todo_task_create",
+    "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -209,6 +212,93 @@ def test_lba_todo_task_create_requires_list_id_and_title(monkeypatch):
         raise AssertionError("devait lever LbaCliError (list_id manquant)")
     except lba.LbaCliError:
         pass
+
+
+# ── Wiring de lba_visite_creer (mission #1 plan_13812401) ──────────────────
+# POST /api/me/evenements (lba_api.py::me_create_evenement), contrat
+# CONTRACT_ajout_manuel_visite.md. RBAC anti-spoofing idUtilisateur déjà géré
+# côté backend (_resolve_rep_for_create) — pas à retester ici, seulement le
+# câblage path/payload/headers + l'omission des champs optionnels absents.
+
+def test_lba_visite_creer_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_visite_creer", {
+        "libelle": "RDV dégustation", "date": "2026-07-25T09:00:00Z",
+        "idSocieteAffectation": 887, "observations": "P1: relance"}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/me/evenements"
+    assert captured["payload"] == {
+        "libelle": "RDV dégustation", "date": "2026-07-25T09:00:00Z",
+        "idSocieteAffectation": 887, "observations": "P1: relance"}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_visite_creer_omits_absent_optional_fields(monkeypatch):
+    """Un champ optionnel absent (ex: type/sens/etat/idUtilisateur) ne doit
+    PAS être envoyé en null — un null explicite écraserait les défauts
+    backend ("Rendez-vous", "SORTANT", "Non traité", auto-injection JWT) au
+    lieu de les laisser s'appliquer (EvenementCreate, prisma_service.py)."""
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_visite_creer", {
+        "libelle": "RDV dégustation", "date": "2026-07-25T09:00:00Z"}, "22fcf4a5-agent-1")
+
+    assert captured["payload"] == {"libelle": "RDV dégustation", "date": "2026-07-25T09:00:00Z"}
+    for absent_key in ("type", "sens", "etat", "idUtilisateur", "idContact",
+                       "idSocieteAffectation", "idRequete", "datedebut",
+                       "datefin", "observations"):
+        assert absent_key not in captured["payload"], f"{absent_key} ne devrait pas apparaître (null implicite)"
+
+
+def test_lba_visite_creer_requires_libelle_and_date(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_visite_creer", {"date": "2026-07-25T09:00:00Z"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (libelle manquant)")
+    except lba.LbaCliError:
+        pass
+    try:
+        lba._exec("lba_visite_creer", {"libelle": "RDV"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (date manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_visite_creer_passes_idutilisateur_override_when_present(monkeypatch):
+    """RBAC anti-spoofing n'est PAS réimplémenté côté CLI (verrou dur du
+    mandat) — le CLI transmet idUtilisateur tel quel, le 403/400 est géré
+    par _resolve_rep_for_create côté backend (lba_api.py L6588-6602)."""
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_visite_creer", {
+        "libelle": "RDV", "date": "2026-07-25T09:00:00Z", "idUtilisateur": 101}, "22fcf4a5-agent-1")
+    assert captured["payload"]["idUtilisateur"] == 101
+
 
 
 # ── Runner sans pytest (convention du repo — cf test_relay_no_response_repro.py) ──

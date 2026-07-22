@@ -12,9 +12,10 @@ câblage que ubik-peek/ubik-tty/ubik-wall.
 18 tools DATA (client/rentabilité/portefeuille/recherche/analytics/admin) —
 mission #2 plan_9d722ce9, Caton — sans Depends(current_user) côté backend.
 
-12 tools GRAPH/TODO (mail/calendrier/teams/todo/mission-request) — mission #3
-plan_9d722ce9, Vidocq (10 initiaux) + mission #1 plan_91c9dfb4 (lba_mission_
-request, lba_todo_task_create) — EXIGENT Depends(current_user) réel (auth
+13 tools GRAPH/TODO (mail/calendrier/teams/todo/mission-request/visite) — mission
+#3 plan_9d722ce9, Vidocq (10 initiaux) + mission #1 plan_91c9dfb4 (lba_mission_
+request, lba_todo_task_create) + mission #1 plan_13812401 (lba_visite_creer,
+POST /api/me/evenements, contrat CONTRACT_ajout_manuel_visite.md) — EXIGENT Depends(current_user) réel (auth
 Microsoft déléguée per-utilisateur, pas de compte de service). Le CLI porte
 la session du TITULAIRE DU SEAT appelant via un ticket-exchange dédié (cf
 _mint_cli_session_jwt ci-dessous — décision Damien arb_050496c8b4 option B,
@@ -59,7 +60,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
-    "lba_mission_request", "lba_todo_task_create",
+    "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
 })
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
@@ -419,6 +420,28 @@ TOOLS = [
             "timeZone": {"type": "string", "description": "IANA, défaut UTC (optionnel)"},
             "body": {"type": "string", "description": "texte simple (optionnel)"}}},
     },
+    {
+        "name": "lba_visite_creer",
+        "description": ("[ÉCRITURE] Crée manuellement une visite/évènement CRM (Planning "
+                         "Calendrier) — POST /api/me/evenements (contrat CONTRACT_ajout_manuel_"
+                         "visite.md). idUtilisateur optionnel : auto-injecté de la session si "
+                         "absent ; si fourni, RBAC anti-spoofing appliqué CÔTÉ BACKEND (admin/"
+                         "bureau -> tout rep, commercial -> soi-même uniquement sinon 403) — "
+                         "le CLI ne réimplémente pas ce contrôle."),
+        "inputSchema": {"type": "object", "required": ["libelle", "date"], "properties": {
+            "libelle": {"type": "string", "description": "1-255 caractères"},
+            "date": {"type": "string", "description": "ISO 8601 (datetime)"},
+            "idUtilisateur": {"type": "integer", "description": "override rep cible PRISMA (optionnel — RBAC backend, admin/bureau seuls peuvent cibler un autre rep)"},
+            "type": {"type": "string", "description": "défaut 'Rendez-vous'"},
+            "sens": {"type": "string", "description": "défaut 'SORTANT'"},
+            "etat": {"type": "string", "description": "défaut 'Non traité'"},
+            "idContact": {"type": "integer"},
+            "idSocieteAffectation": {"type": "integer", "description": "CRM_Societe.id — cf lba_recherche_client / GET /api/planning/portefeuille/search (champ crmSocieteId)"},
+            "idRequete": {"type": "integer"},
+            "datedebut": {"type": "string", "description": "ISO 8601 (optionnel)"},
+            "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
+            "observations": {"type": "string", "description": "optionnel"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -471,6 +494,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "title": _req(args, "title"), "importance": args.get("importance"),
             "dueDateTime": args.get("dueDateTime"), "timeZone": args.get("timeZone"),
             "body": args.get("body")}, headers)
+    if tool == "lba_visite_creer":
+        # Champs optionnels omis (pas envoyés en null) si absents : le backend
+        # (EvenementCreate côté prisma-api) applique ses défauts ("Rendez-vous",
+        # "SORTANT", "Non traité", idUtilisateur auto-injecté du JWT) uniquement
+        # quand la clé est absente du payload — un null explicite écraserait ces
+        # défauts au lieu de les laisser s'appliquer.
+        raw = {
+            "libelle": _req(args, "libelle"), "date": _req(args, "date"),
+            "idUtilisateur": args.get("idUtilisateur"),
+            "type": args.get("type"), "sens": args.get("sens"), "etat": args.get("etat"),
+            "idContact": args.get("idContact"), "idSocieteAffectation": args.get("idSocieteAffectation"),
+            "idRequete": args.get("idRequete"), "datedebut": args.get("datedebut"),
+            "datefin": args.get("datefin"), "observations": args.get("observations")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/me/evenements", payload, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
