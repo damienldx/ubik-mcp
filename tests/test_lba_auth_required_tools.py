@@ -2,6 +2,8 @@
 """Verrou du whitelisting _AUTH_REQUIRED_TOOLS (bin/lba, mission #3
 plan_9d722ce9, décision arb_050496c8b4 option B) — re-gate Bertillon
 (verdict "changements demandés" : archi validée, zéro test automatisé).
+Étendu mission #1 plan_91c9dfb4 (lba_mission_request, lba_todo_task_create,
+même whitelist/pattern d'appel réutilisés, endpoints déjà live sur :8504).
 
 Ce que ce fichier protège : `bin/lba` est un script extensionless (pas
 `bin/lba.py`), chargé ici via importlib comme `tests/test_relay_no_response_
@@ -10,8 +12,9 @@ dans ce repo (aucun .venv/pytest.ini ici), conventions asserts + sys.exit,
 exécutable directement (`python3 tests/test_lba_auth_required_tools.py`).
 
 3 garanties vérifiées :
-  1. _AUTH_REQUIRED_TOOLS == EXACTEMENT les 10 tools Graph/Todo de cette
-     mission — ni plus (un futur tool DATA classé par erreur paierait un
+  1. _AUTH_REQUIRED_TOOLS == EXACTEMENT les 12 tools Graph/Todo (10 mission #3
+     + lba_mission_request/lba_todo_task_create mission #1 plan_91c9dfb4) —
+     ni plus (un futur tool DATA classé par erreur paierait un
      ticket-exchange inutile), ni moins (un tool Graph/Todo oublié
      appellerait :8504 SANS Authorization: Bearer -> 401 en silence).
   2. Les 18 tools DATA de Caton (mission #2) ne sont JAMAIS dans cette
@@ -50,6 +53,7 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
+    "lba_mission_request", "lba_todo_task_create",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -65,7 +69,7 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
 })
 
 
-def test_auth_required_tools_matches_exactly_the_10_graph_todo_tools():
+def test_auth_required_tools_matches_exactly_the_12_graph_todo_tools():
     lba = _load_lba()
     assert lba._AUTH_REQUIRED_TOOLS == _EXPECTED_AUTH_REQUIRED, (
         f"dérive détectée: {lba._AUTH_REQUIRED_TOOLS ^ _EXPECTED_AUTH_REQUIRED}"
@@ -132,6 +136,77 @@ def test_resolve_agent_id_raises_when_nothing_available(monkeypatch):
     try:
         lba._resolve_agent_id(None)
         raise AssertionError("devait lever LbaCliError")
+    except lba.LbaCliError:
+        pass
+
+
+# ── Wiring des 2 nouveaux tools (mission #1 plan_91c9dfb4) — juste le
+# câblage path/payload/headers, le HMAC ticket-exchange lui-même est déjà
+# couvert par test_bacchus_cli_session.py (pas à refaire) ─────────────────
+
+def test_lba_mission_request_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_mission_request", {
+        "destinataire_email": "collegue@lba.fr", "titre": "Relancer client X",
+        "description": "voir extrait de compte", "importance": "high"}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/me/missions/request"
+    assert captured["payload"] == {
+        "destinataire_email": "collegue@lba.fr", "titre": "Relancer client X",
+        "description": "voir extrait de compte", "importance": "high"}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_mission_request_requires_destinataire_email_and_titre(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_mission_request", {"titre": "sans destinataire"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (destinataire_email manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_todo_task_create_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_todo_task_create", {
+        "list_id": "AAMk-list-1", "title": "Rappeler client Y",
+        "importance": "normal", "dueDateTime": "2026-07-25T09:00:00Z",
+        "timeZone": "UTC", "body": "note libre"}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/me/todo/lists/AAMk-list-1/tasks"
+    assert captured["payload"] == {
+        "title": "Rappeler client Y", "importance": "normal",
+        "dueDateTime": "2026-07-25T09:00:00Z", "timeZone": "UTC", "body": "note libre"}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_todo_task_create_requires_list_id_and_title(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_todo_task_create", {"title": "sans list_id"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (list_id manquant)")
     except lba.LbaCliError:
         pass
 
