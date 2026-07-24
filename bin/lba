@@ -461,15 +461,16 @@ TOOLS = [
     {
         "name": "lba_visites_liste",
         "description": ("Liste des visites/évènements CRM du rep courant (shape VisiteRow, "
-                         "incl. es_id + etat Traité/Non traité/Annulé) — GET /api/me/evenements. "
-                         "es_id est la clé requise par lba_visite_modifier. Filtre etat appliqué "
-                         "côté CLI (l'endpoint ne le supporte pas en query)."),
+                         "incl. es_id + etat) — GET /api/me/evenements?etat=. Sans etat le "
+                         "backend ne renvoie QUE les 'Traité' (défaut historique KPIs) : passer "
+                         "etat='Non traité' pour les visites à traiter, 'TOUS' pour tout. "
+                         "es_id est la clé requise par lba_visite_modifier."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel — dérive days_back si fourni)"},
             "days_back": {"type": "integer", "description": "fenêtre relative en jours, défaut 30 côté CLI (backend 365)"},
             "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois exact (optionnel)"},
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
-            "etat": {"type": "string", "description": "optionnel — filtre exact côté CLI : 'Traité' | 'Non traité' | 'Annulé'"}}},
+            "etat": {"type": "string", "description": "optionnel — 'Traité' (défaut backend) | 'Non traité' | 'Annulé' | 'TOUS'"}}},
     },
     {
         "name": "lba_visite_modifier",
@@ -616,16 +617,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/me/evenements", payload, headers)
     if tool == "lba_visites_liste":
         # Défaut CLI 30j (vs 365 backend) : usage conversationnel — la fenêtre
-        # large upstream cap à 2000 lignes et noie la réponse.
-        body = _get("/api/me/evenements", {
+        # large upstream cap à 2000 lignes et noie la réponse. Le filtre etat
+        # est appliqué côté backend (absent = Traité only, défaut historique).
+        return _get("/api/me/evenements", {
             "period_start": args.get("period_start"),
             "days_back": args.get("days_back", 30),
-            "months": args.get("months"), "rep_code": args.get("rep_code")}, headers)
-        etat = args.get("etat")
-        if not etat:
-            return body
-        rows = json.loads(body)
-        return json.dumps([r for r in rows if r.get("etat") == etat], ensure_ascii=False)
+            "months": args.get("months"), "rep_code": args.get("rep_code"),
+            "etat": args.get("etat")}, headers)
     if tool == "lba_visite_modifier":
         es_id = _req(args, "es_id")
         raw = {"etat": args.get("etat"), "observations": args.get("observations"),
