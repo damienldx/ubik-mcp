@@ -61,6 +61,7 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
     "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
+    "lba_visites_liste", "lba_visite_modifier",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",

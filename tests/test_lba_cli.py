@@ -83,7 +83,7 @@ class TestCliSurface(unittest.TestCase):
             capture_output=True, text=True, timeout=10, check=True,
         )
         tools = json.loads(out.stdout)
-        self.assertEqual(len(tools), 38)  # 18 DATA (M2) + 20 Graph/Todo (M3 + plan_91c9dfb4 + plan_13812401 + plan CLI Bridge Bacchus/procedures, 7 tools)
+        self.assertEqual(len(tools), 40)  # 18 DATA (M2) + 22 Graph/Todo (M3 + plan_91c9dfb4 + plan_13812401 + procedures 7 tools + visites liste/modifier 2026-07-24)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
