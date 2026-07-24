@@ -65,6 +65,8 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",
+    "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
+    "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans

@@ -71,6 +71,8 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",
+    "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
+    "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
 })
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
@@ -553,6 +555,69 @@ TOOLS = [
         "description": "Les 6 thèmes verrouillés du panel Procedures — GET /api/me/procedures/themes.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # ── Panel REUNION (session 2026-07-24) — présentations HTML chartées LBA ──
+    # Workflow OBLIGATOIRE pour produire un artefact : 1) lba_reunion_template
+    # (récupérer le squelette charté : logo /lba-logo.png + couleurs LBA),
+    # 2) rédiger le contenu DANS ce squelette (jamais un HTML libre, exigence
+    # Damien), 3) lba_reunion_creer. L'artefact s'affiche plein écran pour les
+    # collaborateurs via le panel Réunion (bouton Afficher).
+    {
+        "name": "lba_reunion_template",
+        "description": ("Template HTML charté LBA (logo + charte graphique officielle) du panel "
+                         "REUNION — GET /api/me/reunions/template. TOUJOURS partir de ce squelette "
+                         "pour rédiger une présentation ou un compte rendu (exigence charte LBA), "
+                         "puis créer via lba_reunion_creer. Slides = <section class=\"slide\">, "
+                         "défilement scroll-snap, classes utilitaires card/kpi/alert incluses."),
+        "inputSchema": {"type": "object", "properties": {
+            "orientation": {"type": "string", "description": "'paysage' (écran 16:9, défaut) | 'portrait' (écran tourné 9:16)"}}},
+    },
+    {
+        "name": "lba_reunion_creer",
+        "description": ("[ÉCRITURE] Publie un artefact dans le panel REUNION — POST /api/me/reunions. "
+                         "html = document COMPLET issu de lba_reunion_template (logo + charte LBA "
+                         "conservés). type 'presentation' (affichage écran collaborateurs) ou "
+                         "'compte_rendu'. L'orientation doit matcher celle du template utilisé."),
+        "inputSchema": {"type": "object", "required": ["titre", "html"], "properties": {
+            "titre": {"type": "string"},
+            "html": {"type": "string", "description": "document HTML complet autonome (max 2 Mo)"},
+            "type": {"type": "string", "description": "'presentation' (défaut) | 'compte_rendu'"},
+            "orientation": {"type": "string", "description": "'paysage' (défaut) | 'portrait'"},
+            "date_reunion": {"type": "string", "description": "date de la réunion, ISO conseillé (optionnel)"}}},
+    },
+    {
+        "name": "lba_reunion_liste",
+        "description": ("Liste les artefacts du panel REUNION (métas sans html : id, titre, type, "
+                         "orientation, auteur, dates) — GET /api/me/reunions."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "'presentation' | 'compte_rendu' (absent = tous)"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_reunion_lire",
+        "description": "Lit un artefact complet (métas + html) — GET /api/me/reunions/{id}.",
+        "inputSchema": {"type": "object", "required": ["reunion_id"], "properties": {
+            "reunion_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_reunion_modifier",
+        "description": ("[ÉCRITURE] Modifie un artefact REUNION (PATCH partiel : seuls les champs "
+                         "fournis changent) — auteur ou backoffice — PATCH /api/me/reunions/{id}."),
+        "inputSchema": {"type": "object", "required": ["reunion_id"], "properties": {
+            "reunion_id": {"type": "string"},
+            "titre": {"type": "string"},
+            "html": {"type": "string"},
+            "type": {"type": "string", "description": "'presentation' | 'compte_rendu'"},
+            "orientation": {"type": "string", "description": "'paysage' | 'portrait'"},
+            "date_reunion": {"type": "string"}}},
+    },
+    {
+        "name": "lba_reunion_supprimer",
+        "description": ("[ÉCRITURE] Supprime un artefact REUNION — auteur ou backoffice — "
+                         "DELETE /api/me/reunions/{id}. Demander confirmation utilisateur avant."),
+        "inputSchema": {"type": "object", "required": ["reunion_id"], "properties": {
+            "reunion_id": {"type": "string"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -669,6 +734,33 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/me/procedures", {"theme": args.get("theme")}, headers)
     if tool == "lba_procedure_themes":
         return _get("/api/me/procedures/themes", {}, headers)
+    if tool == "lba_reunion_template":
+        return _get("/api/me/reunions/template", {
+            "orientation": args.get("orientation", "paysage")}, headers)
+    if tool == "lba_reunion_creer":
+        raw = {"titre": _req(args, "titre"), "html": _req(args, "html"),
+               "type": args.get("type"), "orientation": args.get("orientation"),
+               "date_reunion": args.get("date_reunion")}
+        return _post("/api/me/reunions", {k: v for k, v in raw.items() if v is not None}, headers)
+    if tool == "lba_reunion_liste":
+        return _get("/api/me/reunions", {
+            "type": args.get("type"), "limit": args.get("limit"),
+            "offset": args.get("offset")}, headers)
+    if tool == "lba_reunion_lire":
+        reunion_id = _seg(_req(args, "reunion_id"))
+        return _get(f"/api/me/reunions/{reunion_id}", {}, headers)
+    if tool == "lba_reunion_modifier":
+        reunion_id = _seg(_req(args, "reunion_id"))
+        raw = {"titre": args.get("titre"), "html": args.get("html"),
+               "type": args.get("type"), "orientation": args.get("orientation"),
+               "date_reunion": args.get("date_reunion")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        if not payload:
+            raise LbaCliError("aucun champ à modifier — fournir au moins titre/html/type/orientation/date_reunion")
+        return _patch(f"/api/me/reunions/{reunion_id}", payload, headers)
+    if tool == "lba_reunion_supprimer":
+        reunion_id = _seg(_req(args, "reunion_id"))
+        return _delete(f"/api/me/reunions/{reunion_id}", headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
