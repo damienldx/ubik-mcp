@@ -467,7 +467,7 @@ TOOLS = [
                          "es_id est la clé requise par lba_visite_modifier."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel — dérive days_back si fourni)"},
-            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel — REQUIS pour voir des visites futures : sans lui le backend borne à aujourd'hui)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD INCLUSIF (optionnel — REQUIS pour voir des visites futures : sans lui le backend borne à aujourd'hui)"},
             "days_back": {"type": "integer", "description": "fenêtre relative en jours, défaut 30 côté CLI (backend 365)"},
             "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois exact (optionnel)"},
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
@@ -620,9 +620,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         # Défaut CLI 30j (vs 365 backend) : usage conversationnel — la fenêtre
         # large upstream cap à 2000 lignes et noie la réponse. Le filtre etat
         # est appliqué côté backend (absent = Traité only, défaut historique).
+        # period_end INCLUSIF côté CLI : upstream PRISMA compare date < date_to
+        # pour les RDV horodatés (vérifié 2026-07-24 : 25→25 = 0 row, 25→26 =
+        # 1 row pour un RDV le 25 à 09:00) — on envoie J+1 au backend.
+        period_end = args.get("period_end")
+        if period_end:
+            from datetime import date as _d, timedelta as _td
+            period_end = str(_d.fromisoformat(period_end) + _td(days=1))
         return _get("/api/me/evenements", {
             "period_start": args.get("period_start"),
-            "period_end": args.get("period_end"),
+            "period_end": period_end,
             "days_back": args.get("days_back", 30),
             "months": args.get("months"), "rep_code": args.get("rep_code"),
             "etat": args.get("etat")}, headers)
