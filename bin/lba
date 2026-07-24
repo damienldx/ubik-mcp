@@ -324,7 +324,11 @@ TOOLS = [
     },
     {
         "name": "lba_recherche_client",
-        "description": "Auto-complete client (nom/raison sociale approximatif -> code exact) — GET /api/bacchus/recherche/client.",
+        "description": ("Auto-complete client (nom/raison sociale approximatif -> code exact) — "
+                         "GET /api/bacchus/recherche/client. Chaque item porte crmSocieteId = la "
+                         "SEULE valeur valide pour idSocieteAffectation de lba_visite_creer/"
+                         "lba_visite_modifier (le champ id est le tiers.id : ne JAMAIS le passer "
+                         "en idSocieteAffectation ; crmSocieteId=null -> écriture visite impossible)."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
             "q": {"type": "string", "description": "min 2 caractères"},
             "limit": {"type": "integer", "description": "défaut 20, max 50"}}},
@@ -452,7 +456,7 @@ TOOLS = [
             "sens": {"type": "string", "description": "défaut 'SORTANT'"},
             "etat": {"type": "string", "description": "défaut 'Non traité'"},
             "idContact": {"type": "integer"},
-            "idSocieteAffectation": {"type": "integer", "description": "CRM_Societe.id — cf lba_recherche_client / GET /api/planning/portefeuille/search (champ crmSocieteId)"},
+            "idSocieteAffectation": {"type": "integer", "description": "CRM_Societe.id = champ crmSocieteId de lba_recherche_client — PAS son champ id (tiers.id) ; le backend rejette (400) un id inconnu de CRM_Societe"},
             "idRequete": {"type": "integer"},
             "datedebut": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
@@ -491,7 +495,7 @@ TOOLS = [
             "datedebut": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "idContact": {"type": "integer", "description": "optionnel"},
-            "idSocieteAffectation": {"type": "integer", "description": "optionnel"}}},
+            "idSocieteAffectation": {"type": "integer", "description": "optionnel — CRM_Societe.id (champ crmSocieteId de lba_recherche_client, PAS son champ id)"}}},
     },
     # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
     # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
