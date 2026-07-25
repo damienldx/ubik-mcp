@@ -80,7 +80,7 @@
     },
     "memory_show": {
       "situation": "Afficher le contenu d'une entrée mémoire spécifique",
-      "cli": "ubik memory memory_show --args '{\"id\":\"...\"}'"
+      "cli": "ubik memory memory_show --args '{\"name\":\"...\"}'"
     },
     "dashboard_weather": {
       "situation": "Météo fleet : état global santé/perfs (agents stuck, bricks down, sync drift)",
@@ -205,7 +205,7 @@
     },
     "agent_get": {
       "situation": "Fiche d'un agent fleet (profil, grade, crest, mandats actifs)",
-      "cli": "ubik agent agent_get --args '{\"id\":\"<slot>\"}'"
+      "cli": "ubik agent agent_get --args '{\"agent_id\":\"<slot>\"}'"
     },
     "agent_list": {
       "situation": "Lister tous les agents fleet actifs",
@@ -213,11 +213,11 @@
     },
     "agent_get_xp": {
       "situation": "XP et grade d'un agent (progression)",
-      "cli": "ubik agent agent_get_xp --args '{\"id\":\"<slot>\"}'"
+      "cli": "ubik agent agent_get_xp --args '{\"agent_id\":\"<slot>\"}'"
     },
     "agent_refresh": {
       "situation": "Rafraîchir la fiche d'un agent (après changement)",
-      "cli": "ubik agent agent_refresh --args '{\"id\":\"<slot>\"}'"
+      "cli": "ubik agent agent_refresh --args '{\"agent_id\":\"<slot>\"}'"
     },
     "agent_refresh_all": {
       "situation": "Rafraîchir toutes les fiches d'agents (maintenance fleet)",
@@ -225,15 +225,15 @@
     },
     "agent_set_grade": {
       "situation": "Override cérémonial du grade d'un agent (lead-only)",
-      "cli": "ubik agent agent_set_grade --args '{\"id\":\"<slot>\",\"grade\":\"...\"}'"
+      "cli": "ubik agent agent_set_grade --args '{\"agent_id\":\"<slot>\",\"grade\":\"...\"}'"
     },
     "agent_set_crest": {
       "situation": "Changer le crest/emoji d'un agent",
-      "cli": "ubik agent agent_set_crest --args '{\"id\":\"<slot>\",\"crest\":\"🎯\"}'"
+      "cli": "ubik agent agent_set_crest --args '{\"agent_id\":\"<slot>\",\"crest\":\"🎯\"}'"
     },
     "agent_terminal": {
       "situation": "[LEAD] Ouvrir un terminal vers un agent fleet",
-      "cli": "ubik agent agent_terminal --args '{\"id\":\"<slot>\"}'"
+      "cli": "ubik agent agent_terminal --args '{\"agent_id\":\"<slot>\"}'"
     },
     "fleet_agent_set_model": {
       "situation": "[LEAD] Changer le modèle Claude d'un slot fleet",
@@ -333,15 +333,15 @@
     },
     "dashboard_pin": {
       "situation": "Épingler un signal important sur le dashboard",
-      "cli": "ubik agent dashboard_pin --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent dashboard_pin --args '{\"note_id\":\"...\"}'"
     },
     "dashboard_update": {
       "situation": "Mettre à jour un signal dashboard existant",
-      "cli": "ubik agent dashboard_update --args '{\"id\":\"...\",\"content\":\"...\"}'"
+      "cli": "ubik agent dashboard_update --args '{\"note_id\":\"...\",\"content\":\"...\"}'"
     },
     "dashboard_react": {
       "situation": "Réagir (emoji) à un signal dashboard",
-      "cli": "ubik agent dashboard_react --args '{\"id\":\"...\",\"emoji\":\"✅\"}'"
+      "cli": "ubik agent dashboard_react --args '{\"note_id\":\"...\",\"emoji\":\"✅\"}'"
     },
     "bridges_state": {
       "situation": "État des bridges MCP (quels serveurs MCP sont montés et actifs)",
