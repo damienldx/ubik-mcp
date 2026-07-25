@@ -149,7 +149,7 @@
     },
     "project_get": {
       "situation": "Détail complet d'un projet (brief, forks, état)",
-      "cli": "ubik agent project_get --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_get --args '{\"project_id\":\"...\"}'"
     },
     "project_my_assignment": {
       "situation": "Mon fork actif (quel projet/fork je porte en ce moment)",
@@ -157,11 +157,11 @@
     },
     "project_update": {
       "situation": "Mettre à jour les métadonnées d'un projet",
-      "cli": "ubik agent project_update --args '{\"id\":\"...\",\"status\":\"...\"}'"
+      "cli": "ubik agent project_update --args '{\"project_id\":\"...\",\"status\":\"...\"}'"
     },
     "project_pulse": {
       "situation": "Pulse rapide sur l'état d'un projet (signal de vie)",
-      "cli": "ubik agent project_pulse --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_pulse --args '{\"project_id\":\"...\"}'"
     },
     "project_fork_register": {
       "situation": "Enregistrer un fork dans un projet",
@@ -185,7 +185,7 @@
     },
     "project_fork_delete": {
       "situation": "Supprimer un fork (LEAD uniquement)",
-      "cli": "ubik agent project_fork_delete --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_fork_delete --args '{\"project_id\":\"...\",\"fork_id\":\"...\"}'"
     },
     "project_announce_delivery": {
       "situation": "Annoncer une livraison fork au projet parent",
@@ -201,7 +201,7 @@
     },
     "project_delete": {
       "situation": "Supprimer un projet (destructif — demander confirmation d'abord)",
-      "cli": "ubik agent project_delete --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_delete --args '{\"project_id\":\"...\"}'"
     },
     "agent_get": {
       "situation": "Fiche d'un agent fleet (profil, grade, crest, mandats actifs)",
@@ -558,11 +558,11 @@
     },
     "project_archive": {
       "situation": "Archiver un projet terminé (soft-delete, récupérable)",
-      "cli": "ubik agent project_archive --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_archive --args '{\"project_id\":\"...\"}'"
     },
     "project_restore": {
       "situation": "Restaurer un projet archivé",
-      "cli": "ubik agent project_restore --args '{\"id\":\"...\"}'"
+      "cli": "ubik agent project_restore --args '{\"project_id\":\"...\"}'"
     },
     "todo_link": {
       "situation": "Lier une carte todo à un projet/ledger/mission (crée le rattachement)",
@@ -577,6 +577,14 @@
       "situation": "Vérifier si une spec/composant existe déjà avant de proposer une nouvelle implémentation (KB de référence curée)",
       "cli": "ubik docs search --args '{\"query\":\"<composant ou domaine>\"}'",
       "note": "Spec d'architecture intentionnelle — distinct de `ubik memory context_search` (décisions passées en session)"
+    },
+    "project_archive_bulk": {
+      "situation": "Archiver un LOT de projets en un appel (jamais en boucle unitaire — ~3s fixes par appel)",
+      "cli": "ubik agent project_archive_bulk --args '{\"status\":\"merged\"}' (ou {\"project_ids\":[...]})"
+    },
+    "atelier_archive_plans": {
+      "situation": "Archiver un LOT de plans atelier clôturés en un appel (jamais en boucle unitaire)",
+      "cli": "ubik agent atelier_archive_plans --args '{\"statuses\":[\"completed\",\"cancelled\"]}' (ou {\"plan_ids\":[...]})"
     }
   }
 }
