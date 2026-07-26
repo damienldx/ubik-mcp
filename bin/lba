@@ -66,7 +66,8 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
-    "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
+    "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
+    "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_modifier",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
@@ -423,6 +424,24 @@ TOOLS = [
             "list_id": {"type": "string", "description": "optionnel — défaut la defaultList Outlook"}}},
     },
     {
+        "name": "lba_todo_task_delete",
+        "description": ("[ÉCRITURE] Supprime une tâche Outlook — DELETE /api/me/todo/tasks/{task_id}. "
+                         "Demander confirmation utilisateur avant."),
+        "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
+            "task_id": {"type": "string"},
+            "list_id": {"type": "string", "description": "optionnel — défaut la defaultList Outlook"}}},
+    },
+    {
+        "name": "lba_todo_task_due",
+        "description": ("[ÉCRITURE] Change (ou retire) l'échéance d'une tâche todo — "
+                         "PATCH /api/me/todo/tasks/{task_id}/due."),
+        "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
+            "task_id": {"type": "string"},
+            "dueDateTime": {"type": "string", "description": "ISO 8601 — absent ou omis retire l'échéance"},
+            "timeZone": {"type": "string", "description": "IANA, défaut UTC (optionnel)"},
+            "list_id": {"type": "string", "description": "optionnel — défaut la defaultList Outlook"}}},
+    },
+    {
         "name": "lba_mission_request",
         "description": ("[ÉCRITURE] Crée une demande de mission à un collaborateur (notif Teams "
                          "best-effort) — POST /api/me/missions/request."),
@@ -659,6 +678,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         task_id = _req(args, "task_id")
         return _patch(f"/api/me/todo/tasks/{task_id}/status", {
             "status": _req(args, "status"), "importance": args.get("importance"),
+            "list_id": args.get("list_id")}, headers)
+    if tool == "lba_todo_task_delete":
+        task_id = _req(args, "task_id")
+        path = f"/api/me/todo/tasks/{task_id}"
+        list_id = args.get("list_id")
+        if list_id:
+            path += "?" + urlencode({"list_id": list_id})
+        return _delete(path, headers)
+    if tool == "lba_todo_task_due":
+        task_id = _req(args, "task_id")
+        return _patch(f"/api/me/todo/tasks/{task_id}/due", {
+            "dueDateTime": args.get("dueDateTime"), "timeZone": args.get("timeZone"),
             "list_id": args.get("list_id")}, headers)
     if tool == "lba_mission_request":
         return _post("/api/me/missions/request", {

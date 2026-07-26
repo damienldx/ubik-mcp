@@ -11,6 +11,11 @@ anti-spoofing déjà géré côté backend, non réimplémenté côté CLI).
 lba_procedure_creer/mine/modifier/supprimer/soumettre/liste/themes,
 /api/me/procedures/* lba_api.py L9703-9802 déjà live — PAS de wrapper pour
 /queue ni /{id}/validate, réservés backoffice@lba-boissons.fr).
+Étendu mission M9 plan_7f0d0cc7 (t_35cd69831b, sprint dette 2026-07-27) :
+lba_todo_task_delete (DELETE /api/me/todo/tasks/{task_id}) et
+lba_todo_task_due (PATCH /api/me/todo/tasks/{task_id}/due), parité CLI avec
+le protocole [[TASK:...]] frontend (taskBridge.ts) qui était la SEULE voie
+pour ces 2 opérations alors que les endpoints backend étaient déjà live.
 
 Ce que ce fichier protège : `bin/lba` est un script extensionless (pas
 `bin/lba.py`), chargé ici via importlib comme `tests/test_relay_no_response_
@@ -60,7 +65,8 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
-    "lba_mission_request", "lba_todo_task_create", "lba_visite_creer",
+    "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
+    "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_modifier",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
@@ -220,6 +226,101 @@ def test_lba_todo_task_create_requires_list_id_and_title(monkeypatch):
     try:
         lba._exec("lba_todo_task_create", {"title": "sans list_id"}, "22fcf4a5-agent-1")
         raise AssertionError("devait lever LbaCliError (list_id manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+# ── Wiring de lba_todo_task_delete/lba_todo_task_due (mission M9,
+# plan_7f0d0cc7, t_35cd69831b) — parité CLI avec [[TASK:...]] frontend.
+
+def test_lba_todo_task_delete_deletes_expected_path_with_list_id(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_delete(path, headers=None):
+        captured["path"] = path
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_delete", _fake_delete)
+    lba._exec("lba_todo_task_delete", {
+        "task_id": "AAMk-task-1", "list_id": "AAMk-list-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/todo/tasks/AAMk-task-1?list_id=AAMk-list-1"
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_todo_task_delete_omits_query_string_when_list_id_absent(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_delete(path, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_delete", _fake_delete)
+    lba._exec("lba_todo_task_delete", {"task_id": "AAMk-task-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/todo/tasks/AAMk-task-1"
+
+
+def test_lba_todo_task_delete_requires_task_id(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_todo_task_delete", {}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (task_id manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_todo_task_due_patches_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_todo_task_due", {
+        "task_id": "AAMk-task-1", "dueDateTime": "2026-07-25T09:00:00Z",
+        "timeZone": "UTC", "list_id": "AAMk-list-1"}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/me/todo/tasks/AAMk-task-1/due"
+    assert captured["payload"] == {
+        "dueDateTime": "2026-07-25T09:00:00Z", "timeZone": "UTC", "list_id": "AAMk-list-1"}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_todo_task_due_can_clear_due_date(monkeypatch):
+    """dueDateTime absent == None envoyé au backend, qui traite absence et
+    null identiquement (payload.get("dueDateTime")) pour RETIRER l'échéance
+    — même contrat que me_todo_task_due (lba_api.py L9415-9436), pas de
+    filtrage des None côté CLI ici (contrairement à lba_visite_creer, dont
+    les None écraseraient des défauts backend distincts)."""
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_todo_task_due", {"task_id": "AAMk-task-1"}, "22fcf4a5-agent-1")
+    assert captured["payload"] == {"dueDateTime": None, "timeZone": None, "list_id": None}
+
+
+def test_lba_todo_task_due_requires_task_id(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_todo_task_due", {"dueDateTime": "2026-07-25T09:00:00Z"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (task_id manquant)")
     except lba.LbaCliError:
         pass
 
