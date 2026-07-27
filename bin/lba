@@ -503,7 +503,11 @@ TOOLS = [
         "description": ("[ÉCRITURE] Modifie une visite/évènement CRM par es_id — PATCH "
                          "/api/me/evenements/{es_id}. Usages Bacchus : déposer un compte rendu "
                          "(observations) et/ou passer la visite en etat='Traité'. Les @mentions "
-                         "dans observations déclenchent une notif Teams (best-effort backend). "
+                         "dans observations déclenchent une notif Teams (best-effort backend), "
+                         "SAUF si source='cr_live' (boucle CR live visite — évite un DM Teams "
+                         "dupliqué à chaque chunk transcrit, ~1 appel/25s pendant l'audition ; "
+                         "ne PAS passer source lors d'une modification normale/manuelle, la notif "
+                         "doit rester active dans ce cas). "
                          "Seuls les champs fournis sont envoyés (PATCH partiel)."),
         "inputSchema": {"type": "object", "required": ["es_id"], "properties": {
             "es_id": {"type": "integer", "description": "PK CRM_EntreeSortie — cf lba_visites_liste"},
@@ -516,7 +520,8 @@ TOOLS = [
             "datedebut": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "idContact": {"type": "integer", "description": "optionnel"},
-            "idSocieteAffectation": {"type": "integer", "description": "optionnel — CRM_Societe.id (champ crmSocieteId de lba_recherche_client, PAS son champ id)"}}},
+            "idSocieteAffectation": {"type": "integer", "description": "optionnel — CRM_Societe.id (champ crmSocieteId de lba_recherche_client, PAS son champ id)"},
+            "source": {"type": "string", "description": "optionnel — 'cr_live' UNIQUEMENT pendant la boucle d'audition automatique CR live visite, coupe la notif Teams sur @mention pour ce PATCH. Ne jamais passer cette valeur lors d'une modification normale à la demande de l'utilisateur."}}},
     },
     # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
     # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
@@ -743,7 +748,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         payload = {k: v for k, v in raw.items() if v is not None}
         if not payload:
             raise LbaCliError("aucun champ à modifier — fournir au moins etat/observations/…")
-        return _patch(f"/api/me/evenements/{int(es_id)}", payload, headers)
+        # source='cr_live' est un QUERY PARAM cote backend (me_update_evenement),
+        # pas un champ du body PATCH — cf plan/lba_api.py::me_update_evenement.
+        path = f"/api/me/evenements/{int(es_id)}"
+        source = args.get("source")
+        if source:
+            path += "?" + urlencode({"source": source})
+        return _patch(path, payload, headers)
     if tool == "lba_procedure_creer":
         return _post("/api/me/procedures", {
             "titre": _req(args, "titre"), "theme": _req(args, "theme"),
