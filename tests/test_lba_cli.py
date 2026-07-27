@@ -76,6 +76,53 @@ class TestUrlEncoding(unittest.TestCase):
         self.assertEqual(path, "/api/bacchus/client/P213/recouvrement-statut")
 
 
+class CapturedPatch(Exception):
+    """Utilisé pour court-circuiter _patch et récupérer (path, payload) sans HTTP."""
+
+    def __init__(self, path, payload):
+        self.path = path
+        self.payload = payload
+
+
+class TestVisiteModifierSource(unittest.TestCase):
+    """source='cr_live' (2026-07-27, t_fe0e6a0b98 suite) doit partir en QUERY
+    PARAM sur l'URL PATCH, jamais dans le body — cf plan/lba_api.py::
+    me_update_evenement où `source` est un paramètre de fonction séparé de
+    `payload: dict` (donc résolu par FastAPI comme query param, pas Body)."""
+
+    def setUp(self):
+        self._orig_patch = lba_cli._patch
+        self._orig_auth = lba_cli._auth_headers
+
+        def fake_patch(path, payload, headers=None):
+            raise CapturedPatch(path, payload)
+
+        # lba_visite_modifier est un tool GRAPH/TODO (auth réelle exigée,
+        # ticket-exchange réseau) — sans ce mock, _exec échoue avant même
+        # d'atteindre _patch (HTTP 403, pas de seat business pour ce test).
+        lba_cli._patch = fake_patch
+        lba_cli._auth_headers = lambda tool, agent_id: {}
+
+    def tearDown(self):
+        lba_cli._patch = self._orig_patch
+        lba_cli._auth_headers = self._orig_auth
+
+    def _captured(self, args):
+        with self.assertRaises(CapturedPatch) as ctx:
+            lba_cli._exec("lba_visite_modifier", args)
+        return ctx.exception
+
+    def test_source_cr_live_appended_as_query_param(self):
+        cap = self._captured({"es_id": 42, "observations": "texte en cours", "source": "cr_live"})
+        self.assertEqual(cap.path, "/api/me/evenements/42?source=cr_live")
+        self.assertNotIn("source", cap.payload)  # jamais dans le body
+
+    def test_source_absent_by_default_unchanged_path(self):
+        cap = self._captured({"es_id": 42, "observations": "modification manuelle"})
+        self.assertEqual(cap.path, "/api/me/evenements/42")
+        self.assertNotIn("source", cap.payload)
+
+
 class TestCliSurface(unittest.TestCase):
     def test_list_returns_18_tools(self):
         out = subprocess.run(
