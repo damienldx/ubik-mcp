@@ -74,6 +74,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_procedure_liste", "lba_procedure_themes",
     "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
     "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
+    "lba_reunion_dossier_creer", "lba_reunion_dossier_liste",
 })
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
@@ -585,6 +586,25 @@ TOOLS = [
     # 2) rédiger le contenu DANS ce squelette (jamais un HTML libre, exigence
     # Damien), 3) lba_reunion_creer. L'artefact s'affiche plein écran pour les
     # collaborateurs via le panel Réunion (bouton Afficher).
+    # Sous-dossiers (demande Damien 2026-07-29) — optionnel : lister/créer un
+    # dossier via lba_reunion_dossier_liste/creer AVANT lba_reunion_creer pour
+    # y ranger direct l'artefact (champ dossier_id), ou déplacer un artefact
+    # existant a posteriori via lba_reunion_modifier. Un dossier appartient à
+    # un seul type (presentation | compte_rendu), pas de nesting.
+    {
+        "name": "lba_reunion_dossier_creer",
+        "description": ("[ÉCRITURE] Crée un sous-dossier pour ranger les artefacts REUNION — "
+                         "POST /api/me/reunions/dossiers. Un dossier appartient à un seul type."),
+        "inputSchema": {"type": "object", "required": ["nom", "type"], "properties": {
+            "nom": {"type": "string"},
+            "type": {"type": "string", "description": "'presentation' | 'compte_rendu'"}}},
+    },
+    {
+        "name": "lba_reunion_dossier_liste",
+        "description": ("Liste les sous-dossiers du panel REUNION — GET /api/me/reunions/dossiers."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "'presentation' | 'compte_rendu' (absent = tous)"}}},
+    },
     {
         "name": "lba_reunion_template",
         "description": ("Template HTML charté LBA (logo + charte graphique officielle) du panel "
@@ -606,7 +626,8 @@ TOOLS = [
             "html": {"type": "string", "description": "document HTML complet autonome (max 2 Mo)"},
             "type": {"type": "string", "description": "'presentation' (défaut) | 'compte_rendu'"},
             "orientation": {"type": "string", "description": "'paysage' (défaut) | 'portrait'"},
-            "date_reunion": {"type": "string", "description": "date de la réunion, ISO conseillé (optionnel)"}}},
+            "date_reunion": {"type": "string", "description": "date de la réunion, ISO conseillé (optionnel)"},
+            "dossier_id": {"type": "string", "description": "sous-dossier où ranger l'artefact (optionnel, cf lba_reunion_dossier_liste/creer) — doit être du même type"}}},
     },
     {
         "name": "lba_reunion_liste",
@@ -633,7 +654,8 @@ TOOLS = [
             "html": {"type": "string"},
             "type": {"type": "string", "description": "'presentation' | 'compte_rendu'"},
             "orientation": {"type": "string", "description": "'paysage' | 'portrait'"},
-            "date_reunion": {"type": "string"}}},
+            "date_reunion": {"type": "string"},
+            "dossier_id": {"type": ["string", "null"], "description": "déplace l'artefact vers ce sous-dossier ; null pour le déranger"}}},
     },
     {
         "name": "lba_reunion_supprimer",
@@ -776,13 +798,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/me/procedures", {"theme": args.get("theme")}, headers)
     if tool == "lba_procedure_themes":
         return _get("/api/me/procedures/themes", {}, headers)
+    if tool == "lba_reunion_dossier_creer":
+        return _post("/api/me/reunions/dossiers", {
+            "nom": _req(args, "nom"), "type": _req(args, "type")}, headers)
+    if tool == "lba_reunion_dossier_liste":
+        return _get("/api/me/reunions/dossiers", {"type": args.get("type")}, headers)
     if tool == "lba_reunion_template":
         return _get("/api/me/reunions/template", {
             "orientation": args.get("orientation", "paysage")}, headers)
     if tool == "lba_reunion_creer":
         raw = {"titre": _req(args, "titre"), "html": _req(args, "html"),
                "type": args.get("type"), "orientation": args.get("orientation"),
-               "date_reunion": args.get("date_reunion")}
+               "date_reunion": args.get("date_reunion"), "dossier_id": args.get("dossier_id")}
         return _post("/api/me/reunions", {k: v for k, v in raw.items() if v is not None}, headers)
     if tool == "lba_reunion_liste":
         return _get("/api/me/reunions", {
@@ -797,8 +824,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "type": args.get("type"), "orientation": args.get("orientation"),
                "date_reunion": args.get("date_reunion")}
         payload = {k: v for k, v in raw.items() if v is not None}
+        # dossier_id est un cas à part : null est une valeur cible légitime
+        # ("déranger" l'artefact), donc on le transmet dès qu'il est PRÉSENT
+        # dans args (y compris explicitement null) plutôt que de le filtrer.
+        if "dossier_id" in args:
+            payload["dossier_id"] = args.get("dossier_id")
         if not payload:
-            raise LbaCliError("aucun champ à modifier — fournir au moins titre/html/type/orientation/date_reunion")
+            raise LbaCliError("aucun champ à modifier — fournir au moins titre/html/type/orientation/date_reunion/dossier_id")
         return _patch(f"/api/me/reunions/{reunion_id}", payload, headers)
     if tool == "lba_reunion_supprimer":
         reunion_id = _seg(_req(args, "reunion_id"))
