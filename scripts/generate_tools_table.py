@@ -30,9 +30,17 @@ DEFAULT_SCOPE_DIR = os.path.expanduser("~/.ubik-memory/role-bundles")
 
 
 def parse_scope_allow(scope_path: str) -> list[str]:
-    """Parse [allow] section of a tools.scope file. Returns list of tool names."""
+    """Parse [allow] AND [allow-synced] sections of a tools.scope file, unioned
+    and de-duplicated (first occurrence wins for ordering). [allow] is the
+    hand-curated section (may carry inline comments/rationale per tool);
+    [allow-synced] is the auto-generated append maintained by
+    sync_tools_scope_from_manifest.py from the role's mandat yaml — a role can
+    have either, both, or neither. Keeping them as two sections (instead of
+    merging on write) means the hand-curated section is NEVER touched by the
+    sync script, only ever read here."""
     tools = []
-    in_allow = False
+    seen = set()
+    in_allow_section = False
     try:
         with open(scope_path) as f:
             for line in f:
@@ -40,10 +48,11 @@ def parse_scope_allow(scope_path: str) -> list[str]:
                 if not line or line.startswith("#"):
                     continue
                 if line.startswith("["):
-                    in_allow = (line == "[allow]")
+                    in_allow_section = line in ("[allow]", "[allow-synced]")
                     continue
-                if in_allow:
+                if in_allow_section and line not in seen:
                     tools.append(line)
+                    seen.add(line)
     except FileNotFoundError:
         pass
     return tools

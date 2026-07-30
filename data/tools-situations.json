@@ -585,6 +585,233 @@
     "atelier_archive_plans": {
       "situation": "Archiver un LOT de plans atelier clôturés en un appel (jamais en boucle unitaire)",
       "cli": "ubik agent atelier_archive_plans --args '{\"statuses\":[\"completed\",\"cancelled\"]}' (ou {\"plan_ids\":[...]})"
+    },
+    "lba_client_fiche": {
+      "situation": "Utilisateur demande la fiche d'un client nommé (infos générales, période)",
+      "cli": "lba lba_client_fiche --args '{\"code\":\"<code client>\",\"periode\":\"...\"}'"
+    },
+    "lba_client_historique_visites": {
+      "situation": "Utilisateur veut l'historique des visites déjà traitées d'un client",
+      "cli": "lba lba_client_historique_visites --args '{\"code\":\"<code client>\"}'"
+    },
+    "lba_client_recouvrement_statut": {
+      "situation": "Utilisateur demande le solde/statut de recouvrement (badges impayés) d'un client",
+      "cli": "lba lba_client_recouvrement_statut --args '{\"code\":\"<code client>\"}'"
+    },
+    "lba_client_simulateur_prix": {
+      "situation": "Utilisateur veut simuler un prix pour un client sur une famille de produits",
+      "cli": "lba lba_client_simulateur_prix --args '{\"code\":\"<code client>\",\"famille\":\"...\"}'",
+      "note": "Cascade tarifaire PARTIELLE — le niveau tarif famille-article dédié est skip, prévenir l'utilisateur que c'est une estimation."
+    },
+    "lba_client_extrait_compte": {
+      "situation": "Utilisateur veut l'extrait de compte (écritures comptables 411) d'un client",
+      "cli": "lba lba_client_extrait_compte --args '{\"tiers_id\":\"...\"}'",
+      "note": "Prend tiers_id (champ id de lba_recherche_client), PAS crmSocieteId — inverse de lba_visite_creer/modifier."
+    },
+    "lba_client_relance_preview": {
+      "situation": "Utilisateur veut voir à quoi ressemblerait une relance/blocage AVANT de l'envoyer",
+      "cli": "lba lba_client_relance_preview --args '{\"tiers_id\":\"...\"}'",
+      "note": "DRY-RUN uniquement, aucun envoi possible (le WRITE réel — envoi Graph au client — est hors scope V1, ne jamais le suggérer)."
+    },
+    "lba_rentabilite_produits": {
+      "situation": "Utilisateur veut la rentabilité produits de l'année (filtrable/paginée)",
+      "cli": "lba lba_rentabilite_produits --args '{\"page\":1,\"page_size\":50}'"
+    },
+    "lba_rentabilite_clients": {
+      "situation": "Utilisateur veut la rentabilité clients de l'année (filtrable/paginée)",
+      "cli": "lba lba_rentabilite_clients --args '{\"page\":1,\"page_size\":50}'"
+    },
+    "lba_tdc_kpis": {
+      "situation": "Utilisateur demande les KPIs TDC (N/N-1) — PAS la même chose que CRM Client",
+      "cli": "lba lba_tdc_kpis --args '{\"granularite\":\"...\",\"periode_ref\":\"...\"}'",
+      "note": "granularite+periode_ref requis si months absent — sémantique TDC distincte de CRM Client, ne pas confondre."
+    },
+    "lba_clients_sans_visites": {
+      "situation": "Utilisateur veut la liste des clients du portefeuille sans visite depuis le 1er janvier",
+      "cli": "lba lba_clients_sans_visites --args '{}'"
+    },
+    "lba_produits_dormants": {
+      "situation": "Utilisateur veut voir le stock dormant (produits sans mouvement depuis longtemps)",
+      "cli": "lba lba_produits_dormants --args '{}'",
+      "note": "Trié jours_sans_mouvement décroissant."
+    },
+    "lba_kpis_portefeuille": {
+      "situation": "Utilisateur veut les KPIs globaux du portefeuille (CA/marge/nb clients/panier moyen)",
+      "cli": "lba lba_kpis_portefeuille --args '{\"periode\":\"...\"}'"
+    },
+    "lba_dso_client": {
+      "situation": "Utilisateur veut le DSO (délai moyen de paiement) du portefeuille ou d'un client",
+      "cli": "lba lba_dso_client --args '{\"code\":\"<code client, optionnel>\"}'"
+    },
+    "lba_agenda_representants": {
+      "situation": "Utilisateur veut l'agenda hebdomadaire des représentants",
+      "cli": "lba lba_agenda_representants --args '{}'",
+      "note": "Dépend de prisma-api:8506 — si vide/erreur, vérifier que ce service tourne avant de conclure à un agenda vide."
+    },
+    "lba_portefeuille_liste": {
+      "situation": "Utilisateur veut la liste complète du portefeuille avec CA sur la période",
+      "cli": "lba lba_portefeuille_liste --args '{\"periode\":\"...\"}'",
+      "note": "Source PRISMA-live (temps réel), pas un export figé."
+    },
+    "lba_recherche_client": {
+      "situation": "Utilisateur cite un client par un nom approximatif, pas son code exact — retrouver le code",
+      "cli": "lba lba_recherche_client --args '{\"q\":\"<nom approximatif>\"}'",
+      "note": "TOUJOURS passer par ce tool avant lba_visite_creer/modifier : crmSocieteId (PAS le champ id = tiers.id) est la SEULE valeur valide pour idSocieteAffectation. Se tromper de champ = échec silencieux ou 400."
+    },
+    "lba_analytics_explorer": {
+      "situation": "Utilisateur pose une question analytique multi-KPI qui ne rentre dans aucun tool dédié",
+      "cli": "lba lba_analytics_explorer --args '{\"rep_code\":\"...\"}'",
+      "note": "Préférer rep_code (texte) à rep (id numérique) — gotcha de mapping connu côté backend, source d'erreurs si confondu."
+    },
+    "lba_rep_codes": {
+      "situation": "Besoin de convertir un rep_code en id_prisma (ou vérifier le mapping)",
+      "cli": "lba lba_rep_codes --args '{}'"
+    },
+    "lba_mail_liste": {
+      "situation": "Utilisateur veut voir ses derniers mails Outlook",
+      "cli": "lba lba_mail_liste --args '{}'",
+      "note": "Session RÉELLE du titulaire du seat (ticket-exchange automatique) — jamais mcp__ubik__microsoft_* (session navigateur partagée, mailbox étrangère garantie)."
+    },
+    "lba_mail_lire": {
+      "situation": "Utilisateur veut lire le corps complet d'un mail précis",
+      "cli": "lba lba_mail_lire --args '{\"message_id\":\"...\"}'",
+      "note": "message_id vient d'un précédent lba_mail_liste."
+    },
+    "lba_mail_repondre": {
+      "situation": "Utilisateur veut répondre à un mail — ÉCRITURE, confirmation explicite obligatoire avant envoi",
+      "cli": "lba lba_mail_repondre --args '{\"message_id\":\"...\",\"corps\":\"...\",\"reply_all\":false}'"
+    },
+    "lba_calendar_liste": {
+      "situation": "Utilisateur veut voir ses événements calendrier",
+      "cli": "lba lba_calendar_liste --args '{}'"
+    },
+    "lba_calendar_creer": {
+      "situation": "Utilisateur veut créer un événement calendrier — ÉCRITURE, confirmation explicite obligatoire",
+      "cli": "lba lba_calendar_creer --args '{\"titre\":\"...\",\"debut\":\"...\",\"fin\":\"...\"}'"
+    },
+    "lba_teams_conversations": {
+      "situation": "Utilisateur veut voir ses chats Teams",
+      "cli": "lba lba_teams_conversations --args '{}'"
+    },
+    "lba_teams_repondre": {
+      "situation": "Utilisateur veut répondre dans une conversation Teams existante — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_teams_repondre --args '{\"conversation_id\":\"...\",\"message\":\"...\"}'"
+    },
+    "lba_todo_lists": {
+      "situation": "Utilisateur veut voir ses listes de tâches Outlook (To Do)",
+      "cli": "lba lba_todo_lists --args '{}'",
+      "note": "Point d'entrée du cycle todo — donne les list_id nécessaires à lba_todo_tasks/task_create."
+    },
+    "lba_todo_tasks": {
+      "situation": "Utilisateur veut voir les tâches d'une liste To Do précise",
+      "cli": "lba lba_todo_tasks --args '{\"list_id\":\"...\"}'",
+      "note": "list_id vient de lba_todo_lists."
+    },
+    "lba_todo_task_status": {
+      "situation": "Utilisateur veut changer le statut (ou l'importance) d'une tâche — ÉCRITURE",
+      "cli": "lba lba_todo_task_status --args '{\"task_id\":\"...\",\"status\":\"...\"}'"
+    },
+    "lba_todo_task_delete": {
+      "situation": "Utilisateur veut supprimer une tâche To Do — ÉCRITURE, confirmation explicite obligatoire",
+      "cli": "lba lba_todo_task_delete --args '{\"task_id\":\"...\"}'"
+    },
+    "lba_todo_task_due": {
+      "situation": "Utilisateur veut changer (ou retirer) l'échéance d'une tâche — ÉCRITURE",
+      "cli": "lba lba_todo_task_due --args '{\"task_id\":\"...\",\"due\":\"...\"}'"
+    },
+    "lba_todo_task_create": {
+      "situation": "Utilisateur veut créer une tâche personnelle libre dans une liste To Do — ÉCRITURE",
+      "cli": "lba lba_todo_task_create --args '{\"list_id\":\"...\",\"title\":\"...\"}'",
+      "note": "DISTINCT de lba_mission_request : ceci est une tâche PERSONNELLE du titulaire, pas une mission adressée à quelqu'un d'autre."
+    },
+    "lba_mission_request": {
+      "situation": "Utilisateur veut confier une mission/demande à un AUTRE collaborateur — ÉCRITURE",
+      "cli": "lba lba_mission_request --args '{\"destinataire_email\":\"...\",\"titre\":\"...\",\"importance\":\"normal\"}'",
+      "note": "Notif Teams best-effort au destinataire. DISTINCT de lba_todo_task_create (tâche personnelle) — ne pas confondre."
+    },
+    "lba_visite_creer": {
+      "situation": "Utilisateur veut ajouter manuellement une visite/évènement CRM au planning — ÉCRITURE",
+      "cli": "lba lba_visite_creer --args '{\"idSocieteAffectation\":\"<crmSocieteId de lba_recherche_client>\", ...}'",
+      "note": "idSocieteAffectation = crmSocieteId (PAS le champ id/tiers.id) — sinon écriture impossible. idUtilisateur auto-injecté si absent ; RBAC anti-spoofing géré backend (admin/bureau→tout rep, commercial→soi-même)."
+    },
+    "lba_visites_liste": {
+      "situation": "Utilisateur veut voir ses visites CRM (traitées ou à traiter)",
+      "cli": "lba lba_visites_liste --args '{\"etat\":\"Non traité\"}'",
+      "note": "Sans etat, le backend ne renvoie QUE les 'Traité' (défaut historique). Passer etat='Non traité' pour les visites à traiter, 'TOUS' pour tout. es_id retourné = clé requise par lba_visite_modifier."
+    },
+    "lba_visite_modifier": {
+      "situation": "Utilisateur veut déposer un compte rendu de visite et/ou la marquer traitée — ÉCRITURE",
+      "cli": "lba lba_visite_modifier --args '{\"es_id\":\"...\",\"observations\":\"...\",\"etat\":\"Traité\"}'",
+      "note": "PATCH partiel (seuls les champs fournis changent). Ne PAS passer source='cr_live' hors boucle CR-live-audition — sinon la notif Teams des @mentions est supprimée à tort."
+    },
+    "lba_procedure_creer": {
+      "situation": "Utilisateur veut rédiger une nouvelle procédure (brouillon) — ÉCRITURE",
+      "cli": "lba lba_procedure_creer --args '{\"titre\":\"...\",\"theme\":\"...\",\"contenu\":\"...\"}'"
+    },
+    "lba_procedure_mine": {
+      "situation": "Utilisateur veut voir ses propres procédures (tous statuts : brouillon/en_attente/publié)",
+      "cli": "lba lba_procedure_mine --args '{}'"
+    },
+    "lba_procedure_modifier": {
+      "situation": "Utilisateur veut modifier une de ses procédures — ÉCRITURE",
+      "cli": "lba lba_procedure_modifier --args '{\"id\":\"...\", ...}'",
+      "note": "Auteur uniquement, brouillon uniquement — 409 si déjà soumise."
+    },
+    "lba_procedure_supprimer": {
+      "situation": "Utilisateur veut supprimer une de ses procédures — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_procedure_supprimer --args '{\"id\":\"...\"}'",
+      "note": "Auteur uniquement, brouillon uniquement — 409 si déjà soumise."
+    },
+    "lba_procedure_soumettre": {
+      "situation": "Utilisateur veut soumettre sa procédure pour validation (brouillon → en_attente) — ÉCRITURE",
+      "cli": "lba lba_procedure_soumettre --args '{\"id\":\"...\"}'"
+    },
+    "lba_procedure_liste": {
+      "situation": "Utilisateur cherche une procédure publiée (par thème ou toutes)",
+      "cli": "lba lba_procedure_liste --args '{\"theme\":\"...\"}'"
+    },
+    "lba_procedure_themes": {
+      "situation": "Besoin de connaître les thèmes valides du panel Procédures avant d'en créer une",
+      "cli": "lba lba_procedure_themes --args '{}'",
+      "note": "6 thèmes verrouillés — utiliser un de ceux-ci, pas de thème libre."
+    },
+    "lba_reunion_dossier_creer": {
+      "situation": "Besoin de créer un sous-dossier de rangement avant de publier un artefact Réunion",
+      "cli": "lba lba_reunion_dossier_creer --args '{\"nom\":\"...\",\"type\":\"presentation|compte_rendu\"}'",
+      "note": "Un dossier appartient à un seul type — bin/lba recommande dossier_liste/creer AVANT reunion_creer."
+    },
+    "lba_reunion_dossier_liste": {
+      "situation": "Utilisateur veut voir les sous-dossiers existants du panel Réunion",
+      "cli": "lba lba_reunion_dossier_liste --args '{}'"
+    },
+    "lba_reunion_template": {
+      "situation": "Utilisateur veut créer une présentation ou un compte rendu de réunion — étape 1 OBLIGATOIRE",
+      "cli": "lba lba_reunion_template --args '{}'",
+      "note": "TOUJOURS partir de ce squelette HTML charté LBA (logo+charte) avant lba_reunion_creer — jamais un HTML écrit de zéro. Slides = <section class=\"slide\">, classes utilitaires card/kpi/alert incluses."
+    },
+    "lba_reunion_creer": {
+      "situation": "Utilisateur a son contenu prêt et veut publier la présentation/compte rendu — ÉCRITURE",
+      "cli": "lba lba_reunion_creer --args '{\"titre\":\"...\",\"type\":\"presentation\",\"html\":\"<doc complet issu du template>\"}'",
+      "note": "html doit être le document COMPLET issu de lba_reunion_template (logo+charte conservés), pas un fragment. L'orientation doit matcher celle du template utilisé."
+    },
+    "lba_reunion_liste": {
+      "situation": "Utilisateur veut voir la liste des présentations/comptes rendus déjà publiés",
+      "cli": "lba lba_reunion_liste --args '{}'",
+      "note": "Métas seulement (pas le html) — utiliser lba_reunion_lire pour le contenu complet."
+    },
+    "lba_reunion_lire": {
+      "situation": "Utilisateur veut relire le contenu complet d'un artefact Réunion déjà publié",
+      "cli": "lba lba_reunion_lire --args '{\"id\":\"...\"}'"
+    },
+    "lba_reunion_modifier": {
+      "situation": "Utilisateur veut corriger un artefact Réunion déjà publié — ÉCRITURE",
+      "cli": "lba lba_reunion_modifier --args '{\"id\":\"...\", ...}'",
+      "note": "PATCH partiel — seuls les champs fournis changent. Auteur ou backoffice."
+    },
+    "lba_reunion_supprimer": {
+      "situation": "Utilisateur veut supprimer un artefact Réunion — ÉCRITURE, confirmation explicite obligatoire",
+      "cli": "lba lba_reunion_supprimer --args '{\"id\":\"...\"}'",
+      "note": "Auteur ou backoffice."
     }
   }
 }
