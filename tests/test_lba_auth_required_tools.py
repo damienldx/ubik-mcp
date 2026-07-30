@@ -97,6 +97,7 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     "lba_clients_sans_visites", "lba_produits_dormants", "lba_kpis_portefeuille",
     "lba_dso_client", "lba_agenda_representants", "lba_portefeuille_liste",
     "lba_recherche_client", "lba_analytics_explorer", "lba_rep_codes",
+    "lba_client_tarif", "lba_client_remises_negociees",
 })
 
 

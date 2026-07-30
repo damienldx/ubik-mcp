@@ -132,8 +132,10 @@ class TestCliSurface(unittest.TestCase):
         tools = json.loads(out.stdout)
         # 18 DATA (M2) + 41 Graph/Todo (M3 + plan_91c9dfb4 + plan_13812401 + procedures 7
         # + visites 2 + reunions 6 + reunions dossiers 2 + todo delete/due 2, 2026-07-26
-        # + devis assistés Bacchus 9, plan_9a6dda04 wave1, 2026-07-30)
-        self.assertEqual(len(tools), 59)
+        # + devis assistés Bacchus 9, plan_9a6dda04 wave1, 2026-07-30
+        # + lba_client_tarif + lba_client_remises_negociees, 2026-07-30, audit trous info
+        # tarifaire Bacchus signalé Damien)
+        self.assertEqual(len(tools), 61)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

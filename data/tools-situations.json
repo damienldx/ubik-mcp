@@ -603,6 +603,16 @@
       "cli": "lba lba_client_simulateur_prix --args '{\"code\":\"<code client>\",\"famille\":\"...\"}'",
       "note": "Cascade tarifaire PARTIELLE — le niveau tarif famille-article dédié est skip, prévenir l'utilisateur que c'est une estimation."
     },
+    "lba_client_tarif": {
+      "situation": "Utilisateur demande quel est le tarif (grille tarifaire) d'un client",
+      "cli": "lba lba_client_tarif --args '{\"code\":\"<code client>\"}'",
+      "note": "Renvoie tarif_num/tarif_libelle (ex. \"20 - ESSENTIELLE\") — PAS la grille de prix par article, cf lba_client_simulateur_prix pour ça. tarif_libelle=null (assigne=false) = aucun tarif dédié assigné en base, ne pas présenter comme 'tarif général' par défaut (non vérifié)."
+    },
+    "lba_client_remises_negociees": {
+      "situation": "Utilisateur demande si un client a des remises/prix spécifiques négociés (par article ou par famille de produits)",
+      "cli": "lba lba_client_remises_negociees --args '{\"code\":\"<code client>\"}'",
+      "note": "Pas systématique — un client peut n'avoir aucune remise négociée. remises=par article (prix fixe ou remise%, DISTINCT du tarif nommé de lba_client_tarif), remises_famille=par famille (id_famille_article brut, nom non résolvable — limitation PRISMA connue, ne pas inventer le nom)."
+    },
     "lba_client_extrait_compte": {
       "situation": "Utilisateur veut l'extrait de compte (écritures comptables 411) d'un client",
       "cli": "lba lba_client_extrait_compte --args '{\"tiers_id\":\"...\"}'",

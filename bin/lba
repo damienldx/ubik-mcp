@@ -259,6 +259,24 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
     },
     {
+        "name": "lba_client_tarif",
+        "description": ("Tarif contractuel en vigueur d'un client (numéro + libellé PRISMA, ex. "
+                         "'20 - ESSENTIELLE') — GET /api/bacchus/client/{code}/tarif. NE renvoie PAS "
+                         "la grille de prix par article (cf lba_client_simulateur_prix pour ça)."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_remises_negociees",
+        "description": ("Remises/prix négociés dans la fiche client, PAR ARTICLE (prix fixe ou remise% "
+                         "cascadée jusqu'à 4 niveaux) ET PAR FAMILLE (remise%, nom de famille non résolvable "
+                         "en base — limitation connue) — DISTINCT du tarif nommé de lba_client_tarif. GET "
+                         "/api/bacchus/client/{code}/remises-negociees. Pas systématique (client peut "
+                         "n'en avoir aucune)."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"},
+            "include_expire": {"type": "boolean", "description": "défaut false — inclut aussi les remises dont la date de fin est passée"}}},
+    },
+    {
         "name": "lba_client_simulateur_prix",
         "description": ("Simulation de pricing client x famille (cascade PARTIELLE, niveau tarif "
                          "famille-article dédié SKIP) — GET /api/bacchus/client/{code}/simulateur-prix/{famille}."),
@@ -1042,6 +1060,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_client_recouvrement_statut":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/recouvrement-statut", {})
+    if tool == "lba_client_tarif":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/tarif", {})
+    if tool == "lba_client_remises_negociees":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/remises-negociees", {
+            "include_expire": args.get("include_expire", False)})
     if tool == "lba_client_simulateur_prix":
         code = _seg(_req(args, "code"))
         famille = _seg(_req(args, "famille"))
