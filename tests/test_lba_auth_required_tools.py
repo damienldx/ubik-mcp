@@ -73,6 +73,18 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_procedure_liste", "lba_procedure_themes",
     "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
     "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
+    "lba_reunion_dossier_creer", "lba_reunion_dossier_liste",
+    # ^ 2 lignes ajoutées 2026-07-30 (drift pré-existant hors mission plan_9a6dda04,
+    # trouvé en vérifiant l'état AVANT ma propre extension : ces 2 tools existent
+    # bien dans bin/lba._AUTH_REQUIRED_TOOLS depuis les sous-dossiers REUNION
+    # [2026-07-29] mais n'avaient jamais été ajoutés ici — 2 tests de ce fichier
+    # étaient rouges avant toute modification de ma part, cf ledger de mission).
+    # mission plan_9a6dda04 wave1 (2026-07-30) : panel "Mes Documents" / devis
+    # assistés Bacchus — /api/me/documents/* exige Depends(current_user) réel,
+    # même filtre strict auteur_email côté backend que les autres tools ici.
+    "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
+    "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
+    "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -568,6 +580,235 @@ def test_lba_procedure_themes_gets_expected_path(monkeypatch):
     monkeypatch.setattr(lba, "_get", _fake_get)
     lba._exec("lba_procedure_themes", {}, "22fcf4a5-agent-1")
     assert captured["path"] == "/api/me/procedures/themes"
+
+
+# ── Panel "Mes Documents" — devis assistés Bacchus (mission plan_9a6dda04
+# wave1, 2026-07-30) — backend /api/me/documents/* déjà live (m_e48fc4a1). ──
+
+def test_lba_devis_composer_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_devis_composer", {
+        "code": "C123", "lignes": [{"code": "A1", "famille": "BIERES", "quantite": 10}],
+        "clientNom": "Bar Test",
+    }, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/client/C123/devis/composer"
+    assert captured["payload"]["lignes"] == [{"code": "A1", "famille": "BIERES", "quantite": 10}]
+    assert captured["payload"]["clientNom"] == "Bar Test"
+    assert "representant" not in captured["payload"]  # omis si absent
+
+
+def test_lba_devis_creer_requires_titre_and_html(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_devis_creer", {"html": "<html></html>"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (titre manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_devis_creer_posts_client_code(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_devis_creer", {
+        "titre": "Devis test", "html": "<html></html>", "client_code": "C123",
+    }, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents"
+    assert captured["payload"]["client_code"] == "C123"
+
+
+def test_lba_devis_liste_defaults_type_to_devis(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        captured["params"] = params
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_devis_liste", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents"
+    assert captured["params"]["type"] == "devis"
+
+
+def test_lba_devis_liste_empty_string_type_removes_filter(monkeypatch):
+    """type='' explicite -> pas de filtre (tous types), pas 'devis' par défaut."""
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["params"] = params
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_devis_liste", {"type": ""}, "22fcf4a5-agent-1")
+    assert captured["params"]["type"] is None
+
+
+def test_lba_devis_lire_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_devis_lire", {"document_id": "doc-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents/doc-1"
+
+
+def test_lba_devis_modifier_requires_at_least_one_field(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_devis_modifier", {"document_id": "doc-1"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (aucun champ à modifier)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_devis_modifier_transmits_explicit_null_dossier_id(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_devis_modifier", {"document_id": "doc-1", "dossier_id": None}, "22fcf4a5-agent-1")
+    assert captured["payload"] == {"dossier_id": None}
+
+
+def test_lba_devis_supprimer_deletes_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_delete(path, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_delete", _fake_delete)
+    lba._exec("lba_devis_supprimer", {"document_id": "doc-1"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents/doc-1"
+
+
+def test_lba_devis_dossier_creer_defaults_type_to_devis(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_devis_dossier_creer", {"nom": "Mes VIP"}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents/dossiers"
+    assert captured["payload"] == {"nom": "Mes VIP", "type": "devis"}
+
+
+def test_lba_devis_dossier_liste_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_devis_dossier_liste", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents/dossiers"
+
+
+# ── lba_devis_envoyer — garde confirmed_by_user (point de sécurité critique) ──
+# hard_lock lba_seat_JAMAIS levé UNIQUEMENT avec confirmation explicite
+# systématique (Damien) — cf bandeau bin/lba::_CONFIRMATION_REQUIRED_TOOLS.
+
+def test_lba_devis_envoyer_refuses_without_confirmed_by_user(monkeypatch):
+    lba = _load_lba()
+
+    def _boom_mint(agent_id):
+        raise AssertionError("le ticket-exchange ne doit JAMAIS être tenté sans confirmation")
+
+    def _boom_post(path, payload, headers=None):
+        raise AssertionError("aucun POST ne doit être émis sans confirmation")
+
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", _boom_mint)
+    monkeypatch.setattr(lba, "_post", _boom_post)
+    try:
+        lba._exec("lba_devis_envoyer", {
+            "document_id": "doc-1", "to_email": "x@y.fr", "message": "bonjour",
+        }, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (confirmed_by_user absent)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_devis_envoyer_refuses_falsy_or_non_bool_confirmation(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt",
+                         lambda agent_id: (_ for _ in ()).throw(AssertionError("jamais appelé")))
+    for bad_value in (False, "true", 1, "yes", None):
+        try:
+            lba._exec("lba_devis_envoyer", {
+                "document_id": "doc-1", "to_email": "x@y.fr", "message": "bonjour",
+                "confirmed_by_user": bad_value,
+            }, "22fcf4a5-agent-1")
+            raise AssertionError(f"devait lever LbaCliError pour confirmed_by_user={bad_value!r}")
+        except lba.LbaCliError:
+            pass
+
+
+def test_lba_devis_envoyer_proceeds_with_confirmed_by_user_true(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_devis_envoyer", {
+        "document_id": "doc-1", "to_email": "x@y.fr", "message": "bonjour",
+        "confirmed_by_user": True,
+    }, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/me/documents/doc-1/envoyer"
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+    # confirmed_by_user est une garde CLI locale — ne fait JAMAIS partie du
+    # contrat backend, ne doit jamais fuiter dans le payload envoyé.
+    assert "confirmed_by_user" not in captured["payload"]
+    assert captured["payload"] == {"to_email": "x@y.fr", "message": "bonjour"}
 
 
 # ── Runner sans pytest (convention du repo — cf test_relay_no_response_repro.py) ──

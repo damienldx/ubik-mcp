@@ -75,7 +75,23 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
     "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
     "lba_reunion_dossier_creer", "lba_reunion_dossier_liste",
+    # ── Panel "Mes Documents" — devis assistés Bacchus (mission plan_9a6dda04,
+    # wave1 CLI, backend wave0 déjà livré — /api/me/documents/* lba_api.py) ──
+    "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
+    "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
+    "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
 })
+
+# lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
+# description) exigée par le brief : endpoint mail auparavant sous hard_lock
+# lba_seat_JAMAIS, Damien lève ce garde-fou UNIQUEMENT avec confirmation
+# explicite systématique de l'utilisateur, jamais d'envoi automatique/silencieux.
+# Le paramètre `confirmed_by_user` est REQUIS (pas de défaut) et doit valoir
+# EXACTEMENT `True` (booléen, pas une string "true"/1 qui indiquerait un agent
+# qui shortcut la confirmation) — sinon _exec refuse d'appeler le backend AVANT
+# même de construire la requête HTTP. Cf test_lba_auth_required_tools.py pour
+# le verrou de régression sur cette garde.
+_CONFIRMATION_REQUIRED_TOOLS = frozenset({"lba_devis_envoyer"})
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
     "LBA_CLI_SESSION_SECRET_PATH", "/home/damienldx/.lba-desktop/cli-session.secret"
@@ -664,12 +680,140 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["reunion_id"], "properties": {
             "reunion_id": {"type": "string"}}},
     },
+    # ── Panel "Mes Documents" — devis assistés Bacchus (mission plan_9a6dda04,
+    # wave1 CLI, backend wave0 déjà livré). Lecture STRICTEMENT privée par
+    # utilisateur côté backend (filtre auteur_email=current_user sur toutes
+    # les lectures, y compris pour un rôle admin/backoffice) — le CLI ne
+    # réimplémente aucun contrôle, il porte juste la session du seat via le
+    # même ticket-exchange que les autres tools Graph/Todo. Workflow typique :
+    # 1) lba_devis_composer (pricing, NE PERSISTE RIEN), 2) l'utilisateur
+    # valide, 3) lba_devis_creer (sauvegarde, client_code = header.clientCode
+    # de la réponse composer), 4) CONFIRMATION EXPLICITE, 5) lba_devis_envoyer.
+    {
+        "name": "lba_devis_composer",
+        "description": ("Compose un devis multi-lignes (pricing) pour un client — PURE COMPUTE, "
+                         "NE PERSISTE RIEN en base — POST /api/me/client/{code}/devis/composer. "
+                         "Étend le lookup unitaire par famille-article (lba_client_simulateur_prix) "
+                         "sur N lignes ; la remise fournie par ligne prime sur la baseline (cascade "
+                         "tarifaire officielle) si fournie, sinon retombe sur la baseline. Retourne "
+                         "header/groups/rows (contrat DevisHeader/DevisGroup/DevisRow) + le HTML "
+                         "rendu prêt à prévisualiser. Sauvegarder ensuite via lba_devis_creer si "
+                         "l'utilisateur valide le résultat."),
+        "inputSchema": {"type": "object", "required": ["code", "lignes"], "properties": {
+            "code": {"type": "string", "description": "code client PRISMA"},
+            "lignes": {"type": "array", "description": "liste de lignes {code, famille, quantite, remise1_pct?, remise2_pct?}",
+                       "items": {"type": "object", "required": ["code", "famille", "quantite"], "properties": {
+                           "code": {"type": "string", "description": "code article"},
+                           "famille": {"type": "string", "description": "sous-famille article — attention idSociete != tiers.id, rep_code != rep id (gotchas mapping documentés côté backend)"},
+                           "quantite": {"type": "number"},
+                           "remise1_pct": {"type": "number", "description": "optionnel — sinon baseline cascade officielle"},
+                           "remise2_pct": {"type": "number", "description": "optionnel — sinon baseline cascade officielle"}}}},
+            "clientNom": {"type": "string", "description": "optionnel, sinon = code"},
+            "representant": {"type": "string", "description": "optionnel, sinon = utilisateur connecté"},
+            "date": {"type": "string", "description": "optionnel (format libre affiché), sinon = date du jour"},
+            "showConfidential": {"type": "boolean", "description": "affiche PA/taux marque dans le HTML rendu, défaut false"}}},
+    },
+    {
+        "name": "lba_devis_creer",
+        "description": ("[ÉCRITURE] Sauvegarde un document (devis composé, ou tout HTML agent) — "
+                         "POST /api/me/documents. client_code OBLIGATOIRE si type='devis' (invariant "
+                         "backend, sinon 400) — reprendre header.clientCode de la réponse "
+                         "lba_devis_composer."),
+        "inputSchema": {"type": "object", "required": ["titre", "html"], "properties": {
+            "titre": {"type": "string"},
+            "html": {"type": "string", "description": "document HTML complet autonome (max 2 Mo) — ex: champ html de lba_devis_composer"},
+            "type": {"type": "string", "description": "défaut 'devis'"},
+            "client_code": {"type": "string", "description": "requis si type='devis' — code client PRISMA (header.clientCode de lba_devis_composer)"},
+            "orientation": {"type": "string", "description": "optionnel, sans effet fonctionnel pour un devis (parité de schéma)"},
+            "dossier_id": {"type": "string", "description": "sous-dossier où ranger le document (optionnel, cf lba_devis_dossier_liste/creer)"}}},
+    },
+    {
+        "name": "lba_devis_liste",
+        "description": ("Liste MES documents (métas sans html, filtré strictement sur l'utilisateur "
+                         "connecté côté backend) — GET /api/me/documents. type défaut 'devis'."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "défaut 'devis' — passer '' ou un autre type pour voir les autres documents"},
+            "dossier_id": {"type": "string", "description": "optionnel — filtre sur un sous-dossier précis"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_devis_lire",
+        "description": ("Lit un document complet (métas + html) — filtré strictement sur "
+                         "l'utilisateur connecté (404 si un autre utilisateur en est l'auteur, même "
+                         "pour un rôle admin/backoffice) — GET /api/me/documents/{document_id}."),
+        "inputSchema": {"type": "object", "required": ["document_id"], "properties": {
+            "document_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_devis_modifier",
+        "description": ("[ÉCRITURE] Modifie un document (PATCH partiel : seuls les champs fournis "
+                         "changent) — auteur ou backoffice — PATCH /api/me/documents/{document_id}. "
+                         "Repasser type='devis' sans client_code déjà présent (nouveau OU hérité) "
+                         "échoue en 400 (même invariant qu'à la création)."),
+        "inputSchema": {"type": "object", "required": ["document_id"], "properties": {
+            "document_id": {"type": "string"},
+            "titre": {"type": "string"},
+            "html": {"type": "string"},
+            "type": {"type": "string"},
+            "client_code": {"type": "string"},
+            "orientation": {"type": "string"},
+            "dossier_id": {"type": ["string", "null"], "description": "déplace le document vers ce sous-dossier ; null pour le déranger"}}},
+    },
+    {
+        "name": "lba_devis_supprimer",
+        "description": ("[ÉCRITURE] Supprime un document — auteur ou backoffice — "
+                         "DELETE /api/me/documents/{document_id}. Demander confirmation utilisateur avant."),
+        "inputSchema": {"type": "object", "required": ["document_id"], "properties": {
+            "document_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_devis_dossier_creer",
+        "description": ("[ÉCRITURE] Crée un sous-dossier pour ranger MES documents (strictement "
+                         "privé, jamais partagé) — POST /api/me/documents/dossiers."),
+        "inputSchema": {"type": "object", "required": ["nom"], "properties": {
+            "nom": {"type": "string"},
+            "type": {"type": "string", "description": "défaut 'devis'"}}},
+    },
+    {
+        "name": "lba_devis_dossier_liste",
+        "description": ("Liste MES sous-dossiers (strictement privé) — GET /api/me/documents/dossiers."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "optionnel, absent = tous types"}}},
+    },
+    {
+        "name": "lba_devis_envoyer",
+        "description": ("[ÉCRITURE — POINT DE SÉCURITÉ CRITIQUE] Envoie un devis par email (Microsoft "
+                         "Graph, CC backoffice@lba-boissons.fr systématique) — POST "
+                         "/api/me/documents/{document_id}/envoyer. Réservé à type='devis' avec "
+                         "client_code renseigné (400 sinon). "
+                         "CONFIRMATION UTILISATEUR EXPLICITE OBLIGATOIRE avant tout appel : "
+                         "confirmed_by_user DOIT valoir true, et cette valeur doit refléter une "
+                         "confirmation RÉELLEMENT obtenue de l'utilisateur juste avant cet appel "
+                         "(destinataire + contenu relus) — jamais posée à true par défaut ou par "
+                         "automatisme. Sans confirmation explicite, ne PAS appeler ce tool du tout "
+                         "(pas d'appel avec confirmed_by_user=false — l'absence d'appel EST le "
+                         "comportement attendu tant que l'utilisateur n'a pas confirmé)."),
+        "inputSchema": {"type": "object", "required": ["document_id", "to_email", "message", "confirmed_by_user"], "properties": {
+            "document_id": {"type": "string"},
+            "to_email": {"type": "string"},
+            "message": {"type": "string"},
+            "filename": {"type": "string", "description": "optionnel, sinon dérivé du titre du document"},
+            "confirmed_by_user": {"type": "boolean", "description": "DOIT être true — preuve qu'une confirmation explicite de l'utilisateur a été obtenue avant cet appel, cf description du tool"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
 
 def _exec(tool: str, args: dict, agent_id: str | None = None):
+    if tool in _CONFIRMATION_REQUIRED_TOOLS and args.get("confirmed_by_user") is not True:
+        raise LbaCliError(
+            f"{tool} refusé : confirmed_by_user doit valoir true, et doit refléter une "
+            "confirmation RÉELLEMENT obtenue de l'utilisateur juste avant cet appel — "
+            "pas de valeur par défaut, pas d'automatisme. Aucune requête HTTP émise "
+            "(refus AVANT le ticket-exchange, zéro effet de bord)."
+        )
     headers = _auth_headers(tool, agent_id)
     if tool == "lba_mail_liste":
         return _get("/api/bacchus/mail/liste", {
@@ -835,6 +979,57 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_reunion_supprimer":
         reunion_id = _seg(_req(args, "reunion_id"))
         return _delete(f"/api/me/reunions/{reunion_id}", headers)
+    if tool == "lba_devis_composer":
+        code = _seg(_req(args, "code"))
+        lignes = _req(args, "lignes")
+        raw = {"lignes": lignes, "clientNom": args.get("clientNom"),
+               "representant": args.get("representant"), "date": args.get("date"),
+               "showConfidential": args.get("showConfidential")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post(f"/api/me/client/{code}/devis/composer", payload, headers)
+    if tool == "lba_devis_creer":
+        raw = {"titre": _req(args, "titre"), "html": _req(args, "html"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "orientation": args.get("orientation"), "dossier_id": args.get("dossier_id")}
+        return _post("/api/me/documents", {k: v for k, v in raw.items() if v is not None}, headers)
+    if tool == "lba_devis_liste":
+        return _get("/api/me/documents", {
+            "type": args.get("type", "devis") or None, "dossier_id": args.get("dossier_id"),
+            "limit": args.get("limit"), "offset": args.get("offset")}, headers)
+    if tool == "lba_devis_lire":
+        document_id = _seg(_req(args, "document_id"))
+        return _get(f"/api/me/documents/{document_id}", {}, headers)
+    if tool == "lba_devis_modifier":
+        document_id = _seg(_req(args, "document_id"))
+        raw = {"titre": args.get("titre"), "html": args.get("html"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "orientation": args.get("orientation")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        # dossier_id : null est une valeur cible légitime ("déranger" le
+        # document), donc transmis dès qu'il est PRÉSENT dans args (y compris
+        # explicitement null) — même convention que lba_reunion_modifier.
+        if "dossier_id" in args:
+            payload["dossier_id"] = args.get("dossier_id")
+        if not payload:
+            raise LbaCliError("aucun champ à modifier — fournir au moins titre/html/type/client_code/orientation/dossier_id")
+        return _patch(f"/api/me/documents/{document_id}", payload, headers)
+    if tool == "lba_devis_supprimer":
+        document_id = _seg(_req(args, "document_id"))
+        return _delete(f"/api/me/documents/{document_id}", headers)
+    if tool == "lba_devis_dossier_creer":
+        return _post("/api/me/documents/dossiers", {
+            "nom": _req(args, "nom"), "type": args.get("type", "devis")}, headers)
+    if tool == "lba_devis_dossier_liste":
+        return _get("/api/me/documents/dossiers", {"type": args.get("type")}, headers)
+    if tool == "lba_devis_envoyer":
+        # confirmed_by_user déjà vérifié en tête de _exec (garde-fou avant
+        # même le ticket-exchange) — jamais transmis au backend, c'est une
+        # garde CLI, pas un champ du contrat /envoyer.
+        document_id = _seg(_req(args, "document_id"))
+        raw = {"to_email": _req(args, "to_email"), "message": _req(args, "message"),
+               "filename": args.get("filename")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post(f"/api/me/documents/{document_id}/envoyer", payload, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {

@@ -812,6 +812,50 @@
       "situation": "Utilisateur veut supprimer un artefact Réunion — ÉCRITURE, confirmation explicite obligatoire",
       "cli": "lba lba_reunion_supprimer --args '{\"id\":\"...\"}'",
       "note": "Auteur ou backoffice."
+    },
+    "lba_devis_composer": {
+      "situation": "Utilisateur veut un devis pour un client sur plusieurs lignes d'articles (pricing multi-lignes)",
+      "cli": "lba lba_devis_composer --args '{\"code\":\"<code client>\",\"lignes\":[{\"code\":\"<code article>\",\"famille\":\"...\",\"quantite\":10,\"remise1_pct\":15}]}'",
+      "note": "PURE COMPUTE — ne persiste rien. Chaque ligne prend le code ARTICLE + sa famille (pas idSociete/tiers.id, pas rep_code — ce sont des codes article/famille produit, gotcha distinct des visites/recherche client). remise1_pct/remise2_pct optionnels : absents, retombe sur la cascade tarifaire officielle du client. Sauvegarder ensuite avec lba_devis_creer si l'utilisateur valide."
+    },
+    "lba_devis_creer": {
+      "situation": "Utilisateur valide le devis composé et veut le sauvegarder — ÉCRITURE",
+      "cli": "lba lba_devis_creer --args '{\"titre\":\"...\",\"html\":\"<html du devis, champ html renvoyé par lba_devis_composer>\",\"client_code\":\"<code client>\"}'",
+      "note": "client_code OBLIGATOIRE (backend rejette en 400 sinon) — reprendre le champ header.clientCode de la réponse lba_devis_composer, PAS le code article des lignes."
+    },
+    "lba_devis_liste": {
+      "situation": "Utilisateur veut voir ses devis déjà sauvegardés",
+      "cli": "lba lba_devis_liste --args '{}'",
+      "note": "Filtré strictement sur l'utilisateur connecté côté backend (jamais les devis d'un autre commercial, même pour un admin). type='devis' par défaut — passer type:'' pour voir tous ses documents (imports inclus)."
+    },
+    "lba_devis_lire": {
+      "situation": "Utilisateur veut relire le contenu complet (html) d'un devis déjà sauvegardé",
+      "cli": "lba lba_devis_lire --args '{\"document_id\":\"...\"}'",
+      "note": "404 si le devis appartient à un autre utilisateur — isolation stricte, pas une erreur réseau."
+    },
+    "lba_devis_modifier": {
+      "situation": "Utilisateur veut corriger un devis déjà sauvegardé — ÉCRITURE",
+      "cli": "lba lba_devis_modifier --args '{\"document_id\":\"...\", ...}'",
+      "note": "PATCH partiel — seuls les champs fournis changent. Repasser type:'devis' sans client_code déjà présent échoue en 400 (même invariant qu'à la création)."
+    },
+    "lba_devis_supprimer": {
+      "situation": "Utilisateur veut supprimer un devis — ÉCRITURE, confirmation explicite obligatoire",
+      "cli": "lba lba_devis_supprimer --args '{\"document_id\":\"...\"}'",
+      "note": "Auteur ou backoffice."
+    },
+    "lba_devis_dossier_creer": {
+      "situation": "Besoin de créer un sous-dossier de rangement avant de sauvegarder un devis",
+      "cli": "lba lba_devis_dossier_creer --args '{\"nom\":\"...\"}'",
+      "note": "Strictement privé (jamais partagé entre utilisateurs) — type='devis' par défaut."
+    },
+    "lba_devis_dossier_liste": {
+      "situation": "Utilisateur veut voir ses sous-dossiers de rangement de devis",
+      "cli": "lba lba_devis_dossier_liste --args '{}'"
+    },
+    "lba_devis_envoyer": {
+      "situation": "Utilisateur veut envoyer un devis sauvegardé par email au client — ÉCRITURE, POINT DE SÉCURITÉ CRITIQUE, confirmation explicite systématique obligatoire",
+      "cli": "lba lba_devis_envoyer --args '{\"document_id\":\"...\",\"to_email\":\"...\",\"message\":\"...\",\"confirmed_by_user\":true}'",
+      "note": "confirmed_by_user DOIT valoir true ET refléter une confirmation RÉELLEMENT obtenue de l'utilisateur juste avant cet appel (destinataire+contenu relus) — jamais posé par défaut/automatisme. Sans confirmation, NE PAS appeler ce tool du tout. Réservé aux documents type='devis' avec client_code (400 sinon). CC backoffice@lba-boissons.fr systématique et non modifiable."
     }
   }
 }
