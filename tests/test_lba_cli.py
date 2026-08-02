@@ -135,7 +135,10 @@ class TestCliSurface(unittest.TestCase):
         # + devis assistés Bacchus 9, plan_9a6dda04 wave1, 2026-07-30
         # + lba_client_tarif + lba_client_remises_negociees, 2026-07-30, audit trous info
         # tarifaire Bacchus signalé Damien)
-        self.assertEqual(len(tools), 61)
+        # + 9 tools Teams (lire_messages/demarrer/nouveautes/lister_equipes/lister_canaux/
+        # lire_canal_messages/presence/lister_reunions/reunion_detail), 2026-08-02,
+        # sprint Bacchus Teams tools plan_b47aeb6d
+        self.assertEqual(len(tools), 70)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

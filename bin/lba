@@ -65,6 +65,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre",
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_teams_conversations", "lba_teams_repondre",
+    "lba_teams_lire_messages", "lba_teams_demarrer", "lba_teams_nouveautes",
+    "lba_teams_lister_equipes", "lba_teams_lister_canaux", "lba_teams_lire_canal_messages",
+    "lba_teams_presence", "lba_teams_lister_reunions", "lba_teams_reunion_detail",
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
     "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
     "lba_todo_task_due", "lba_visite_creer",
@@ -436,6 +439,70 @@ TOOLS = [
         "description": "[ÉCRITURE] Envoie un message dans une conversation Teams existante — POST /api/bacchus/teams/repondre.",
         "inputSchema": {"type": "object", "required": ["chat_id", "message"], "properties": {
             "chat_id": {"type": "string"}, "message": {"type": "string"}}},
+    },
+    {
+        "name": "lba_teams_lire_messages",
+        "description": "Lit les derniers messages d'une conversation Teams (chat_id obtenu via lba_teams_conversations) — GET /api/bacchus/teams/messages.",
+        "inputSchema": {"type": "object", "required": ["chat_id"], "properties": {
+            "chat_id": {"type": "string"}, "top": {"type": "integer", "description": "défaut 20, max 50"}}},
+    },
+    {
+        "name": "lba_teams_demarrer",
+        "description": ("[ÉCRITURE] Démarre une conversation Teams 1:1 avec un collègue et poste le premier message — "
+                         "POST /api/bacchus/teams/demarrer. destinataire = email exact ou fragment de nom (ambigu/introuvable "
+                         "= 400/404 explicite avec candidats). Confirmation utilisateur du destinataire ET du message "
+                         "OBLIGATOIRE avant appel, aucun flux preview/confirm côté backend."),
+        "inputSchema": {"type": "object", "required": ["destinataire", "message"], "properties": {
+            "destinataire": {"type": "string"}, "message": {"type": "string"}}},
+    },
+    {
+        "name": "lba_teams_nouveautes",
+        "description": "Conversations Teams avec un message non lu (\"quoi de neuf\") — GET /api/bacchus/teams/nouveautes.",
+        "inputSchema": {"type": "object", "properties": {
+            "top": {"type": "integer", "description": "défaut 20, max 50"}}},
+    },
+    {
+        "name": "lba_teams_lister_equipes",
+        "description": "Équipes Teams dont l'utilisateur est membre — GET /api/bacchus/teams/equipes. Peut nécessiter un consentement admin tenant (scope Team.ReadBasic.All).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_teams_lister_canaux",
+        "description": "Canaux d'une équipe Teams (team_id obtenu via lba_teams_lister_equipes) — GET /api/bacchus/teams/canaux. Peut nécessiter un consentement admin tenant (scope Channel.ReadBasic.All).",
+        "inputSchema": {"type": "object", "required": ["team_id"], "properties": {
+            "team_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_teams_lire_canal_messages",
+        "description": ("Derniers messages d'un canal d'équipe (team_id/channel_id obtenus via lba_teams_lister_equipes/"
+                         "lba_teams_lister_canaux) — GET /api/bacchus/teams/canal-messages. Nécessite quasi certainement "
+                         "un consentement admin tenant (scope ChannelMessage.Read.All, haut privilège)."),
+        "inputSchema": {"type": "object", "required": ["team_id", "channel_id"], "properties": {
+            "team_id": {"type": "string"}, "channel_id": {"type": "string"},
+            "top": {"type": "integer", "description": "défaut 20, max 50"}}},
+    },
+    {
+        "name": "lba_teams_presence",
+        "description": ("Statut de présence Teams — GET /api/bacchus/teams/presence. destinataire omis = soi-même "
+                         "(scope Presence.Read). destinataire fourni (email/nom, même résolution que lba_teams_demarrer) "
+                         "= un collègue (scope Presence.Read.All, nécessite quasi certainement un consentement admin tenant)."),
+        "inputSchema": {"type": "object", "properties": {
+            "destinataire": {"type": "string", "description": "optionnel — email ou fragment de nom, omis = soi-même"}}},
+    },
+    {
+        "name": "lba_teams_lister_reunions",
+        "description": ("Vraies réunions Teams (isOnlineMeeting=true, distinct du panel Réunion CRM) dérivées du calendrier — "
+                         "GET /api/bacchus/teams/reunions."),
+        "inputSchema": {"type": "object", "properties": {
+            "top": {"type": "integer", "description": "défaut 20, max 100"},
+            "start_date_time": {"type": "string", "description": "ISO 8601"},
+            "end_date_time": {"type": "string", "description": "ISO 8601"}}},
+    },
+    {
+        "name": "lba_teams_reunion_detail",
+        "description": "Détail d'une réunion Teams via son join_url (obtenu via lba_teams_lister_reunions) — GET /api/bacchus/teams/reunion-detail. Scope OnlineMeetings.Read.",
+        "inputSchema": {"type": "object", "required": ["join_url"], "properties": {
+            "join_url": {"type": "string"}}},
     },
     {
         "name": "lba_todo_lists",
@@ -857,6 +924,30 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_teams_repondre":
         return _post("/api/bacchus/teams/repondre", {
             "chat_id": _req(args, "chat_id"), "message": _req(args, "message")}, headers)
+    if tool == "lba_teams_lire_messages":
+        return _get("/api/bacchus/teams/messages", {
+            "chat_id": _req(args, "chat_id"), "top": args.get("top", 20)}, headers)
+    if tool == "lba_teams_demarrer":
+        return _post("/api/bacchus/teams/demarrer", {
+            "destinataire": _req(args, "destinataire"), "message": _req(args, "message")}, headers)
+    if tool == "lba_teams_nouveautes":
+        return _get("/api/bacchus/teams/nouveautes", {"top": args.get("top", 20)}, headers)
+    if tool == "lba_teams_lister_equipes":
+        return _get("/api/bacchus/teams/equipes", {}, headers)
+    if tool == "lba_teams_lister_canaux":
+        return _get("/api/bacchus/teams/canaux", {"team_id": _req(args, "team_id")}, headers)
+    if tool == "lba_teams_lire_canal_messages":
+        return _get("/api/bacchus/teams/canal-messages", {
+            "team_id": _req(args, "team_id"), "channel_id": _req(args, "channel_id"),
+            "top": args.get("top", 20)}, headers)
+    if tool == "lba_teams_presence":
+        return _get("/api/bacchus/teams/presence", {"destinataire": args.get("destinataire")}, headers)
+    if tool == "lba_teams_lister_reunions":
+        return _get("/api/bacchus/teams/reunions", {
+            "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
+            "end_date_time": args.get("end_date_time")}, headers)
+    if tool == "lba_teams_reunion_detail":
+        return _get("/api/bacchus/teams/reunion-detail", {"join_url": _req(args, "join_url")}, headers)
     if tool == "lba_todo_lists":
         return _get("/api/me/todo/lists", {}, headers)
     if tool == "lba_todo_tasks":
