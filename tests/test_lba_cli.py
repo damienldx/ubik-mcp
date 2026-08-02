@@ -141,7 +141,10 @@ class TestCliSurface(unittest.TestCase):
         # + 6 tools Outlook (mail_envoyer, calendar_accepter/refuser/accepter_provisoire/
         # modifier/disponibilite), 2026-08-02, sprint Bacchus Outlook tools plan_f3f00c0d
         # (lba_calendar_creer étendu avec isOnlineMeeting, pas un nouveau tool)
-        self.assertEqual(len(tools), 76)
+        # + lba_mail_marquer (flag "à suivre" Outlook), 2026-08-02, signalement
+        # direction@lba-boissons.fr post-sprint -- aucun nouveau scope OAuth
+        # (Mail.ReadWrite deja consenti)
+        self.assertEqual(len(tools), 77)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

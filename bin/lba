@@ -62,7 +62,7 @@ BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
 # Whitelist POSITIVE : seuls ces noms déclenchent le ticket-exchange —
 # les 18 tools DATA de Caton restent inchangés, zéro session requise.
 _AUTH_REQUIRED_TOOLS = frozenset({
-    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer",
+    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer", "lba_mail_marquer",
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire",
     "lba_calendar_modifier", "lba_calendar_disponibilite",
@@ -413,6 +413,15 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["message_id", "comment"], "properties": {
             "message_id": {"type": "string"}, "comment": {"type": "string"},
             "reply_all": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
+        "name": "lba_mail_marquer",
+        "description": ("[ÉCRITURE] Marque/démarque un message Outlook \"à suivre\" (flag) — "
+                         "PATCH /api/bacchus/mail/{message_id}/marquer. Aucun nouveau scope OAuth "
+                         "(Mail.ReadWrite déjà consenti)."),
+        "inputSchema": {"type": "object", "required": ["message_id"], "properties": {
+            "message_id": {"type": "string"},
+            "status": {"type": "string", "description": "flagged (défaut) | complete | notFlagged"}}},
     },
     {
         "name": "lba_mail_envoyer",
@@ -968,6 +977,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         message_id = _req(args, "message_id")
         return _post(f"/api/bacchus/mail/{message_id}/repondre", {
             "comment": _req(args, "comment"), "reply_all": args.get("reply_all", False)}, headers)
+    if tool == "lba_mail_marquer":
+        message_id = _req(args, "message_id")
+        return _patch(f"/api/bacchus/mail/{message_id}/marquer", {
+            "status": args.get("status", "flagged")}, headers)
     if tool == "lba_mail_envoyer":
         return _post("/api/bacchus/mail/envoyer", {
             "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
