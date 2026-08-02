@@ -62,8 +62,10 @@ BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
 # Whitelist POSITIVE : seuls ces noms déclenchent le ticket-exchange —
 # les 18 tools DATA de Caton restent inchangés, zéro session requise.
 _AUTH_REQUIRED_TOOLS = frozenset({
-    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre",
+    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer",
     "lba_calendar_liste", "lba_calendar_creer",
+    "lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire",
+    "lba_calendar_modifier", "lba_calendar_disponibilite",
     "lba_teams_conversations", "lba_teams_repondre",
     "lba_teams_lire_messages", "lba_teams_demarrer", "lba_teams_nouveautes",
     "lba_teams_lister_equipes", "lba_teams_lister_canaux", "lba_teams_lire_canal_messages",
@@ -413,6 +415,16 @@ TOOLS = [
             "reply_all": {"type": "boolean", "description": "défaut false"}}},
     },
     {
+        "name": "lba_mail_envoyer",
+        "description": ("[ÉCRITURE] Compose et envoie un mail Outlook NEUF (pas un reply) — POST /api/bacchus/mail/envoyer. "
+                         "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend."),
+        "inputSchema": {"type": "object", "required": ["to", "subject", "body"], "properties": {
+            "to": {"type": "string", "description": "destinataire(s), CSV d'emails"},
+            "subject": {"type": "string"}, "body": {"type": "string"},
+            "cc": {"type": "string", "description": "optionnel, CSV d'emails"},
+            "is_html": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
         "name": "lba_calendar_liste",
         "description": "Événements calendrier de l'utilisateur connecté — GET /api/bacchus/calendar/liste.",
         "inputSchema": {"type": "object", "properties": {
@@ -427,7 +439,53 @@ TOOLS = [
             "subject": {"type": "string"}, "start": {"type": "string", "description": "ISO 8601"},
             "end": {"type": "string", "description": "ISO 8601"}, "timeZone": {"type": "string", "description": "défaut UTC"},
             "body": {"type": "string"}, "isHtml": {"type": "boolean"},
-            "attendees": {"type": "string", "description": "CSV d'emails"}}},
+            "attendees": {"type": "string", "description": "CSV d'emails"},
+            "isOnlineMeeting": {"type": "boolean", "description": "défaut false — true crée une vraie réunion Teams (joinUrl retourné)"}}},
+    },
+    {
+        "name": "lba_calendar_accepter",
+        "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
+        "inputSchema": {"type": "object", "required": ["event_id"], "properties": {
+            "event_id": {"type": "string"}, "comment": {"type": "string", "description": "optionnel"},
+            "send_response": {"type": "boolean", "description": "défaut true — notifie l'organisateur"}}},
+    },
+    {
+        "name": "lba_calendar_refuser",
+        "description": ("[ÉCRITURE] Refuse une invitation calendrier — POST /api/bacchus/calendar/{event_id}/refuser. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
+        "inputSchema": {"type": "object", "required": ["event_id"], "properties": {
+            "event_id": {"type": "string"}, "comment": {"type": "string", "description": "optionnel"},
+            "send_response": {"type": "boolean", "description": "défaut true — notifie l'organisateur"}}},
+    },
+    {
+        "name": "lba_calendar_accepter_provisoire",
+        "description": ("[ÉCRITURE] Accepte provisoirement une invitation calendrier — "
+                         "POST /api/bacchus/calendar/{event_id}/accepter-provisoire. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
+        "inputSchema": {"type": "object", "required": ["event_id"], "properties": {
+            "event_id": {"type": "string"}, "comment": {"type": "string", "description": "optionnel"},
+            "send_response": {"type": "boolean", "description": "défaut true — notifie l'organisateur"}}},
+    },
+    {
+        "name": "lba_calendar_modifier",
+        "description": ("[ÉCRITURE] Modifie/replanifie un événement existant (payload partiel, au moins un champ requis) — "
+                         "PATCH /api/bacchus/calendar/{event_id}/modifier. Confirmation utilisateur OBLIGATOIRE avant appel. "
+                         "⚠️ attendees remplace la liste COMPLETE côté Graph (jamais un merge) — renvoyer la liste entière."),
+        "inputSchema": {"type": "object", "required": ["event_id"], "properties": {
+            "event_id": {"type": "string"}, "subject": {"type": "string"},
+            "start": {"type": "string", "description": "ISO 8601"}, "end": {"type": "string", "description": "ISO 8601"},
+            "timeZone": {"type": "string", "description": "défaut UTC"}, "body": {"type": "string"},
+            "isHtml": {"type": "boolean"}, "location": {"type": "string"},
+            "attendees": {"type": "string", "description": "CSV d'emails — remplace la liste complète"}}},
+    },
+    {
+        "name": "lba_calendar_disponibilite",
+        "description": ("Vérifie la disponibilité (free/busy) d'un ou plusieurs emails sur une fenêtre donnée — "
+                         "POST /api/bacchus/calendar/disponibilite. Lecture seule, aucune confirmation requise."),
+        "inputSchema": {"type": "object", "required": ["emails", "start", "end"], "properties": {
+            "emails": {"type": "string", "description": "CSV d'emails"},
+            "start": {"type": "string", "description": "ISO 8601"}, "end": {"type": "string", "description": "ISO 8601"}}},
     },
     {
         "name": "lba_teams_conversations",
@@ -910,6 +968,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         message_id = _req(args, "message_id")
         return _post(f"/api/bacchus/mail/{message_id}/repondre", {
             "comment": _req(args, "comment"), "reply_all": args.get("reply_all", False)}, headers)
+    if tool == "lba_mail_envoyer":
+        return _post("/api/bacchus/mail/envoyer", {
+            "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
+            "cc": args.get("cc"), "is_html": args.get("is_html", False)}, headers)
     if tool == "lba_calendar_liste":
         return _get("/api/bacchus/calendar/liste", {
             "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
@@ -918,7 +980,22 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/calendar/creer", {
             "subject": _req(args, "subject"), "start": _req(args, "start"), "end": _req(args, "end"),
             "timeZone": args.get("timeZone"), "body": args.get("body"), "isHtml": args.get("isHtml", False),
-            "attendees": args.get("attendees")}, headers)
+            "attendees": args.get("attendees"), "isOnlineMeeting": args.get("isOnlineMeeting", False)}, headers)
+    if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
+        event_id = _req(args, "event_id")
+        action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
+                  "lba_calendar_accepter_provisoire": "accepter-provisoire"}[tool]
+        return _post(f"/api/bacchus/calendar/{event_id}/{action}", {
+            "comment": args.get("comment"), "send_response": args.get("send_response", True)}, headers)
+    if tool == "lba_calendar_modifier":
+        event_id = _req(args, "event_id")
+        return _patch(f"/api/bacchus/calendar/{event_id}/modifier", {
+            "subject": args.get("subject"), "start": args.get("start"), "end": args.get("end"),
+            "timeZone": args.get("timeZone"), "body": args.get("body"), "isHtml": args.get("isHtml"),
+            "location": args.get("location"), "attendees": args.get("attendees")}, headers)
+    if tool == "lba_calendar_disponibilite":
+        return _post("/api/bacchus/calendar/disponibilite", {
+            "emails": _req(args, "emails"), "start": _req(args, "start"), "end": _req(args, "end")}, headers)
     if tool == "lba_teams_conversations":
         return _get("/api/bacchus/teams/conversations", {"top": args.get("top", 20)}, headers)
     if tool == "lba_teams_repondre":

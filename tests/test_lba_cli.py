@@ -138,7 +138,10 @@ class TestCliSurface(unittest.TestCase):
         # + 9 tools Teams (lire_messages/demarrer/nouveautes/lister_equipes/lister_canaux/
         # lire_canal_messages/presence/lister_reunions/reunion_detail), 2026-08-02,
         # sprint Bacchus Teams tools plan_b47aeb6d
-        self.assertEqual(len(tools), 70)
+        # + 6 tools Outlook (mail_envoyer, calendar_accepter/refuser/accepter_provisoire/
+        # modifier/disponibilite), 2026-08-02, sprint Bacchus Outlook tools plan_f3f00c0d
+        # (lba_calendar_creer étendu avec isOnlineMeeting, pas un nouveau tool)
+        self.assertEqual(len(tools), 76)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
