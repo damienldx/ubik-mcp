@@ -392,6 +392,153 @@ TOOLS = [
         "description": "Mapping rep_code -> id_prisma — GET /api/bacchus/admin/rep-codes.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # ── Tarifs & remises (plan écrit 2026-08-03) — ÉCRITURE réelle Prisma,
+    # réservée aux 3 seats whitelistés (direction/backoffice/achats-logistique).
+    # agent_id auto-résolu via _resolve_agent_id si non fourni explicitement
+    # (même convention UBIK_AGENT_ID/RELAY_AGENT_ID que les tools Graph/Todo,
+    # mais PAS de ticket-exchange ici : la whitelist vit côté backend
+    # bacchus_tarifs_tools.py, pas dans ce CLI). confirm=true jamais mis par
+    # défaut — c'est TOUJOURS un choix explicite de l'appelant (garde CLI en
+    # miroir du garde serveur, jamais une confirmation implicite).
+    {
+        "name": "lba_tarifs_grille_simuler",
+        "description": ("Lecture pure, aucun effet de bord — avant/après une remise grille "
+                         "PROPOSÉE sur un tarif enfant (Essentiel=6/Confort=7/Prestige=8/"
+                         "AD2026=18/Proximité=20) pour UN article : net, taux de marque, flag, "
+                         "+ nombre de clients rattachés à ce tarif — GET /api/bacchus/tarifs/"
+                         "grille/simuler. TOUJOURS appeler avant lba_tarifs_grille_appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_article", "num_tarif"], "properties": {
+            "code_article": {"type": "string"}, "num_tarif": {"type": "integer"},
+            "r1_pct": {"type": "number", "description": "fraction 0-1, pas un pourcentage entier"},
+            "r2_pct": {"type": "number", "description": "fraction 0-1, pas un pourcentage entier"}}},
+    },
+    {
+        "name": "lba_tarifs_grille_appliquer",
+        "description": ("ÉCRITURE — modifie LA GRILLE du tarif nommé (impact TOUS les clients "
+                         "rattachés à ce tarif, pas un client isolé). Réservé direction/"
+                         "backoffice/achats-logistique — 403 sinon. confirm=true REQUIS : ne "
+                         "jamais le passer sans validation explicite de l'utilisateur dans "
+                         "l'échange conversationnel. POST /api/bacchus/tarifs/grille/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_article", "num_tarif", "confirm"], "properties": {
+            "code_article": {"type": "string"}, "num_tarif": {"type": "integer"},
+            "r1_pct": {"type": "number"}, "r2_pct": {"type": "number"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_client_remise_appliquer",
+        "description": ("ÉCRITURE — ajuste la remise/prix dédié d'UN client sur UN article "
+                         "(tarif_client), n'affecte que ce client. Analyser AVANT avec "
+                         "lba_client_simulateur_prix. Réservé direction/backoffice/achats-"
+                         "logistique — 403 sinon. confirm=true REQUIS. POST /api/bacchus/"
+                         "tarifs/client-remise/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_client", "code_article", "confirm"], "properties": {
+            "code_client": {"type": "string"}, "code_article": {"type": "string"},
+            "remise1_pct": {"type": "number"}, "remise2_pct": {"type": "number"},
+            "pu_fixe": {"type": "number"}, "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_achat_prix_appliquer",
+        "description": ("ÉCRITURE — enregistre le dernier prix d'achat/fournisseur/date extraits "
+                         "d'une facture lue (via ton tool Read natif, aucun OCR séparé). Ne touche "
+                         "JAMAIS le PAMP. Réservé direction/backoffice/achats-logistique — 403 "
+                         "sinon. confirm=true REQUIS. POST /api/bacchus/tarifs/achat-prix/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_article", "prix", "confirm"], "properties": {
+            "code_article": {"type": "string"}, "prix": {"type": "number"},
+            "fournisseur": {"type": "string"}, "date_achat": {"type": "string"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_client_simuler",
+        "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
+                         "(Essentiel=6/Confort=7/Prestige=8/AD2026=18/Proximité=20), + nombre de "
+                         "clients déjà sur la cible. Outil GÉNÉRALISTE de changement de tarif "
+                         "(pas une migration bulk). TOUJOURS appeler avant "
+                         "lba_tarifs_client_appliquer — GET /api/bacchus/tarifs/client/simuler."),
+        "inputSchema": {"type": "object", "required": ["code_client", "num_tarif_cible"], "properties": {
+            "code_client": {"type": "string"}, "num_tarif_cible": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_tarifs_client_appliquer",
+        "description": ("ÉCRITURE — change le tarif nommé (palier) d'UN client, à la demande "
+                         "explicite de Damien (outil GÉNÉRALISTE, PAS une migration automatique/"
+                         "bulk). Analyser AVANT via lba_tarifs_client_simuler. Réservé direction/"
+                         "backoffice/achats-logistique — 403 sinon. confirm=true REQUIS. Feature-"
+                         "flaggée séparément côté prisma-api (PRISMA_FEATURE_TARIF_CLIENT_WRITE). "
+                         "POST /api/bacchus/tarifs/client/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_client", "num_tarif_cible", "confirm"], "properties": {
+            "code_client": {"type": "string"}, "num_tarif_cible": {"type": "integer"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_migration_compensation_simuler",
+        "description": ("Lecture pure — outil INTERMÉDIAIRE \"migration indolore\" : pour chaque "
+                         "article de codes_article (CSV), net ACTUEL du client (sous num_tarif_"
+                         "ancien) vs net qu'il paierait SANS compensation sous num_tarif_cible "
+                         "(grille pure), + compensation proposée (puFixe) à la hausse ou à la "
+                         "baisse. TOUJOURS appeler avant lba_tarifs_migration_compensation_"
+                         "appliquer — GET /api/bacchus/tarifs/migration-compensation/simuler."),
+        "inputSchema": {"type": "object",
+                         "required": ["code_client", "num_tarif_ancien", "num_tarif_cible", "codes_article"],
+                         "properties": {
+            "code_client": {"type": "string"},
+            "num_tarif_ancien": {"type": "integer"}, "num_tarif_cible": {"type": "integer"},
+            "codes_article": {"type": "string", "description": "CSV de codes articles"}}},
+    },
+    {
+        "name": "lba_tarifs_migration_compensation_appliquer",
+        "description": ("ÉCRITURE — compense en UNE transaction atomique le net de plusieurs "
+                         "articles pour UN client (puFixe, généralement le net proposé par "
+                         "lba_tarifs_migration_compensation_simuler) — \"migration indolore\" après "
+                         "un changement de tarif. Même mécanisme que lba_tarifs_client_remise_"
+                         "appliquer (pas un nouveau type d'écriture), juste batché : soit tout le "
+                         "lot est compensé, soit rien. Réservé direction/backoffice/achats-"
+                         "logistique — 403 sinon. confirm=true REQUIS. POST /api/bacchus/tarifs/"
+                         "migration-compensation/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_client", "items", "confirm"], "properties": {
+            "code_client": {"type": "string"},
+            "items": {"type": "array", "description": "[{code_article, pu_fixe}, ...]",
+                      "items": {"type": "object", "required": ["code_article", "pu_fixe"], "properties": {
+                          "code_article": {"type": "string"}, "pu_fixe": {"type": "number"}}}},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_t19_harmonisation_simuler",
+        "description": ("Lecture pure — outil \"grille esthétique\" : pour chaque article actif "
+                         "d'une sous-famille, T19/R1/R2 actuels du tarif cible (AD2026=18 par "
+                         "défaut) et net résultant, vs T19 PROPOSÉ (conserve le net actuel) pour "
+                         "r1_cible/r2_cible (ex. 0.15 = palier 15%), + IMPACT CROISÉ sur les 4 "
+                         "autres tarifs enfants (partagent le même T19). TOUJOURS appeler avant "
+                         "lba_tarifs_t19_harmonisation_appliquer — GET /api/bacchus/tarifs/t19-"
+                         "harmonisation/simuler."),
+        "inputSchema": {"type": "object", "required": ["sous_famille", "r1_cible"], "properties": {
+            "sous_famille": {"type": "string"},
+            "r1_cible": {"type": "number", "description": "fraction 0-1 (0.15 = 15%), pas un pourcentage entier"},
+            "r2_cible": {"type": "number", "description": "fraction 0-1, défaut 0"},
+            "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"}}},
+    },
+    {
+        "name": "lba_tarifs_t19_harmonisation_appliquer",
+        "description": ("ÉCRITURE — réécrit T19 (prix de référence) ET T{num_tarif_cible}R1/R2 "
+                         "pour TOUS les articles actifs d'une sous-famille, en conservant le net "
+                         "actuel du tarif cible. Impacte AUSSI les autres tarifs enfants (même "
+                         "T19 partagé) — analyser AVANT via lba_tarifs_t19_harmonisation_simuler "
+                         "et montrer l'impact croisé à Damien. Réservé direction/backoffice/"
+                         "achats-logistique — 403 sinon. confirm=true REQUIS. Feature-flaggée "
+                         "séparément côté prisma-api (PRISMA_FEATURE_T19_HARMONISATION_WRITE, "
+                         "plus sensible que les autres écritures tarifs). POST /api/bacchus/"
+                         "tarifs/t19-harmonisation/appliquer."),
+        "inputSchema": {"type": "object", "required": ["sous_famille", "r1_cible", "confirm"], "properties": {
+            "sous_famille": {"type": "string"},
+            "r1_cible": {"type": "number"}, "r2_cible": {"type": "number", "description": "défaut 0"},
+            "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
     # ── Graph/Todo (mission #3 plan_9d722ce9) — Depends(current_user) réel,
     # session portée via ticket-exchange (cf _mint_cli_session_jwt) ─────────
     {
@@ -1299,6 +1446,60 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "granularite": args.get("granularite", "MOIS"), "n_points": args.get("n_points", 12)})
     if tool == "lba_rep_codes":
         return _get("/api/bacchus/admin/rep-codes", {})
+    if tool == "lba_tarifs_grille_simuler":
+        return _get("/api/bacchus/tarifs/grille/simuler", {
+            "code_article": _req(args, "code_article"), "num_tarif": _req(args, "num_tarif"),
+            "r1_pct": args.get("r1_pct"), "r2_pct": args.get("r2_pct")})
+    if tool == "lba_tarifs_grille_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/grille/appliquer", {
+            "agent_id": agent_id, "code_article": _req(args, "code_article"),
+            "num_tarif": _req(args, "num_tarif"), "r1_pct": args.get("r1_pct"),
+            "r2_pct": args.get("r2_pct"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_client_remise_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/client-remise/appliquer", {
+            "agent_id": agent_id, "code_client": _req(args, "code_client"),
+            "code_article": _req(args, "code_article"), "remise1_pct": args.get("remise1_pct"),
+            "remise2_pct": args.get("remise2_pct"), "pu_fixe": args.get("pu_fixe"),
+            "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_achat_prix_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/achat-prix/appliquer", {
+            "agent_id": agent_id, "code_article": _req(args, "code_article"),
+            "prix": _req(args, "prix"), "fournisseur": args.get("fournisseur"),
+            "date_achat": args.get("date_achat"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_client_simuler":
+        return _get("/api/bacchus/tarifs/client/simuler", {
+            "code_client": _req(args, "code_client"),
+            "num_tarif_cible": _req(args, "num_tarif_cible")})
+    if tool == "lba_tarifs_client_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/client/appliquer", {
+            "agent_id": agent_id, "code_client": _req(args, "code_client"),
+            "num_tarif_cible": _req(args, "num_tarif_cible"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_migration_compensation_simuler":
+        return _get("/api/bacchus/tarifs/migration-compensation/simuler", {
+            "code_client": _req(args, "code_client"),
+            "num_tarif_ancien": _req(args, "num_tarif_ancien"),
+            "num_tarif_cible": _req(args, "num_tarif_cible"),
+            "codes_article": _req(args, "codes_article")})
+    if tool == "lba_tarifs_migration_compensation_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/migration-compensation/appliquer", {
+            "agent_id": agent_id, "code_client": _req(args, "code_client"),
+            "items": _req(args, "items"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_t19_harmonisation_simuler":
+        return _get("/api/bacchus/tarifs/t19-harmonisation/simuler", {
+            "sous_famille": _req(args, "sous_famille"), "r1_cible": _req(args, "r1_cible"),
+            "r2_cible": args.get("r2_cible", 0.0), "num_tarif_cible": args.get("num_tarif_cible", 18)})
+    if tool == "lba_tarifs_t19_harmonisation_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/t19-harmonisation/appliquer", {
+            "agent_id": agent_id, "sous_famille": _req(args, "sous_famille"),
+            "num_tarif_cible": args.get("num_tarif_cible", 18),
+            "r1_cible": _req(args, "r1_cible"), "r2_cible": args.get("r2_cible", 0.0),
+            "confirm": bool(_req(args, "confirm"))})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
