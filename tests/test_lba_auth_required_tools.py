@@ -102,6 +102,10 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # GET /api/bacchus/articles/liste (mission #1, aucun Depends(current_user)
     # côté backend, même posture que les autres tools DATA ci-dessus).
     "lba_articles_liste",
+    # mission #2 plan_c5ebf394 (2026-08-04) : cablage CLI de
+    # GET /api/bacchus/clients/filtre (aucun Depends(current_user) côté
+    # backend, même posture que lba_articles_liste ci-dessus).
+    "lba_clients_filtre",
 })
 
 

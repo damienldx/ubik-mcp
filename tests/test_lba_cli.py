@@ -142,11 +142,17 @@ class TestCliSurface(unittest.TestCase):
         # -- signalé au Chef d'Atelier plutôt que corrigé silencieusement.
         # 87 (baseline réelle mesurée) + lba_articles_liste (mission #4,
         # cablage CLI du endpoint backend GET /api/bacchus/articles/liste,
-        # mission #1, commit LBA-DESKTOP 9c4a977, déjà livré) = 88.
-        self.assertEqual(len(tools), 88)
+        # mission #1, commit LBA-DESKTOP 9c4a977) + lba_clients_filtre
+        # (mission #2, cablage CLI du endpoint backend GET
+        # /api/bacchus/clients/filtre, commit LBA-DESKTOP 7ae5d34) = 89
+        # (les deux missions du sprint plan_c5ebf394 mergées ensemble sur
+        # ubik-mcp main, chacune ajoutant son propre tool CLI).
+        self.assertEqual(len(tools), 89)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
+        self.assertIn("lba_articles_liste", names)
+        self.assertIn("lba_clients_filtre", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(
