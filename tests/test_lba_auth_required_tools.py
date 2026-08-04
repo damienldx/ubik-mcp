@@ -98,6 +98,10 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     "lba_dso_client", "lba_agenda_representants", "lba_portefeuille_liste",
     "lba_recherche_client", "lba_analytics_explorer", "lba_rep_codes",
     "lba_client_tarif", "lba_client_remises_negociees",
+    # mission #4 plan_c5ebf394 (2026-08-04) : cablage CLI de
+    # GET /api/bacchus/articles/liste (mission #1, aucun Depends(current_user)
+    # côté backend, même posture que les autres tools DATA ci-dessus).
+    "lba_articles_liste",
 })
 
 

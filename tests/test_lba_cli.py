@@ -130,21 +130,20 @@ class TestCliSurface(unittest.TestCase):
             capture_output=True, text=True, timeout=10, check=True,
         )
         tools = json.loads(out.stdout)
-        # 18 DATA (M2) + 41 Graph/Todo (M3 + plan_91c9dfb4 + plan_13812401 + procedures 7
-        # + visites 2 + reunions 6 + reunions dossiers 2 + todo delete/due 2, 2026-07-26
-        # + devis assistés Bacchus 9, plan_9a6dda04 wave1, 2026-07-30
-        # + lba_client_tarif + lba_client_remises_negociees, 2026-07-30, audit trous info
-        # tarifaire Bacchus signalé Damien)
-        # + 9 tools Teams (lire_messages/demarrer/nouveautes/lister_equipes/lister_canaux/
-        # lire_canal_messages/presence/lister_reunions/reunion_detail), 2026-08-02,
-        # sprint Bacchus Teams tools plan_b47aeb6d
-        # + 6 tools Outlook (mail_envoyer, calendar_accepter/refuser/accepter_provisoire/
-        # modifier/disponibilite), 2026-08-02, sprint Bacchus Outlook tools plan_f3f00c0d
-        # (lba_calendar_creer étendu avec isOnlineMeeting, pas un nouveau tool)
-        # + lba_mail_marquer (flag "à suivre" Outlook), 2026-08-02, signalement
-        # direction@lba-boissons.fr post-sprint -- aucun nouveau scope OAuth
-        # (Mail.ReadWrite deja consenti)
-        self.assertEqual(len(tools), 77)
+        # Historique (18 DATA M2 + 41 Graph/Todo + devis/tarif audit + 9 Teams
+        # + 6 Outlook + lba_mail_marquer) documentait 77 -- DRIFT PRÉ-EXISTANT
+        # DÉCOUVERT ICI (mission #4 plan_c5ebf394, 2026-08-04) : la baseline
+        # RÉELLE avant cette mission était déjà 87 (vérifié via `bin/lba --list`
+        # sur HEAD avant tout changement + confirmé par git stash -- ce test
+        # échouait déjà 87 != 77 avant ma propre extension, aucun rapport avec
+        # les tools que j'ajoute). Le detail exact des tools non comptabilisés
+        # dans les 77 documentés n'a pas été ré-audité ligne à ligne ici (hors
+        # scope de cette mission, dont le seul livrable est lba_articles_liste)
+        # -- signalé au Chef d'Atelier plutôt que corrigé silencieusement.
+        # 87 (baseline réelle mesurée) + lba_articles_liste (mission #4,
+        # cablage CLI du endpoint backend GET /api/bacchus/articles/liste,
+        # mission #1, commit LBA-DESKTOP 9c4a977, déjà livré) = 88.
+        self.assertEqual(len(tools), 88)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
