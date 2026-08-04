@@ -321,6 +321,22 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_articles_liste",
+        "description": ("Catalogue articles BRUT (pas scopé aux acheteurs de l'année, contrairement à "
+                         "lba_rentabilite_produits) filtrable famille/sous-famille/isActif, paginé — GET "
+                         "/api/bacchus/articles/liste. isActif est le flag RÉEL PrismaSoft (colonne "
+                         "a.isActif), PAS une déduction par les ventes. Aucune exclusion de famille "
+                         "imposée par défaut (DIVERS/TAXE PARAFISCALE/CONSIGNE-DECONSIGNE inclus). "
+                         "Champs retournés : code, designation, famille, sousfamille, isActif, pa, t19."),
+        "inputSchema": {"type": "object", "properties": {
+            "famille": {"type": "string", "description": "exact, insensible casse"},
+            "sousfamille": {"type": "string", "description": "exact, insensible casse"},
+            "is_actif": {"type": "boolean", "description": "true=actifs, false=inactifs, omis=tous"},
+            "q": {"type": "string", "description": "recherche texte code/désignation"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
         "name": "lba_tdc_kpis",
         "description": ("KPIs TDC N/N-1 (sémantique TDC, PAS CRM Client) — GET /api/bacchus/rentabilite/tdc-kpis. "
                          "granularite+periode_ref requis si months absent."),
@@ -1416,6 +1432,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/rentabilite/clients", {
             "annee": _req(args, "annee"), "representant": args.get("representant"),
             "q": args.get("q"), "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_articles_liste":
+        return _get("/api/bacchus/articles/liste", {
+            "famille": args.get("famille"), "sousfamille": args.get("sousfamille"),
+            "is_actif": args.get("is_actif"), "q": args.get("q"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
     if tool == "lba_tdc_kpis":
         return _get("/api/bacchus/rentabilite/tdc-kpis", {
             "granularite": args.get("granularite"), "periode_ref": args.get("periode_ref"),
