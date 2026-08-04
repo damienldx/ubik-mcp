@@ -542,18 +542,23 @@ TOOLS = [
     },
     {
         "name": "lba_tarifs_t19_harmonisation_simuler",
-        "description": ("Lecture pure — outil \"grille esthétique\" : pour chaque article actif "
-                         "d'une sous-famille, T19/R1/R2 actuels du tarif cible (AD2026=18 par "
-                         "défaut) et net résultant, vs T19 PROPOSÉ (conserve le net actuel) pour "
-                         "r1_cible/r2_cible (ex. 0.15 = palier 15%), + IMPACT CROISÉ sur les 4 "
+        "description": ("Lecture pure — pour tous les articles actifs d'une sous-famille "
+                         "(sous_famille) OU pour UN SEUL article (code_article) — alternatives "
+                         "mutuellement exclusives — T19/R1/R2 actuels du tarif cible (AD2026=18 "
+                         "par défaut) et net résultant, vs T19 PROPOSÉ, + IMPACT CROISÉ sur les 4 "
                          "autres tarifs enfants (partagent le même T19). TOUJOURS appeler avant "
                          "lba_tarifs_t19_harmonisation_appliquer — GET /api/bacchus/tarifs/t19-"
-                         "harmonisation/simuler."),
-        "inputSchema": {"type": "object", "required": ["sous_famille", "r1_cible"], "properties": {
-            "sous_famille": {"type": "string"},
+                         "harmonisation/simuler. DEUX MODES : marge_cible absent (défaut) = "
+                         "PRESERVE-NET (conserve le net actuel, ne peut jamais faire baisser le "
+                         "prix) ; marge_cible fourni = NET-MOBILE (T19 dérivé de PA/(1-marge_cible), "
+                         "peut faire monter OU baisser le prix pour atteindre la marge visée)."),
+        "inputSchema": {"type": "object", "required": ["r1_cible"], "properties": {
+            "sous_famille": {"type": "string", "description": "exclusif avec code_article — fournir l'un OU l'autre"},
+            "code_article": {"type": "string", "description": "exclusif avec sous_famille — simuler sur UN article isolé"},
             "r1_cible": {"type": "number", "description": "fraction 0-1 (0.15 = 15%), pas un pourcentage entier"},
             "r2_cible": {"type": "number", "description": "fraction 0-1, défaut 0"},
-            "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"}}},
+            "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"},
+            "marge_cible": {"type": "number", "description": "fraction 0-1 (0.60 = 60% de marge) — mode net-mobile, absent = mode preserve-net historique"}}},
     },
     {
         "name": "lba_tarifs_t19_harmonisation_appliquer",
@@ -561,19 +566,23 @@ TOOLS = [
                          "pour TOUS les articles actifs d'une sous-famille (sous_famille) OU pour "
                          "UN SEUL article (code_article, ex. test pilote avant généralisation) — "
                          "alternatives MUTUELLEMENT EXCLUSIVES, jamais les deux ni aucune (400 "
-                         "sinon). Conserve le net actuel du tarif cible. Impacte AUSSI les autres "
-                         "tarifs enfants (même T19 partagé) — analyser AVANT via "
-                         "lba_tarifs_t19_harmonisation_simuler et montrer l'impact (croisé en mode "
-                         "sous-famille) à Damien. Réservé direction/backoffice/achats-logistique "
-                         "— 403 sinon. confirm=true REQUIS. Feature-flaggée séparément côté "
-                         "prisma-api (PRISMA_FEATURE_T19_HARMONISATION_WRITE, plus sensible que "
-                         "les autres écritures tarifs). POST /api/bacchus/tarifs/t19-"
-                         "harmonisation/appliquer."),
+                         "sinon). Impacte AUSSI les autres tarifs enfants (même T19 partagé) — "
+                         "analyser AVANT via lba_tarifs_t19_harmonisation_simuler et montrer "
+                         "l'impact (croisé en mode sous-famille) à Damien. Réservé direction/"
+                         "backoffice/achats-logistique — 403 sinon. confirm=true REQUIS. "
+                         "Feature-flaggée séparément côté prisma-api "
+                         "(PRISMA_FEATURE_T19_HARMONISATION_WRITE, plus sensible que les autres "
+                         "écritures tarifs). POST /api/bacchus/tarifs/t19-harmonisation/appliquer. "
+                         "DEUX MODES : marge_cible absent (défaut) = PRESERVE-NET (conserve le net "
+                         "actuel, ne peut jamais faire baisser le prix) ; marge_cible fourni = "
+                         "NET-MOBILE (T19 dérivé de PA/(1-marge_cible), peut faire monter OU "
+                         "baisser le prix pour atteindre la marge visée)."),
         "inputSchema": {"type": "object", "required": ["r1_cible", "confirm"], "properties": {
             "sous_famille": {"type": "string", "description": "exclusif avec code_article — fournir l'un OU l'autre"},
             "code_article": {"type": "string", "description": "exclusif avec sous_famille — test pilote sur UN article isolé"},
             "r1_cible": {"type": "number"}, "r2_cible": {"type": "number", "description": "défaut 0"},
             "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"},
+            "marge_cible": {"type": "number", "description": "fraction 0-1 (0.60 = 60% de marge) — mode net-mobile, absent = mode preserve-net historique"},
             "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
@@ -1540,8 +1549,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "items": _req(args, "items"), "confirm": bool(_req(args, "confirm"))})
     if tool == "lba_tarifs_t19_harmonisation_simuler":
         return _get("/api/bacchus/tarifs/t19-harmonisation/simuler", {
-            "sous_famille": _req(args, "sous_famille"), "r1_cible": _req(args, "r1_cible"),
-            "r2_cible": args.get("r2_cible", 0.0), "num_tarif_cible": args.get("num_tarif_cible", 18)})
+            "sous_famille": args.get("sous_famille"), "code_article": args.get("code_article"),
+            "r1_cible": _req(args, "r1_cible"),
+            "r2_cible": args.get("r2_cible", 0.0), "num_tarif_cible": args.get("num_tarif_cible", 18),
+            "marge_cible": args.get("marge_cible")})
     if tool == "lba_tarifs_t19_harmonisation_appliquer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/tarifs/t19-harmonisation/appliquer", {
@@ -1549,6 +1560,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "code_article": args.get("code_article"),
             "num_tarif_cible": args.get("num_tarif_cible", 18),
             "r1_cible": _req(args, "r1_cible"), "r2_cible": args.get("r2_cible", 0.0),
+            "marge_cible": args.get("marge_cible"),
             "confirm": bool(_req(args, "confirm"))})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
