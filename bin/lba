@@ -558,16 +558,20 @@ TOOLS = [
     {
         "name": "lba_tarifs_t19_harmonisation_appliquer",
         "description": ("ÉCRITURE — réécrit T19 (prix de référence) ET T{num_tarif_cible}R1/R2 "
-                         "pour TOUS les articles actifs d'une sous-famille, en conservant le net "
-                         "actuel du tarif cible. Impacte AUSSI les autres tarifs enfants (même "
-                         "T19 partagé) — analyser AVANT via lba_tarifs_t19_harmonisation_simuler "
-                         "et montrer l'impact croisé à Damien. Réservé direction/backoffice/"
-                         "achats-logistique — 403 sinon. confirm=true REQUIS. Feature-flaggée "
-                         "séparément côté prisma-api (PRISMA_FEATURE_T19_HARMONISATION_WRITE, "
-                         "plus sensible que les autres écritures tarifs). POST /api/bacchus/"
-                         "tarifs/t19-harmonisation/appliquer."),
-        "inputSchema": {"type": "object", "required": ["sous_famille", "r1_cible", "confirm"], "properties": {
-            "sous_famille": {"type": "string"},
+                         "pour TOUS les articles actifs d'une sous-famille (sous_famille) OU pour "
+                         "UN SEUL article (code_article, ex. test pilote avant généralisation) — "
+                         "alternatives MUTUELLEMENT EXCLUSIVES, jamais les deux ni aucune (400 "
+                         "sinon). Conserve le net actuel du tarif cible. Impacte AUSSI les autres "
+                         "tarifs enfants (même T19 partagé) — analyser AVANT via "
+                         "lba_tarifs_t19_harmonisation_simuler et montrer l'impact (croisé en mode "
+                         "sous-famille) à Damien. Réservé direction/backoffice/achats-logistique "
+                         "— 403 sinon. confirm=true REQUIS. Feature-flaggée séparément côté "
+                         "prisma-api (PRISMA_FEATURE_T19_HARMONISATION_WRITE, plus sensible que "
+                         "les autres écritures tarifs). POST /api/bacchus/tarifs/t19-"
+                         "harmonisation/appliquer."),
+        "inputSchema": {"type": "object", "required": ["r1_cible", "confirm"], "properties": {
+            "sous_famille": {"type": "string", "description": "exclusif avec code_article — fournir l'un OU l'autre"},
+            "code_article": {"type": "string", "description": "exclusif avec sous_famille — test pilote sur UN article isolé"},
             "r1_cible": {"type": "number"}, "r2_cible": {"type": "number", "description": "défaut 0"},
             "num_tarif_cible": {"type": "integer", "description": "défaut 18 (AD2026)"},
             "confirm": {"type": "boolean"},
@@ -1541,7 +1545,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_tarifs_t19_harmonisation_appliquer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/tarifs/t19-harmonisation/appliquer", {
-            "agent_id": agent_id, "sous_famille": _req(args, "sous_famille"),
+            "agent_id": agent_id, "sous_famille": args.get("sous_famille"),
+            "code_article": args.get("code_article"),
             "num_tarif_cible": args.get("num_tarif_cible", 18),
             "r1_cible": _req(args, "r1_cible"), "r2_cible": args.get("r2_cible", 0.0),
             "confirm": bool(_req(args, "confirm"))})

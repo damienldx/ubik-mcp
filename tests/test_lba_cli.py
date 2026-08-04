@@ -123,6 +123,67 @@ class TestVisiteModifierSource(unittest.TestCase):
         self.assertNotIn("source", cap.payload)
 
 
+class CapturedPost(Exception):
+    """Utilisé pour court-circuiter _post et récupérer (path, payload) sans HTTP."""
+
+    def __init__(self, path, payload):
+        self.path = path
+        self.payload = payload
+
+
+class TestT19HarmonisationAppliquerCodeArticle(unittest.TestCase):
+    """code_article (mission plan_86fc8ff8, 2026-08-04) : payload transmis à la
+    route backend /api/bacchus/tarifs/t19-harmonisation/appliquer DOIT refléter
+    EXACTEMENT le contrat déjà câblé côté LBA-DESKTOP (commit 246e1e3) — même
+    nom de champ (code_article), sous_famille=None quand code_article est
+    fourni seul, aucune invention d'un contrat CLI distinct."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    def _captured(self, args):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_tarifs_t19_harmonisation_appliquer", args)
+        return ctx.exception
+
+    def test_code_article_seul_transmet_sous_famille_none(self):
+        cap = self._captured({
+            "agent_id": "22fcf4a5-agent-1", "code_article": "3442",
+            "r1_cible": 0.15, "confirm": True,
+        })
+        self.assertEqual(cap.path, "/api/bacchus/tarifs/t19-harmonisation/appliquer")
+        self.assertEqual(cap.payload["code_article"], "3442")
+        self.assertIsNone(cap.payload["sous_famille"])
+        self.assertEqual(cap.payload["r1_cible"], 0.15)
+        self.assertEqual(cap.payload["r2_cible"], 0.0)  # défaut
+        self.assertTrue(cap.payload["confirm"])
+
+    def test_sous_famille_seule_transmet_code_article_none(self):
+        """Non-régression du mode historique : code_article absent -> None
+        transmis explicitement (pas un champ manquant côté payload)."""
+        cap = self._captured({
+            "agent_id": "22fcf4a5-agent-1", "sous_famille": "BLONDE",
+            "r1_cible": 0.15, "confirm": True,
+        })
+        self.assertEqual(cap.payload["sous_famille"], "BLONDE")
+        self.assertIsNone(cap.payload["code_article"])
+
+    def test_num_tarif_cible_et_r2_cible_defauts_inchanges_en_mode_article(self):
+        cap = self._captured({
+            "agent_id": "22fcf4a5-agent-1", "code_article": "3442", "r1_cible": 0.0, "confirm": True,
+        })
+        self.assertEqual(cap.payload["num_tarif_cible"], 18)
+        self.assertEqual(cap.payload["r2_cible"], 0.0)
+
+
 class TestCliSurface(unittest.TestCase):
     def test_list_returns_18_tools(self):
         out = subprocess.run(
