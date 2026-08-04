@@ -321,6 +321,24 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_clients_filtre",
+        "description": ("Liste clients (TOUTE la base, pas juste les acheteurs de l'année) filtrable "
+                         "isActif × famille/sous-famille × tarif (num ou libellé), paginée — GET "
+                         "/api/bacchus/clients/filtre. Répond à 'combien de clients isActif=true, famille "
+                         "CHR ou 3EME MARCHE, ont tarif Essentiel/Confort/Prestige/AD2026/Proximité' en une "
+                         "requête. Champs retournés : tiers_id (identifiant fiable, préférer à code — "
+                         "code n'est PAS toujours unique), code, raison_sociale, is_actif, famille, "
+                         "sousfamille, tarif_num, tarif_libelle, rep_code."),
+        "inputSchema": {"type": "object", "properties": {
+            "is_actif": {"type": "boolean"}, "famille": {"type": "string", "description": "exact, insensible casse, ex CHR"},
+            "sousfamille": {"type": "string", "description": "exact, insensible casse"},
+            "tarif_num": {"type": "integer"},
+            "tarif_libelle": {"type": "string", "description": "contains, insensible casse, ex ESSENTIELLE/CONFORT/PRESTIGE/AD"},
+            "q": {"type": "string", "description": "recherche texte code/raison sociale"},
+            "limit": {"type": "integer", "description": "défaut 100, max 1000"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
         "name": "lba_tdc_kpis",
         "description": ("KPIs TDC N/N-1 (sémantique TDC, PAS CRM Client) — GET /api/bacchus/rentabilite/tdc-kpis. "
                          "granularite+periode_ref requis si months absent."),
@@ -1416,6 +1434,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/rentabilite/clients", {
             "annee": _req(args, "annee"), "representant": args.get("representant"),
             "q": args.get("q"), "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_clients_filtre":
+        return _get("/api/bacchus/clients/filtre", {
+            "is_actif": args.get("is_actif"), "famille": args.get("famille"),
+            "sousfamille": args.get("sousfamille"), "tarif_num": args.get("tarif_num"),
+            "tarif_libelle": args.get("tarif_libelle"), "q": args.get("q"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
     if tool == "lba_tdc_kpis":
         return _get("/api/bacchus/rentabilite/tdc-kpis", {
             "granularite": args.get("granularite"), "periode_ref": args.get("periode_ref"),
