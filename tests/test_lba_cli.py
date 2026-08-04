@@ -208,7 +208,11 @@ class TestCliSurface(unittest.TestCase):
         # /api/bacchus/clients/filtre, commit LBA-DESKTOP 7ae5d34) = 89
         # (les deux missions du sprint plan_c5ebf394 mergées ensemble sur
         # ubik-mcp main, chacune ajoutant son propre tool CLI).
-        self.assertEqual(len(tools), 89)
+        # 89 + lba_memoire_save + lba_memoire_recall (LBA MEMORY, plan écrit
+        # 2026-08-04, demande explicite Damien — cablage CLI de
+        # POST/GET /api/bacchus/memoire/{save,recall}, backend
+        # LBA-DESKTOP/plan/bacchus_memoire_tools.py) = 91.
+        self.assertEqual(len(tools), 91)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

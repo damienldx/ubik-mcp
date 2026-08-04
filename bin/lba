@@ -1147,6 +1147,41 @@ TOOLS = [
             "filename": {"type": "string", "description": "optionnel, sinon dérivé du titre du document"},
             "confirmed_by_user": {"type": "boolean", "description": "DOIT être true — preuve qu'une confirmation explicite de l'utilisateur a été obtenue avant cet appel, cf description du tool"}}},
     },
+    # ── LBA MEMORY (plan écrit 2026-08-04, demande explicite Damien) — mémoire
+    # long terme CONSCIENTE (Bacchus décide quoi retenir/rappeler, jamais une
+    # ingestion automatique de toute la conversation), store isolé
+    # ~/.lba-memory, AUCUN lien avec ~/.ubik-memory (fleet UBIK). agent_id
+    # auto-résolu via _resolve_agent_id si non fourni explicitement (même
+    # convention UBIK_AGENT_ID/RELAY_AGENT_ID que les autres tools).
+    {
+        "name": "lba_memoire_save",
+        "description": ("ÉCRITURE — enregistre UN fait/décision/préférence qui doit survivre "
+                         "au-delà de CETTE conversation (jamais toute la conversation, un fait "
+                         "à la fois, à TON initiative). Si code_client fourni : visible par TOUS "
+                         "les seats qui reparleront de ce client (ex: \"T19 article 2159 déjà "
+                         "harmonisé à 60%, ne pas re-proposer\"). Si code_client absent : mémoire "
+                         "propre à TOI (préférences/patterns de la personne qui te parle). "
+                         "Pas de confirm requis (append-only, jamais destructif). POST "
+                         "/api/bacchus/memoire/save."),
+        "inputSchema": {"type": "object", "required": ["fait"], "properties": {
+            "fait": {"type": "string"},
+            "code_client": {"type": "string", "description": "optionnel — code PRISMA du client concerné"},
+            "categorie": {"type": "string", "description": "optionnel, libre (ex: tarif, preference, litige)"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_memoire_recall",
+        "description": ("Lecture pure — recherche (mots-clés, BM25) dans TA mémoire de seat + "
+                         "la mémoire du client si code_client fourni. TOUJOURS appeler en début "
+                         "d'échange sur un client nommé, avant de proposer quoi que ce soit — "
+                         "un autre seat a peut-être déjà noté un fait pertinent. GET "
+                         "/api/bacchus/memoire/recall."),
+        "inputSchema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"},
+            "code_client": {"type": "string", "description": "optionnel — croise aussi la mémoire de ce client"},
+            "limit": {"type": "integer", "description": "défaut 10"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -1562,6 +1597,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "r1_cible": _req(args, "r1_cible"), "r2_cible": args.get("r2_cible", 0.0),
             "marge_cible": args.get("marge_cible"),
             "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_memoire_save":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/memoire/save", {
+            "agent_id": agent_id, "fait": _req(args, "fait"),
+            "code_client": args.get("code_client"), "categorie": args.get("categorie")})
+    if tool == "lba_memoire_recall":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _get("/api/bacchus/memoire/recall", {
+            "agent_id": agent_id, "query": _req(args, "query"),
+            "code_client": args.get("code_client"), "limit": args.get("limit", 10)})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
