@@ -485,6 +485,28 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
+        "name": "lba_tarifs_pamp_appliquer",
+        "description": ("ÉCRITURE — corrige DIRECTEMENT le PAMP (achatDernierPrixRevientMoyen, "
+                         "ET achatDernierPrixRevient en même temps) d'UN article, quand il est "
+                         "FAUX/NUL en base (0€) alors qu'un prix d'achat réel est connu. Créé "
+                         "suite incident 2026-08-05 (T19 écrasé à 0€ sur 5019/5020, FUT DUVEL "
+                         "MOORTGAT) : ni lba_tarifs_achat_prix_appliquer (n'écrit jamais le PAMP, "
+                         "par design) ni lba_tarifs_t19_harmonisation_appliquer (LIT le PAMP sans "
+                         "pouvoir le corriger) ne permettaient de réparer un PAMP faux avant cet "
+                         "outil. N'UTILISER QUE quand le PAMP est vérifié 0/absent en conversation "
+                         "avec l'utilisateur (jamais deviné) — ce n'est PAS un outil de pricing, "
+                         "une correction de donnée de coût interne. TOUJOURS vérifier le PAMP "
+                         "actuel (champ `pa`) via lba_tarifs_grille_simuler avant d'appeler cette "
+                         "route. N'écrit/ne recalcule JAMAIS T19 — appelle lba_tarifs_t19_"
+                         "harmonisation_appliquer séparément APRÈS correction du PAMP. Réservé "
+                         "direction/backoffice/achats-logistique — 403 sinon. confirm=true "
+                         "REQUIS. POST /api/bacchus/tarifs/pamp/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_article", "pamp", "confirm"], "properties": {
+            "code_article": {"type": "string"}, "pamp": {"type": "number", "description": "prix d'achat moyen pondéré réel, > 0"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
                          "(Essentiel=6/Confort=7/Prestige=8/AD2026=18/Proximité=20), + nombre de "
@@ -1562,6 +1584,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "agent_id": agent_id, "code_article": _req(args, "code_article"),
             "prix": _req(args, "prix"), "fournisseur": args.get("fournisseur"),
             "date_achat": args.get("date_achat"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_pamp_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/pamp/appliquer", {
+            "agent_id": agent_id, "code_article": _req(args, "code_article"),
+            "pamp": _req(args, "pamp"), "confirm": bool(_req(args, "confirm"))})
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
