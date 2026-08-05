@@ -337,6 +337,38 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_article_remises_clients",
+        "description": ("INVERSE de lba_client_remises_negociees : pour UN article (code_article) OU "
+                         "une sous-famille entière (sous_famille, exclusifs) — la liste des clients ayant "
+                         "une remise dédiée dessus (code, raison sociale, remises 1-4, prix fixe, dates, "
+                         "commentaire). LIT PRISMA EN DIRECT. Créé suite brief Chef d'Atelier 2026-08-05 "
+                         "(audit anomalies remises Alex Beer/Punchline) — évite de boucler client par "
+                         "client sur tout le portefeuille pour auditer un article. include_expire=false "
+                         "(défaut) ne renvoie que les remises actives aujourd'hui. GET /api/bacchus/"
+                         "articles/remises-clients."),
+        "inputSchema": {"type": "object", "properties": {
+            "code_article": {"type": "string", "description": "exclusif avec sous_famille"},
+            "sous_famille": {"type": "string", "description": "exclusif avec code_article — audit famille entière"},
+            "include_expire": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
+        "name": "lba_article_historique_ventes",
+        "description": ("Dernières lignes de vente RÉELLEMENT FACTURÉES (pas théorique) pour UN article, "
+                         "filtrable sur UN client (code_client optionnel, omis = tous clients confondus) : "
+                         "date, quantité facturée, prix unitaire net, remises, montant HT. DISTINCT de "
+                         "lba_client_simulateur_prix (théorique, recalculé T19×remise EN VIGUEUR "
+                         "AUJOURD'HUI — peut diverger du réellement facturé si une remise a changé depuis "
+                         "la dernière commande). Créé suite brief Chef d'Atelier 2026-08-05 (audit Alex "
+                         "Beer — 'quel est le dernier prix facturé' sur 98 lignes, aucun tool ne "
+                         "répondait). Ne compte que les pièces en état 'Facture' (pas Livraison/Devis/"
+                         "Commande, pas encore facturées). GET /api/bacchus/articles/{code}/"
+                         "historique-ventes."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"},
+            "code_client": {"type": "string", "description": "omis = tous clients confondus"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
         "name": "lba_clients_filtre",
         "description": ("Liste clients (TOUTE la base, pas juste les acheteurs de l'année) filtrable "
                          "isActif × famille/sous-famille × tarif (num ou libellé), paginée — GET "
@@ -470,6 +502,25 @@ TOOLS = [
             "code_client": {"type": "string"}, "code_article": {"type": "string"},
             "remise1_pct": {"type": "number"}, "remise2_pct": {"type": "number"},
             "pu_fixe": {"type": "number"}, "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_tarifs_client_remise_appliquer_lot",
+        "description": ("ÉCRITURE — INVERSE de lba_tarifs_client_remise_appliquer : UN article, "
+                         "PLUSIEURS clients, en UNE transaction atomique (soit tout le lot est corrigé, "
+                         "soit rien). Créé suite brief Chef d'Atelier 2026-08-05 (audit anomalies remises "
+                         "Alex Beer, correction jusqu'à 98 appels en boucle manuelle vus sur ce chantier). "
+                         "TOUJOURS auditer AVANT via lba_article_remises_clients pour construire items à "
+                         "partir de valeurs réelles, jamais devinées. Réservé direction/backoffice/achats-"
+                         "logistique — 403 sinon. confirm=true REQUIS. POST /api/bacchus/tarifs/"
+                         "client-remise/appliquer-lot."),
+        "inputSchema": {"type": "object", "required": ["code_article", "items", "confirm"], "properties": {
+            "code_article": {"type": "string"},
+            "items": {"type": "array", "description": "[{code_client, remise1_pct?, remise2_pct?, pu_fixe?}, ...]",
+                      "items": {"type": "object", "required": ["code_client"], "properties": {
+                          "code_client": {"type": "string"}, "remise1_pct": {"type": "number"},
+                          "remise2_pct": {"type": "number"}, "pu_fixe": {"type": "number"}}}},
+            "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
@@ -1525,6 +1576,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "famille": args.get("famille"), "sousfamille": args.get("sousfamille"),
             "is_actif": args.get("is_actif"), "q": args.get("q"),
             "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_article_remises_clients":
+        return _get("/api/bacchus/articles/remises-clients", {
+            "code_article": args.get("code_article"), "sous_famille": args.get("sous_famille"),
+            "include_expire": args.get("include_expire", False)})
+    if tool == "lba_article_historique_ventes":
+        return _get(f"/api/bacchus/articles/{_req(args, 'code_article')}/historique-ventes", {
+            "code_client": args.get("code_client"), "limit": args.get("limit", 20)})
+    if tool == "lba_tarifs_client_remise_appliquer_lot":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post(f"/api/bacchus/tarifs/client-remise/appliquer-lot", {
+            "agent_id": agent_id, "code_article": _req(args, "code_article"),
+            "items": _req(args, "items"), "confirm": bool(_req(args, "confirm"))})
     if tool == "lba_clients_filtre":
         return _get("/api/bacchus/clients/filtre", {
             "is_actif": args.get("is_actif"), "famille": args.get("famille"),
