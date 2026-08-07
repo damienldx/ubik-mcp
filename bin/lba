@@ -663,6 +663,55 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["path"], "properties": {
             "path": {"type": "string", "description": "chemin absolu du fichier joint (répertoire chat-attachments)"}}},
     },
+    # ── Saisie commerciale d'une pièce d'achat (Phase A, audit 2026-08-07) —
+    # PAS de stock physique/valorisation (Phase B en attente réponse Ivan).
+    {
+        "name": "lba_achats_reception_simuler",
+        "description": ("Lecture pure — dry-run de saisie d'une facture/BL d'achat : résout le "
+                         "fournisseur et chaque ligne (article, unité de conditionnement) SANS RIEN "
+                         "ÉCRIRE. TOUJOURS appeler cette route en PREMIER après lba_facture_lire, "
+                         "avant toute proposition de saisie — présenter le résultat à l'utilisateur, "
+                         "en particulier tout `necessite_clarification` (fournisseur ambigu, article "
+                         "introuvable, conditionnement ambigu) : ne JAMAIS deviner à sa place, "
+                         "demander la précision manquante. `pret_pour_ecriture=true` uniquement si "
+                         "tout est résolu sans ambiguïté. POST /api/bacchus/achats/reception/simuler."),
+        "inputSchema": {"type": "object", "required": ["type_document", "fournisseur", "lignes"], "properties": {
+            "type_document": {"type": "string", "enum": ["facture", "bon_livraison"]},
+            "numero_piece": {"type": "string"},
+            "date_piece": {"type": "string"},
+            "fournisseur": {"type": "string", "description": "nom du fournisseur tel qu'extrait du document"},
+            "lignes": {"type": "array", "items": {"type": "object", "properties": {
+                "code_article": {"type": "string"}, "designation": {"type": "string"},
+                "quantite": {"type": "number"}, "prix_unitaire_ht": {"type": "number"},
+                "unite": {"type": "string", "description": "ex: carton, unité — tel qu'extrait du document"}}}},
+        }},
+    },
+    {
+        "name": "lba_achats_reception_creer",
+        "description": ("ÉCRITURE — trace commercialement une pièce d'achat (en-tête facture/BL + "
+                         "lignes article/quantité/prix). N'ÉCRIT JAMAIS dans le stock physique/"
+                         "palette, ne déclenche AUCUNE valorisation ni recalcul PMPR (Phase B hors "
+                         "scope, en attente d'une clarification métier avec Ivan sur le suivi "
+                         "palette réel). TOUJOURS avoir appelé lba_achats_reception_simuler AVANT "
+                         "et présenté le résultat à l'utilisateur — n'appeler cette route qu'APRÈS "
+                         "confirmation explicite de sa part sur les valeurs affichées (fournisseur "
+                         "résolu, chaque ligne), jamais juste après une lecture de facture seule. "
+                         "confirm=true REQUIS. Réservé direction/backoffice/achats-logistique — 403 "
+                         "sinon. POST /api/bacchus/achats/reception/creer."),
+        "inputSchema": {"type": "object", "required": ["type_document", "fournisseur", "lignes", "confirm"], "properties": {
+            "type_document": {"type": "string", "enum": ["facture", "bon_livraison"]},
+            "numero_piece": {"type": "string"},
+            "date_piece": {"type": "string"},
+            "fournisseur": {"type": "string"},
+            "lignes": {"type": "array", "items": {"type": "object", "properties": {
+                "code_article": {"type": "string"}, "designation": {"type": "string"},
+                "quantite": {"type": "number"}, "prix_unitaire_ht": {"type": "number"},
+                "unite": {"type": "string"}}}},
+            "total_ttc": {"type": "number"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
@@ -1776,6 +1825,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         # borné côté serveur en plus (asyncio.wait_for, bacchus_facture_tools.py)
         # pour ne jamais reproduire le hang sans plafond de l'incident d'origine.
         return _post("/api/bacchus/facture/lire", {"path": _req(args, "path")}, timeout=90)
+    if tool == "lba_achats_reception_simuler":
+        return _post("/api/bacchus/achats/reception/simuler", {
+            "type_document": _req(args, "type_document"), "numero_piece": args.get("numero_piece"),
+            "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
+            "lignes": _req(args, "lignes")})
+    if tool == "lba_achats_reception_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/reception/creer", {
+            "type_document": _req(args, "type_document"), "numero_piece": args.get("numero_piece"),
+            "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
+            "lignes": _req(args, "lignes"), "total_ttc": args.get("total_ttc"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id}, timeout=90)
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
