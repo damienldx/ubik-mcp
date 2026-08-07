@@ -204,8 +204,8 @@ def _get(path: str, params: dict, headers: dict | None = None) -> str:
         raise LbaCliError(f"GET {url} — injoignable ({e.reason})") from e
 
 
-def _post(path: str, payload: dict, headers: dict | None = None) -> str:
-    return _write(path, payload, "POST", headers)
+def _post(path: str, payload: dict, headers: dict | None = None, timeout: int = 30) -> str:
+    return _write(path, payload, "POST", headers, timeout=timeout)
 
 
 def _patch(path: str, payload: dict, headers: dict | None = None) -> str:
@@ -218,13 +218,13 @@ def _delete(path: str, headers: dict | None = None) -> str:
     return _write(path, {}, "DELETE", headers)
 
 
-def _write(path: str, payload: dict, method: str, headers: dict | None = None) -> str:
+def _write(path: str, payload: dict, method: str, headers: dict | None = None, timeout: int = 30) -> str:
     url = f"{BASE}{path}"
     body = json.dumps(payload).encode()
     hdrs = {"Content-Type": "application/json", **(headers or {})}
     req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode()
     except urllib.error.HTTPError as e:
         body_txt = ""
@@ -1771,7 +1771,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get(f"/api/bacchus/couts/net-reel/{_seg(_req(args, 'code_article'))}", {
             "code_client": args.get("code_client")})
     if tool == "lba_facture_lire":
-        return _post("/api/bacchus/facture/lire", {"path": _req(args, "path")})
+        # Timeout client généreux (90s, vs 30s par défaut) : extraction
+        # LLM (run_agent_call côté backend), latence variable selon charge —
+        # borné côté serveur en plus (asyncio.wait_for, bacchus_facture_tools.py)
+        # pour ne jamais reproduire le hang sans plafond de l'incident d'origine.
+        return _post("/api/bacchus/facture/lire", {"path": _req(args, "path")}, timeout=90)
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
