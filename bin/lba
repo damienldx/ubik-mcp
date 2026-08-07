@@ -583,6 +583,67 @@ TOOLS = [
             "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
+    # ── Supervision coûts/PMPR (audit 2026-08-07, root cause "Validation
+    # des marges") — PrismaSoft_Logistique_inventaire_valorisation_
+    # calculPMPR traite les mouvements de stock d'un article par ordre
+    # chronologique et s'interrompt dès qu'une ligne isValideUtilisateur=0
+    # apparaît : TOUTES les lignes suivantes (y compris des achats validés
+    # plus récents) ne sont alors plus jamais recalculées, sans alerte.
+    # PMPR reste le mécanisme central retenu (décision d'architecture
+    # actée) — ces 4 tools comblent la supervision manquante, jamais un
+    # remplacement du mécanisme natif.
+    {
+        "name": "lba_couts_backlog_validation",
+        "description": ("Lignes de valorisation en attente de validation dans l'écran natif "
+                         "« Validation des marges » (isValideUtilisateur=0), les plus anciennes en "
+                         "premier — ce sont elles qui bloquent le recalcul PMPR depuis le plus "
+                         "longtemps. TOUJOURS appeler avant toute proposition de validation en "
+                         "conversation — présenter les lignes candidates à l'utilisateur, jamais "
+                         "deviner lesquelles il veut traiter. GET /api/bacchus/couts/backlog-validation."),
+        "inputSchema": {"type": "object", "properties": {
+            "min_age_days": {"type": "integer", "description": "défaut 0 — ancienneté minimale en jours"},
+            "limit": {"type": "integer", "description": "défaut 200"}}},
+    },
+    {
+        "name": "lba_couts_articles_bloques",
+        "description": ("Articles dont la chaîne de recalcul PMPR est actuellement interrompue par "
+                         "une ligne de valorisation non validée — date/ancienneté du blocage + état "
+                         "actuel des 3 champs de coût sur la fiche article (achatDernierPrix / "
+                         "achatDernierPrixRevient / achatDernierPrixRevientMoyen), pour visualiser "
+                         "l'écart causé par ce blocage sans recalcul manuel. "
+                         "GET /api/bacchus/couts/articles-bloques."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_couts_valider_lignes",
+        "description": ("ÉCRITURE — valide une liste de lignes de valorisation (0→1), déclenche "
+                         "automatiquement le recalcul PMPR natif côté PrismaSoft (le trigger s'en "
+                         "charge). TOUJOURS avoir présenté les lignes concrètes via "
+                         "lba_couts_backlog_validation AVANT cet appel, et n'appeler qu'avec les ids "
+                         "explicitement désignés par l'utilisateur — jamais un lot deviné ou « tout "
+                         "le backlog » sans confirmation explicite ligne par ligne ou lot par lot. "
+                         "Plafond serveur de 100 ids par appel, découper en plusieurs appels "
+                         "confirmés si besoin. Réservé direction/backoffice/achats-logistique — 403 "
+                         "sinon. confirm=true REQUIS. POST /api/bacchus/couts/valider-lignes."),
+        "inputSchema": {"type": "object", "required": ["ids", "confirm"], "properties": {
+            "ids": {"type": "array", "items": {"type": "integer"}, "description": "ids de lignes PrismaSoft_Logistique_inventaire_valorisation, max 100"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_couts_net_reel",
+        "description": ("Lecture pure, calcul pur — coût net réel d'un article = coût facial (prix "
+                         "de revient moyen pondéré) MOINS l'aide de marché nettoyée (filtrée sur "
+                         "clients/fournisseurs actifs, hors anomalies connues, cf audit aideMarche "
+                         "du 07/08/2026). Sert de diagnostic AVANT de proposer/fixer une remise "
+                         "client dédiée. Sans code_client, moyenne multi-clients — vérifier le champ "
+                         "`avertissement` (couverture aide de marché globalement faible, ~15% des "
+                         "articles actifs) avant de généraliser. "
+                         "GET /api/bacchus/couts/net-reel/{code_article}."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"},
+            "code_client": {"type": "string", "description": "optionnel — restreint le calcul à l'accord propre à ce client"}}},
+    },
     {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
@@ -1678,6 +1739,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/tarifs/pamp/appliquer", {
             "agent_id": agent_id, "code_article": _req(args, "code_article"),
             "pamp": _req(args, "pamp"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_couts_backlog_validation":
+        return _get("/api/bacchus/couts/backlog-validation", {
+            "min_age_days": args.get("min_age_days", 0), "limit": args.get("limit", 200)})
+    if tool == "lba_couts_articles_bloques":
+        return _get("/api/bacchus/couts/articles-bloques", {})
+    if tool == "lba_couts_valider_lignes":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/couts/valider-lignes", {
+            "agent_id": agent_id, "ids": _req(args, "ids"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_couts_net_reel":
+        return _get(f"/api/bacchus/couts/net-reel/{_seg(_req(args, 'code_article'))}", {
+            "code_client": args.get("code_client")})
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
