@@ -276,7 +276,14 @@ TOOLS = [
                          "cascadée jusqu'à 4 niveaux) ET PAR FAMILLE (remise%, nom de famille non résolvable "
                          "en base — limitation connue) — DISTINCT du tarif nommé de lba_client_tarif. GET "
                          "/api/bacchus/client/{code}/remises-negociees. Pas systématique (client peut "
-                         "n'en avoir aucune)."),
+                         "n'en avoir aucune). ⚠️ Reprise/succession client (repreneur d'un compte existant) : "
+                         "avant toute duplication de ces remises vers un client cible, ne jamais recopier un "
+                         "remise1_pct/remise2_pct brut sans repasser par lba_article_historique_ventes pour "
+                         "vérifier que le prix NET obtenu est identique — un même % appliqué à un T19 qui a "
+                         "changé depuis (recalibrage tarifaire) donne un prix différent. Vigilance particulière "
+                         "si le client source est inactif : il est alors exclu par construction des chantiers "
+                         "de recalibrage T19 passés, donc ses remises peuvent être obsolètes (incident "
+                         "2026-08-07, client 1767→2585, écarts jusqu'à +200% sur certains articles)."),
         "inputSchema": {"type": "object", "required": ["code"], "properties": {
             "code": {"type": "string"},
             "include_expire": {"type": "boolean", "description": "défaut false — inclut aussi les remises dont la date de fin est passée"}}},
@@ -497,7 +504,17 @@ TOOLS = [
                          "(tarif_client), n'affecte que ce client. Analyser AVANT avec "
                          "lba_client_simulateur_prix. Réservé direction/backoffice/achats-"
                          "logistique — 403 sinon. confirm=true REQUIS. POST /api/bacchus/"
-                         "tarifs/client-remise/appliquer."),
+                         "tarifs/client-remise/appliquer. ⚠️ Cas de reprise/succession client "
+                         "(repreneur d'un compte existant) : ne jamais dupliquer un "
+                         "remise1_pct/remise2_pct brut d'un client source vers un client cible "
+                         "sans repasser par l'historique de facturation réel "
+                         "(lba_article_historique_ventes) pour vérifier que le prix NET obtenu "
+                         "est identique — un même % appliqué à un T19 qui a changé depuis "
+                         "(recalibrage tarifaire) donne un prix différent. Vigilance particulière "
+                         "si le client source est inactif : il est alors exclu par construction "
+                         "des chantiers de recalibrage T19 passés, donc ses remises peuvent être "
+                         "obsolètes par rapport au T19 actuel (incident 2026-08-07, client "
+                         "1767→2585, écarts jusqu'à +200% sur certains articles)."),
         "inputSchema": {"type": "object", "required": ["code_client", "code_article", "confirm"], "properties": {
             "code_client": {"type": "string"}, "code_article": {"type": "string"},
             "remise1_pct": {"type": "number"}, "remise2_pct": {"type": "number"},
@@ -513,7 +530,16 @@ TOOLS = [
                          "TOUJOURS auditer AVANT via lba_article_remises_clients pour construire items à "
                          "partir de valeurs réelles, jamais devinées. Réservé direction/backoffice/achats-"
                          "logistique — 403 sinon. confirm=true REQUIS. POST /api/bacchus/tarifs/"
-                         "client-remise/appliquer-lot."),
+                         "client-remise/appliquer-lot. ⚠️ Cas de reprise/succession client (repreneur "
+                         "d'un compte existant) : ne jamais dupliquer un remise1_pct/remise2_pct brut "
+                         "d'un client source vers un client cible sans repasser par l'historique de "
+                         "facturation réel (lba_article_historique_ventes) pour vérifier que le prix "
+                         "NET obtenu est identique — un même % appliqué à un T19 qui a changé depuis "
+                         "(recalibrage tarifaire) donne un prix différent. Vigilance particulière si "
+                         "le client source est inactif : il est alors exclu par construction des "
+                         "chantiers de recalibrage T19 passés, donc ses remises peuvent être obsolètes "
+                         "par rapport au T19 actuel (incident 2026-08-07, client 1767→2585, écarts "
+                         "jusqu'à +200% sur certains articles)."),
         "inputSchema": {"type": "object", "required": ["code_article", "items", "confirm"], "properties": {
             "code_article": {"type": "string"},
             "items": {"type": "array", "description": "[{code_client, remise1_pct?, remise2_pct?, pu_fixe?}, ...]",
