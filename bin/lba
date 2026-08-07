@@ -644,6 +644,25 @@ TOOLS = [
             "code_article": {"type": "string"},
             "code_client": {"type": "string", "description": "optionnel — restreint le calcul à l'accord propre à ce client"}}},
     },
+    # ── Lecture de facture jointe au chat (fix incident hang 180s du
+    # 07/08/2026) — extraction bornée, un document à la fois, JAMAIS le tool
+    # Read générique en boucle agentique libre sur le PDF.
+    {
+        "name": "lba_facture_lire",
+        "description": ("Lecture pure — lit UNE facture jointe au chat (PDF avec calque texte, "
+                         "jusqu'à 6 pages) et retourne son contenu structuré en JSON (fournisseur/"
+                         "client, numéro, date, lignes, totaux). Appel unique borné, à utiliser À LA "
+                         "PLACE du tool Read générique dès qu'une pièce jointe PDF de facture est "
+                         "référencée dans la conversation (path = chemin absolu du marqueur "
+                         "`[fichier joint: ...]`). Si `avertissements` n'est pas vide dans la "
+                         "réponse, les présenter à l'utilisateur avant d'utiliser les montants "
+                         "extraits pour une action — ne jamais traiter un champ null comme une "
+                         "valeur réelle. Si `ok=false` (ex: PDF scanné sans texte, ou trop de "
+                         "pages), le signaler tel quel, pas de re-tentative via Read. "
+                         "POST /api/bacchus/facture/lire."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin absolu du fichier joint (répertoire chat-attachments)"}}},
+    },
     {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
@@ -1751,6 +1770,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_couts_net_reel":
         return _get(f"/api/bacchus/couts/net-reel/{_seg(_req(args, 'code_article'))}", {
             "code_client": args.get("code_client")})
+    if tool == "lba_facture_lire":
+        return _post("/api/bacchus/facture/lire", {"path": _req(args, "path")})
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
