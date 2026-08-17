@@ -106,6 +106,11 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # GET /api/bacchus/clients/filtre (aucun Depends(current_user) côté
     # backend, même posture que lba_articles_liste ci-dessus).
     "lba_clients_filtre",
+    # plan_9a274922 (2026-08-17) : cablage CLI de GET /api/bacchus/tarifs/
+    # audit-facturation (aucun Depends(current_user) côté backend, confirmé
+    # par test structurel côté LBA-DESKTOP — même posture que le reste des
+    # routes /simuler de bacchus_tarifs_tools.py).
+    "lba_audit_facturation",
 })
 
 

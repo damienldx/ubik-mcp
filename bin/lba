@@ -184,14 +184,14 @@ def _auth_headers(tool: str, agent_id: str | None) -> dict:
     return {"Authorization": f"Bearer {jwt_token}"}
 
 
-def _get(path: str, params: dict, headers: dict | None = None) -> str:
+def _get(path: str, params: dict, headers: dict | None = None, timeout: int = 30) -> str:
     q = {k: v for k, v in params.items() if v is not None}
     url = f"{BASE}{path}"
     if q:
         url += "?" + urlencode(q)
     req = urllib.request.Request(url, method="GET", headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode()
     except urllib.error.HTTPError as e:
         body = ""
@@ -520,6 +520,31 @@ TOOLS = [
             "remise1_pct": {"type": "number"}, "remise2_pct": {"type": "number"},
             "pu_fixe": {"type": "number"}, "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_audit_facturation",
+        "description": ("Audit facturation réelle vs prix théorique reconstruit à la date de "
+                         "chaque facture — pour chaque ligne facturée (etat='Facture') entre "
+                         "date_from et date_to (filtres optionnels code_client/famille/"
+                         "sous_famille, combinables en ET) : prix net réellement facturé, prix "
+                         "théorique, delta €/%, qualification (conforme/clamp_net_preserve/"
+                         "possible_residu_incident_0708/ecart_non_explique/indeterminable), "
+                         "fiabilite ('T19_actuel_suppose' si le théorique peut être obsolète). "
+                         "ecart_non_explique ET clamp_net_preserve sont des indications À "
+                         "VÉRIFIER, jamais un verdict automatique — toujours croiser avec un "
+                         "outil de remises négociées avant de conclure à une vraie anomalie. "
+                         "Consulte le champ `limitations` de la réponse (toujours présent) avant "
+                         "de présenter un résultat. GET /api/bacchus/tarifs/audit-facturation. "
+                         "Lent (60-140s courants sur de larges fenêtres, requêtes SQL Server non "
+                         "indexées côté prisma-api) — timeout client dédié 180s, pas les 30s "
+                         "par défaut."),
+        "inputSchema": {"type": "object", "required": ["date_from", "date_to"], "properties": {
+            "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+            "code_client": {"type": "string"},
+            "famille": {"type": "string"},
+            "sous_famille": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 10000, max 50000"}}},
     },
     {
         "name": "lba_tarifs_client_remise_appliquer_lot",
@@ -1738,6 +1763,17 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_article_historique_ventes":
         return _get(f"/api/bacchus/articles/{_req(args, 'code_article')}/historique-ventes", {
             "code_client": args.get("code_client"), "limit": args.get("limit", 20)})
+    if tool == "lba_audit_facturation":
+        # Timeout client généreux (180s, vs 30s par défaut) : requêtes SQL
+        # Server non indexées côté prisma-api sur de larges fenêtres de
+        # dates, mesuré 60-140s en pratique (cf plan_9618e361, portage
+        # côté LBA-DESKTOP — même constat qui a motivé TIMEOUT_HEAVY=300s
+        # là-bas plutôt que le TIMEOUT_DEFAULT=60s implicite).
+        return _get("/api/bacchus/tarifs/audit-facturation", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
+            "code_client": args.get("code_client"), "famille": args.get("famille"),
+            "sous_famille": args.get("sous_famille"), "limit": args.get("limit", 10000)},
+            timeout=180)
     if tool == "lba_tarifs_client_remise_appliquer_lot":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post(f"/api/bacchus/tarifs/client-remise/appliquer-lot", {

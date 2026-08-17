@@ -212,7 +212,16 @@ class TestCliSurface(unittest.TestCase):
         # 2026-08-04, demande explicite Damien — cablage CLI de
         # POST/GET /api/bacchus/memoire/{save,recall}, backend
         # LBA-DESKTOP/plan/bacchus_memoire_tools.py) = 91.
-        self.assertEqual(len(tools), 91)
+        # DRIFT PRÉ-EXISTANT DÉCOUVERT ICI (plan_9a274922, 2026-08-17,
+        # mission wrapper CLI audit-facturation) : la baseline RÉELLE sur
+        # HEAD avant cette mission était déjà 102 (`bin/lba --list` +
+        # `git stash`, même méthode que le drift du 2026-08-04 ci-dessus),
+        # pas 91 — beaucoup de tools ajoutés depuis sans mise à jour de ce
+        # test. Non ré-audité ligne à ligne (hors scope, seul livrable ici
+        # = lba_audit_facturation) — signalé au Chef d'Atelier plutôt que
+        # corrigé silencieusement, même doctrine que le drift précédent.
+        # 102 (baseline réelle mesurée) + lba_audit_facturation = 103.
+        self.assertEqual(len(tools), 103)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
