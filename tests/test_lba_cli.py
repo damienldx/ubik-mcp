@@ -221,10 +221,16 @@ class TestCliSurface(unittest.TestCase):
         # = lba_audit_facturation) — signalé au Chef d'Atelier plutôt que
         # corrigé silencieusement, même doctrine que le drift précédent.
         # 102 (baseline réelle mesurée) + lba_audit_facturation = 103.
-        self.assertEqual(len(tools), 103)
+        # 103 + lba_avoir_simuler + lba_avoir_creer (plan_d9a888da, mission
+        # Phase 4 — enregistrement CLI des avoirs PrismaSoft, backend
+        # LBA-DESKTOP/plan/bacchus_avoir_tools.py déjà livré + gate Orion
+        # approuvé) = 105.
+        self.assertEqual(len(tools), 105)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
+        self.assertIn("lba_avoir_simuler", names)
+        self.assertIn("lba_avoir_creer", names)
         self.assertIn("lba_articles_liste", names)
         self.assertIn("lba_clients_filtre", names)
 

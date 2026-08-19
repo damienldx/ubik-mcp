@@ -737,6 +737,46 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
+    # ── Avoirs PrismaSoft (correction pièce de vente, plan_d9a888da mission
+    # Phase 3/4, suite audit remises T19 du 19/08/2026) — même famille que
+    # ACHATS ci-dessus, cf docstring bacchus_avoir_tools.py (LBA-DESKTOP).
+    {
+        "name": "lba_avoir_simuler",
+        "description": ("Lecture pure — dry-run de correction d'une ligne de pièce de vente "
+                         "déjà facturée à un prix erroné (annulation au prix erroné + réémission "
+                         "au prix corrigé). SANS RIEN ÉCRIRE. TOUJOURS appeler en PREMIER, présenter "
+                         "necessite_clarification et chaque avertissement — ne JAMAIS deviner un "
+                         "prix, une ligne ambiguë, ou le type_operation à la place de l'utilisateur. "
+                         "POST /api/bacchus/avoirs/simuler."),
+        "inputSchema": {"type": "object",
+            "required": ["num_piece", "code_client", "code_article", "quantite", "prix_corrige", "sens", "type_operation"],
+            "properties": {
+                "num_piece": {"type": "integer"}, "code_client": {"type": "string"},
+                "code_article": {"type": "string"}, "quantite": {"type": "number"},
+                "prix_facture_errone": {"type": "number"}, "prix_corrige": {"type": "number"},
+                "sens": {"type": "string", "enum": ["complement", "avoir"]},
+                "type_operation": {"type": "string", "enum": ["correction_erreur", "harmonisation_prix_cible"]},
+            }},
+    },
+    {
+        "name": "lba_avoir_creer",
+        "description": ("ÉCRITURE — crée la pièce corrective (annulation + réémission) dans "
+                         "PrismaSoft. TOUJOURS avoir appelé lba_avoir_simuler AVANT et présenté le "
+                         "résultat à l'utilisateur — n'appeler qu'APRÈS confirmation explicite sur "
+                         "les valeurs affichées. confirm=true REQUIS. Réservé direction/backoffice/"
+                         "ivan.diril — 403 sinon. POST /api/bacchus/avoirs/creer."),
+        "inputSchema": {"type": "object",
+            "required": ["num_piece", "code_client", "code_article", "quantite", "prix_corrige", "sens", "type_operation", "confirm"],
+            "properties": {
+                "num_piece": {"type": "integer"}, "code_client": {"type": "string"},
+                "code_article": {"type": "string"}, "quantite": {"type": "number"},
+                "prix_facture_errone": {"type": "number"}, "prix_corrige": {"type": "number"},
+                "sens": {"type": "string", "enum": ["complement", "avoir"]},
+                "type_operation": {"type": "string", "enum": ["correction_erreur", "harmonisation_prix_cible"]},
+                "confirm": {"type": "boolean"},
+                "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+            }},
+    },
     {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
@@ -1873,6 +1913,22 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
             "lignes": _req(args, "lignes"), "total_ttc": args.get("total_ttc"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id}, timeout=90)
+    if tool == "lba_avoir_simuler":
+        return _post("/api/bacchus/avoirs/simuler", {
+            "num_piece": _req(args, "num_piece"), "code_client": _req(args, "code_client"),
+            "code_article": _req(args, "code_article"), "quantite": _req(args, "quantite"),
+            "prix_facture_errone": args.get("prix_facture_errone"),
+            "prix_corrige": _req(args, "prix_corrige"), "sens": _req(args, "sens"),
+            "type_operation": _req(args, "type_operation")})
+    if tool == "lba_avoir_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/avoirs/creer", {
+            "num_piece": _req(args, "num_piece"), "code_client": _req(args, "code_client"),
+            "code_article": _req(args, "code_article"), "quantite": _req(args, "quantite"),
+            "prix_facture_errone": args.get("prix_facture_errone"),
+            "prix_corrige": _req(args, "prix_corrige"), "sens": _req(args, "sens"),
+            "type_operation": _req(args, "type_operation"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
             "code_client": _req(args, "code_client"),
