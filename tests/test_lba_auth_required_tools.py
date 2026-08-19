@@ -111,6 +111,12 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # par test structurel côté LBA-DESKTOP — même posture que le reste des
     # routes /simuler de bacchus_tarifs_tools.py).
     "lba_audit_facturation",
+    # plan_d9a888da (2026-08-19, mission Phase 4) : cablage CLI des avoirs
+    # PrismaSoft (aucun Depends(current_user) côté backend, whitelist gérée
+    # par prisma-api/wrapper Bacchus eux-mêmes — même posture que
+    # lba_achats_reception_simuler/_creer, DATA/écriture métier, pas un
+    # tool Graph/Todo nécessitant le ticket-exchange de session).
+    "lba_avoir_simuler", "lba_avoir_creer",
 })
 
 
