@@ -1475,6 +1475,52 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 10"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
+    # ── LBA SKILLS (session 2026-08-20, demande explicite Damien) — compétences
+    # métier NOMMÉES et chargeables À LA DEMANDE (distinct de LBA MEMORY
+    # ci-dessus, qui est un journal append-only de faits ponctuels). Portée
+    # GLOBALE tous seats — un skill rédigé par un seat doit être chargeable
+    # par n'importe quel autre. Même store isolé ~/.lba-memory, index FTS5
+    # séparé (cf docstring bacchus_skills_tools.py).
+    {
+        "name": "lba_skill_save",
+        "description": ("ÉCRITURE — crée ou met à jour un skill (procédure métier nommée) suite "
+                         "à un échange avec ton opérateur, pour qu'un futur seat (ou toi-même en "
+                         "session suivante) puisse le CHARGER par nom au lieu de tout reconstruire "
+                         "(ex: après avoir appris à traiter une facture Météor, sauvegarde-le sous "
+                         "nom='facture-meteor'). `nom` = clé stable, alnum/-/_ uniquement, choisis-la "
+                         "descriptive (c'est ce que l'opérateur citera plus tard). `description` = "
+                         "phrase courte pour la recherche. `contenu` = la procédure complète. "
+                         "Réécrit tout le skill à ce nom (jamais un append) — se corrige/s'enrichit "
+                         "à la même clé. Pas de confirm requis. POST /api/bacchus/skills/save."),
+        "inputSchema": {"type": "object", "required": ["nom", "description", "contenu"], "properties": {
+            "nom": {"type": "string", "description": "identifiant stable, alnum/-/_ uniquement (ex: facture-meteor)"},
+            "description": {"type": "string"},
+            "contenu": {"type": "string"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
+        "name": "lba_skill_liste",
+        "description": ("Lecture pure — liste TOUS les skills disponibles (nom + description + "
+                         "dernière mise à jour, tous seats confondus), coût quasi nul. À consulter "
+                         "quand l'opérateur mentionne un contexte métier récurrent, pour voir si un "
+                         "skill existe déjà avant d'en recréer un. GET /api/bacchus/skills/liste."),
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "défaut 100"}}},
+    },
+    {
+        "name": "lba_skill_charger",
+        "description": ("Lecture pure — charge le CONTENU complet d'un skill. Fournis `nom` si "
+                         "l'opérateur l'a nommé explicitement (\"charge ton skill facture-meteor\") "
+                         "— 404 explicite si absent. Fournis `query` pour une recherche par "
+                         "mots-clés (ex: opérateur dit \"traite cette facture Météor\" sans nommer "
+                         "de skill) — renvoie des candidats SANS trancher, présente-les à "
+                         "l'opérateur plutôt que de deviner lequel charger. GET "
+                         "/api/bacchus/skills/charger."),
+        "inputSchema": {"type": "object", "properties": {
+            "nom": {"type": "string", "description": "nom exact du skill"},
+            "query": {"type": "string", "description": "recherche par mots-clés si nom absent/introuvable"},
+            "limit": {"type": "integer", "description": "défaut 5, pour la recherche par mots-clés"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -1974,6 +2020,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/memoire/recall", {
             "agent_id": agent_id, "query": _req(args, "query"),
             "code_client": args.get("code_client"), "limit": args.get("limit", 10)})
+    if tool == "lba_skill_save":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/skills/save", {
+            "agent_id": agent_id, "nom": _req(args, "nom"),
+            "description": _req(args, "description"), "contenu": _req(args, "contenu")})
+    if tool == "lba_skill_liste":
+        return _get("/api/bacchus/skills/liste", {"limit": args.get("limit", 100)})
+    if tool == "lba_skill_charger":
+        return _get("/api/bacchus/skills/charger", {
+            "nom": args.get("nom"), "query": args.get("query"), "limit": args.get("limit", 5)})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
