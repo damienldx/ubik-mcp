@@ -129,6 +129,11 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # tools lba_achats_bl_* ci-dessus (whitelist/confirm geres cote
     # prisma-api + wrapper Bacchus, pas un tool Graph/Todo).
     "lba_achats_bl_modifier_entete",
+    # plan_101221aa (2026-08-21, mission #3, volet 3) : cablage CLI de
+    # lire_entete_facture_fournisseur (lecture pure, aucun gate ni cote
+    # prisma-api ni cote wrapper Bacchus) — meme posture que les tools
+    # lba_achats_bl_* ci-dessus, pas un tool Graph/Todo.
+    "lba_achats_bl_lire_entete",
 })
 
 

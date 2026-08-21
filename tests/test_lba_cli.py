@@ -248,7 +248,14 @@ class TestCliSurface(unittest.TestCase):
         # assigné, 0 résultat) — cet enregistrement CLI seul ne rend PAS
         # le tool fonctionnel bout-en-bout tant que ce wrapper manquant
         # n'est pas livré séparément, cf rapport de mission) = 113.
-        self.assertEqual(len(tools), 113)
+        # + lba_achats_bl_lire_entete (plan_101221aa, 2026-08-21, mission
+        # #3 volet 3 : cablage CLI de lire_entete_facture_fournisseur,
+        # lecture pure, backend prisma-api déjà livré commit 2abd423, ET
+        # wrapper LBA-DESKTOP déjà livré dans la MÊME vague (commit
+        # cbdf231, GET /api/bacchus/achats/facturation/lire-entete) — ce
+        # tool EST fonctionnel bout-en-bout dès ce commit, contrairement
+        # à l'avertissement ci-dessus sur modifier-entete) = 114.
+        self.assertEqual(len(tools), 114)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -261,6 +268,7 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("lba_achats_bl_importer_lignes", names)
         self.assertIn("lba_achats_bl_tracer_resolution_forcee", names)
         self.assertIn("lba_achats_bl_modifier_entete", names)
+        self.assertIn("lba_achats_bl_lire_entete", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(
