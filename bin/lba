@@ -827,6 +827,25 @@ TOOLS = [
                 "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
             }},
     },
+    {
+        "name": "lba_achats_bl_modifier_entete",
+        "description": ("ÉCRITURE — corrige DIRECTEMENT l'en-tête d'une facture fournisseur déjà "
+                         "créée (numéro, date, total TTC), sans repasser par le flux de création. "
+                         "Cas d'usage typique : numéro de facture mal extrait détecté après coup "
+                         "(cf lba_facture_lire). Au moins un des 3 champs (numero_facture/"
+                         "date_facture/total_ttc) doit être fourni. Refuse si la facture est déjà "
+                         "importée en comptabilité — une contre-écriture formelle est requise, hors "
+                         "scope de cet outil. confirm=true REQUIS. POST /api/bacchus/achats/"
+                         "facturation/modifier-entete."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "numero_facture": {"type": "string", "description": "référence telle que lue sur le document (typage/résolution PrismaSoft gérés côté backend)"},
+            "date_facture": {"type": "string"},
+            "total_ttc": {"type": "number"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     # ── Avoirs PrismaSoft (correction pièce de vente, plan_d9a888da mission
     # Phase 3/4, suite audit remises T19 du 19/08/2026) — même famille que
     # ACHATS ci-dessus, cf docstring bacchus_avoir_tools.py (LBA-DESKTOP).
@@ -2070,6 +2089,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "fournisseur": _req(args, "fournisseur"),
             "reference_fournisseur": _req(args, "reference_fournisseur"),
             "id_article_force": _req(args, "id_article_force"), "motif": args.get("motif"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_bl_modifier_entete":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/modifier-entete", {
+            "id_facture": _req(args, "id_facture"), "numero_facture": args.get("numero_facture"),
+            "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_avoir_simuler":
         return _post("/api/bacchus/avoirs/simuler", {
