@@ -225,7 +225,20 @@ class TestCliSurface(unittest.TestCase):
         # Phase 4 — enregistrement CLI des avoirs PrismaSoft, backend
         # LBA-DESKTOP/plan/bacchus_avoir_tools.py déjà livré + gate Orion
         # approuvé) = 105.
-        self.assertEqual(len(tools), 105)
+        # DRIFT PRÉ-EXISTANT DÉCOUVERT ICI (plan_a7c60f1c, 2026-08-21,
+        # mission #4 Import BL) : la baseline RÉELLE sur HEAD avant cette
+        # mission était déjà 108 (`bin/lba --list` + `git stash`, même
+        # méthode que les drifts précédents ci-dessus), pas 105 — tools
+        # ajoutés depuis sans mise à jour de ce test. Non ré-audité ligne à
+        # ligne (hors scope, seul livrable ici = les 4 tools Import BL) —
+        # signalé au Chef d'Atelier plutôt que corrigé silencieusement,
+        # même doctrine que les drifts précédents.
+        # 108 (baseline réelle mesurée) + lba_achats_bl_lignes_non_imputees
+        # + lba_achats_bl_resoudre_reference + lba_achats_bl_importer_lignes
+        # + lba_achats_bl_tracer_resolution_forcee (mission #4, cablage CLI
+        # du flux Import BL, backend LBA-DESKTOP/plan/bacchus_achats_
+        # tools.py déjà livré mission #3, commit 2dad43e) = 112.
+        self.assertEqual(len(tools), 112)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -233,6 +246,10 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("lba_avoir_creer", names)
         self.assertIn("lba_articles_liste", names)
         self.assertIn("lba_clients_filtre", names)
+        self.assertIn("lba_achats_bl_lignes_non_imputees", names)
+        self.assertIn("lba_achats_bl_resoudre_reference", names)
+        self.assertIn("lba_achats_bl_importer_lignes", names)
+        self.assertIn("lba_achats_bl_tracer_resolution_forcee", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(

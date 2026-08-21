@@ -737,6 +737,96 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
+    # ── Import BL (mission #3/#4, plan_a7c60f1c, 2026-08-21) — rapproche
+    # une facture déjà lue (lba_facture_lire) des lignes de RÉCEPTION (BL)
+    # déjà saisies côté écran natif PrismaSoft (fournisseurs → réception),
+    # distinct de la saisie commerciale ACHATS ci-dessus qui ne connaît pas
+    # de BL préexistant. Doctrine : le BL est une référence de COMPARAISON
+    # (rapprochement + détection d'écart/surfacturation), jamais une valeur
+    # de facturation par défaut — cf bacchus_achats_tools.py (LBA-DESKTOP,
+    # commit 2dad43e) et prisma_api.py::import_lignes_bl_sur_facture
+    # (prisma-api, commit ff8064b).
+    {
+        "name": "lba_achats_bl_lignes_non_imputees",
+        "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
+                         "sur une facture pour un fournisseur, RÉFÉRENCE DE COMPARAISON (num BL, "
+                         "quantité/prix réceptionnés) — jamais une valeur de facturation par "
+                         "défaut. TOUJOURS appeler AVANT lba_achats_bl_importer_lignes pour "
+                         "connaître les `id_ligne` disponibles. GET /api/bacchus/achats/"
+                         "facturation/lignes-non-imputees."),
+        "inputSchema": {"type": "object", "required": ["fournisseur"], "properties": {
+            "fournisseur": {"type": "string", "description": "nom du fournisseur"},
+            "code_article": {"type": "string", "description": "filtre optionnel"},
+        }},
+    },
+    {
+        "name": "lba_achats_bl_resoudre_reference",
+        "description": ("Lecture pure — consolidation désignation/référence fournisseur brute "
+                         "(lue sur le PDF facture) → article LBA, via la table native tarif "
+                         "fournisseur. `necessite_clarification=true` si la référence est "
+                         "introuvable ou ambiguë (plusieurs articles différents) : ne JAMAIS "
+                         "deviner à la place de l'utilisateur — présenter les `candidats` et "
+                         "demander précision, ou utiliser lba_achats_bl_tracer_resolution_forcee "
+                         "si l'utilisateur tranche manuellement. GET /api/bacchus/achats/"
+                         "facturation/resoudre-reference."),
+        "inputSchema": {"type": "object", "required": ["fournisseur", "reference_fournisseur"], "properties": {
+            "fournisseur": {"type": "string"},
+            "reference_fournisseur": {"type": "string", "description": "référence brute telle qu'extraite du document"},
+            "date_reference": {"type": "string", "description": "défaut aujourd'hui — idéalement la date de la pièce"},
+        }},
+    },
+    {
+        "name": "lba_achats_bl_importer_lignes",
+        "description": ("ÉCRITURE — rattache des lignes BL/réception non imputées sur une "
+                         "NOUVELLE facture. `lignes_facturees` (optionnel, PAR LIGNE) : la "
+                         "quantité/prix FACTURÉS lus sur le PDF facture — JAMAIS la quantité "
+                         "réceptionnée du BL, même si différente (une facture fournisseur erronée "
+                         "doit être saisie au centime près pour correspondre au relevé de compte, "
+                         "la réclamation reste un acte manuel séparé). Sans entrée pour une ligne "
+                         "donnée, comportement natif inchangé (recopie quantité BL — réservé aux "
+                         "cas où facture et BL sont identiques). Un écart entre quantité facturée "
+                         "et quantité BL est automatiquement tracé côté prisma-api et remonté dans "
+                         "`lignes_avec_ecart_bl` du résultat — SIGNALER cet écart à l'utilisateur "
+                         "(potentielle surfacturation), jamais le corriger/deviner. confirm=true "
+                         "REQUIS. TOUJOURS avoir appelé lba_achats_bl_lignes_non_imputees AVANT et "
+                         "présenté le résultat. POST /api/bacchus/achats/facturation/"
+                         "importer-lignes."),
+        "inputSchema": {"type": "object", "required": ["ids_lignes", "confirm"], "properties": {
+            "ids_lignes": {"type": "array", "items": {"type": "integer"}},
+            "numero_facture": {"type": "integer", "description": "défaut: résolu via la procédure native PrismaSoft"},
+            "date_facture": {"type": "string"},
+            "total_ttc": {"type": "number"},
+            "lignes_facturees": {"type": "array", "description": "override PAR LIGNE, une entrée par id_ligne à surcharger", "items": {
+                "type": "object", "required": ["id_ligne", "quantite_facturee"], "properties": {
+                    "id_ligne": {"type": "integer"},
+                    "quantite_facturee": {"type": "number", "description": "quantité FACTURÉE lue sur le PDF, jamais la quantité BL"},
+                    "prix_unitaire_facture": {"type": "number"},
+                    "motif_ecart": {"type": "string", "description": "texte libre optionnel"},
+                }}},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_achats_bl_tracer_resolution_forcee",
+        "description": ("TRAÇAGE (n'écrit AUCUNE table PrismaSoft, append-only audit trail côté "
+                         "prisma-api) — enregistre un forçage manuel de consolidation "
+                         "désignation-fournisseur → article-LBA, à appeler quand "
+                         "lba_achats_bl_resoudre_reference renvoie `necessite_clarification=true` "
+                         "et que l'utilisateur tranche lui-même quel article utiliser. `motif` "
+                         "texte libre optionnel — jamais un forçage silencieux. confirm=true "
+                         "REQUIS. POST /api/bacchus/achats/facturation/tracer-resolution-forcee."),
+        "inputSchema": {"type": "object",
+            "required": ["fournisseur", "reference_fournisseur", "id_article_force", "confirm"],
+            "properties": {
+                "fournisseur": {"type": "string"},
+                "reference_fournisseur": {"type": "string"},
+                "id_article_force": {"type": "integer"},
+                "motif": {"type": "string"},
+                "confirm": {"type": "boolean"},
+                "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+            }},
+    },
     # ── Avoirs PrismaSoft (correction pièce de vente, plan_d9a888da mission
     # Phase 3/4, suite audit remises T19 du 19/08/2026) — même famille que
     # ACHATS ci-dessus, cf docstring bacchus_avoir_tools.py (LBA-DESKTOP).
@@ -1959,6 +2049,28 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
             "lignes": _req(args, "lignes"), "total_ttc": args.get("total_ttc"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id}, timeout=90)
+    if tool == "lba_achats_bl_lignes_non_imputees":
+        return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
+            "fournisseur": _req(args, "fournisseur"), "code_article": args.get("code_article")})
+    if tool == "lba_achats_bl_resoudre_reference":
+        return _get("/api/bacchus/achats/facturation/resoudre-reference", {
+            "fournisseur": _req(args, "fournisseur"),
+            "reference_fournisseur": _req(args, "reference_fournisseur"),
+            "date_reference": args.get("date_reference")})
+    if tool == "lba_achats_bl_importer_lignes":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/importer-lignes", {
+            "ids_lignes": _req(args, "ids_lignes"), "numero_facture": args.get("numero_facture"),
+            "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
+            "lignes_facturees": args.get("lignes_facturees"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_bl_tracer_resolution_forcee":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/tracer-resolution-forcee", {
+            "fournisseur": _req(args, "fournisseur"),
+            "reference_fournisseur": _req(args, "reference_fournisseur"),
+            "id_article_force": _req(args, "id_article_force"), "motif": args.get("motif"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_avoir_simuler":
         return _post("/api/bacchus/avoirs/simuler", {
             "num_piece": _req(args, "num_piece"), "code_client": _req(args, "code_client"),

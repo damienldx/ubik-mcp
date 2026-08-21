@@ -117,6 +117,13 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # lba_achats_reception_simuler/_creer, DATA/écriture métier, pas un
     # tool Graph/Todo nécessitant le ticket-exchange de session).
     "lba_avoir_simuler", "lba_avoir_creer",
+    # plan_a7c60f1c (2026-08-21, mission #4) : cablage CLI du flux Import BL
+    # (aucun Depends(current_user) côté backend LBA-DESKTOP, whitelist/
+    # confirm gérés par le wrapper Bacchus + prisma-api eux-mêmes — même
+    # posture que lba_avoir_simuler/_creer ci-dessus, DATA/écriture métier,
+    # pas un tool Graph/Todo).
+    "lba_achats_bl_lignes_non_imputees", "lba_achats_bl_resoudre_reference",
+    "lba_achats_bl_importer_lignes", "lba_achats_bl_tracer_resolution_forcee",
 })
 
 
