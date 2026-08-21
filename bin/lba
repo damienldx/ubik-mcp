@@ -846,6 +846,17 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
+    {
+        "name": "lba_achats_bl_lire_entete",
+        "description": ("Lecture pure — état actuel de l'en-tête d'une facture fournisseur "
+                         "(numero_interne=numFacture, reference_externe_fournisseur, date, total "
+                         "TTC). Permet de vérifier l'état RÉEL d'une pièce après une écriture (ex. "
+                         "après lba_achats_bl_modifier_entete), sans dépendre d'un rapport tiers. "
+                         "GET /api/bacchus/achats/facturation/lire-entete."),
+        "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
+            "id_facture": {"type": "integer"},
+        }},
+    },
     # ── Avoirs PrismaSoft (correction pièce de vente, plan_d9a888da mission
     # Phase 3/4, suite audit remises T19 du 19/08/2026) — même famille que
     # ACHATS ci-dessus, cf docstring bacchus_avoir_tools.py (LBA-DESKTOP).
@@ -2096,6 +2107,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "id_facture": _req(args, "id_facture"), "numero_facture": args.get("numero_facture"),
             "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_bl_lire_entete":
+        return _get("/api/bacchus/achats/facturation/lire-entete", {
+            "id_facture": _req(args, "id_facture")})
     if tool == "lba_avoir_simuler":
         return _post("/api/bacchus/avoirs/simuler", {
             "num_piece": _req(args, "num_piece"), "code_client": _req(args, "code_client"),
