@@ -830,16 +830,21 @@ TOOLS = [
     {
         "name": "lba_achats_bl_modifier_entete",
         "description": ("ÉCRITURE — corrige DIRECTEMENT l'en-tête d'une facture fournisseur déjà "
-                         "créée (numéro, date, total TTC), sans repasser par le flux de création. "
-                         "Cas d'usage typique : numéro de facture mal extrait détecté après coup "
-                         "(cf lba_facture_lire). Au moins un des 3 champs (numero_facture/"
-                         "date_facture/total_ttc) doit être fourni. Refuse si la facture est déjà "
-                         "importée en comptabilité — une contre-écriture formelle est requise, hors "
-                         "scope de cet outil. confirm=true REQUIS. POST /api/bacchus/achats/"
-                         "facturation/modifier-entete."),
+                         "créée (numéro interne, référence externe, date, total TTC), sans repasser "
+                         "par le flux de création. Au moins un des 4 champs doit être fourni. Refuse "
+                         "si la facture est déjà importée en comptabilité — une contre-écriture "
+                         "formelle est requise, hors scope de cet outil. P1 : numero_facture "
+                         "(numFacture, numéro de séquence INTERNE PrismaSoft, entier pur uniquement) "
+                         "et reference_externe_fournisseur "
+                         "(interoperabiliteReferenceExterneFactFournisseur, référence TELLE QUE LUE "
+                         "chez le fournisseur, ex. \"CNUR 112\") sont DEUX CHAMPS INDÉPENDANTS — "
+                         "utiliser reference_externe_fournisseur pour corriger un numéro de facture "
+                         "mal extrait d'un PDF (cf lba_facture_lire), JAMAIS numero_facture. "
+                         "confirm=true REQUIS. POST /api/bacchus/achats/facturation/modifier-entete."),
         "inputSchema": {"type": "object", "required": ["id_facture", "confirm"], "properties": {
             "id_facture": {"type": "integer"},
-            "numero_facture": {"type": "string", "description": "référence telle que lue sur le document (typage/résolution PrismaSoft gérés côté backend)"},
+            "numero_facture": {"type": "string", "description": "numéro de séquence INTERNE PrismaSoft (numFacture) -- entier pur uniquement, jamais une référence fournisseur externe"},
+            "reference_externe_fournisseur": {"type": "string", "description": "référence facture telle que lue sur le document fournisseur -- utiliser CE champ pour corriger un numéro mal extrait"},
             "date_facture": {"type": "string"},
             "total_ttc": {"type": "number"},
             "confirm": {"type": "boolean"},
@@ -2094,6 +2099,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/modifier-entete", {
             "id_facture": _req(args, "id_facture"), "numero_facture": args.get("numero_facture"),
+            "reference_externe_fournisseur": args.get("reference_externe_fournisseur"),
             "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_avoir_simuler":
