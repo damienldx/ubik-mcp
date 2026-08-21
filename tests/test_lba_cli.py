@@ -238,7 +238,17 @@ class TestCliSurface(unittest.TestCase):
         # + lba_achats_bl_tracer_resolution_forcee (mission #4, cablage CLI
         # du flux Import BL, backend LBA-DESKTOP/plan/bacchus_achats_
         # tools.py déjà livré mission #3, commit 2dad43e) = 112.
-        self.assertEqual(len(tools), 112)
+        # + lba_achats_bl_modifier_entete (plan_eb472683, 2026-08-21,
+        # mission #4 follow-up Import BL : cablage CLI de
+        # modifier_entete_facture_fournisseur, backend prisma-api déjà
+        # livré commit cd413a1 — AVERTISSEMENT : le wrapper LBA-DESKTOP/
+        # plan/bacchus_achats_tools.py::POST /api/bacchus/achats/
+        # facturation/modifier-entete que ce tool appelle N'EXISTE PAS
+        # ENCORE (vérifié : grep exhaustif sur le worktree LBA-DESKTOP
+        # assigné, 0 résultat) — cet enregistrement CLI seul ne rend PAS
+        # le tool fonctionnel bout-en-bout tant que ce wrapper manquant
+        # n'est pas livré séparément, cf rapport de mission) = 113.
+        self.assertEqual(len(tools), 113)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -250,6 +260,7 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("lba_achats_bl_resoudre_reference", names)
         self.assertIn("lba_achats_bl_importer_lignes", names)
         self.assertIn("lba_achats_bl_tracer_resolution_forcee", names)
+        self.assertIn("lba_achats_bl_modifier_entete", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(

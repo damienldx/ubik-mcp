@@ -124,6 +124,11 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # pas un tool Graph/Todo).
     "lba_achats_bl_lignes_non_imputees", "lba_achats_bl_resoudre_reference",
     "lba_achats_bl_importer_lignes", "lba_achats_bl_tracer_resolution_forcee",
+    # plan_eb472683 (2026-08-21, mission #4 follow-up Import BL) : cablage
+    # CLI de modifier_entete_facture_fournisseur — meme posture que les 4
+    # tools lba_achats_bl_* ci-dessus (whitelist/confirm geres cote
+    # prisma-api + wrapper Bacchus, pas un tool Graph/Todo).
+    "lba_achats_bl_modifier_entete",
 })
 
 
