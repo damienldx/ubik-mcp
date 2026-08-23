@@ -1649,6 +1649,80 @@ TOOLS = [
             "query": {"type": "string", "description": "recherche par mots-clés si nom absent/introuvable"},
             "limit": {"type": "integer", "description": "défaut 5, pour la recherche par mots-clés"}}},
     },
+    # ── DRIVE LBA (session 2026-08-23, demande explicite Damien) — dossiers
+    # PARTAGÉS (tous les seats/utilisateurs voient les mêmes dossiers, à la
+    # différence de LBA SKILLS/MEMORY ci-dessus qui sont scopés seat).
+    # Créés par les utilisateurs (ex: Ivan) depuis le panel Dossiers, pour que
+    # Bacchus les consulte/traite dans le cadre d'une mission (ex: "traite le
+    # dossier facture-meteor"). Même moteur qu'ubik-docs (extraction PDF/docx/
+    # xlsx/OCR + recherche sémantique), racine ~/.lba-docs isolée. Bacchus a
+    # lecture + écriture (dépôt de note de traitement), PAS d'upload binaire
+    # (réservé aux utilisateurs humains via le panel).
+    {
+        "name": "lba_dossier_liste",
+        "description": ("Lecture pure — liste le contenu d'un dossier du Drive LBA (sous-dossiers "
+                         "et fichiers). Sans `path`, liste la racine (tous les dossiers créés par "
+                         "les utilisateurs). GET /api/lba-docs/ls."),
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "chemin relatif, défaut racine"}}},
+    },
+    {
+        "name": "lba_dossier_arbre",
+        "description": ("Lecture pure — arborescence complète (dossiers + fichiers) à partir d'un "
+                         "chemin, jusqu'à `max_depth` niveaux. Utile pour une vue d'ensemble avant "
+                         "de plonger dans un dossier précis. GET /api/lba-docs/tree."),
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "chemin relatif, défaut racine"},
+            "max_depth": {"type": "integer", "description": "défaut 3"}}},
+    },
+    {
+        "name": "lba_dossier_lire",
+        "description": ("Lecture pure — extrait le CONTENU TEXTE d'un fichier du Drive (PDF/docx/"
+                         "xlsx/image OCR/texte brut déjà extraits à l'ingestion). `path` = chemin "
+                         "relatif exact (obtenu via lba_dossier_liste/arbre/rechercher). 404 "
+                         "explicite si absent. GET /api/lba-docs/read."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin relatif exact du fichier"},
+            "max_chars": {"type": "integer", "description": "défaut 20000"}}},
+    },
+    {
+        "name": "lba_dossier_rechercher",
+        "description": ("Lecture pure — recherche SÉMANTIQUE (pas mots-clés exacts) à travers tous "
+                         "les fichiers indexés du Drive LBA. Utile quand l'opérateur ne nomme pas le "
+                         "dossier/fichier exact (\"trouve le dossier qui parle de la facture "
+                         "Meteor\"). `path_prefix` optionnel pour restreindre à un sous-dossier. "
+                         "POST /api/lba-docs/search."),
+        "inputSchema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 8"},
+            "path_prefix": {"type": "string", "description": "optionnel — restreint la recherche à ce sous-dossier"}}},
+    },
+    {
+        "name": "lba_dossier_creer",
+        "description": ("ÉCRITURE — crée un (sous-)dossier dans le Drive LBA. La création de dossier "
+                         "reste principalement une action utilisateur via le panel Dossiers — "
+                         "n'utilise ce tool que sur demande EXPLICITE de l'opérateur pendant une "
+                         "mission (ex: organiser un sous-dossier pour une pièce précise). POST "
+                         "/api/lba-docs/mkdir."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin relatif du dossier à créer"}}},
+    },
+    {
+        "name": "lba_dossier_note",
+        "description": ("ÉCRITURE — dépose une note de traitement (compte-rendu, résumé d'analyse) "
+                         "dans un dossier EXISTANT du Drive LBA — jamais dans un dossier qui n'existe "
+                         "pas encore (créer d'abord via lba_dossier_creer si besoin, ou demander à "
+                         "l'opérateur). `filename` = identifiant court sans extension, alnum/-/_ "
+                         "(ex: 'traitement-2026-08-23') — écrit un fichier .md, réécrit entièrement "
+                         "si le même nom existe déjà (pas un append). Confirmation opérateur "
+                         "recommandée avant écriture, même doctrine que lba_skill_save/"
+                         "lba_memoire_save. POST /api/lba-docs/note."),
+        "inputSchema": {"type": "object", "required": ["path", "filename", "contenu"], "properties": {
+            "path": {"type": "string", "description": "dossier existant, chemin relatif"},
+            "filename": {"type": "string", "description": "identifiant court, alnum/-/_ (ex: traitement-2026-08-23)"},
+            "contenu": {"type": "string"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -2193,6 +2267,22 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_skill_charger":
         return _get("/api/bacchus/skills/charger", {
             "nom": args.get("nom"), "query": args.get("query"), "limit": args.get("limit", 5)})
+    if tool == "lba_dossier_liste":
+        return _get("/api/lba-docs/ls", {"path": args.get("path", ".")})
+    if tool == "lba_dossier_arbre":
+        return _get("/api/lba-docs/tree", {"path": args.get("path", "."), "max_depth": args.get("max_depth", 3)})
+    if tool == "lba_dossier_lire":
+        return _get("/api/lba-docs/read", {"path": _req(args, "path"), "max_chars": args.get("max_chars", 20000)})
+    if tool == "lba_dossier_rechercher":
+        return _post("/api/lba-docs/search", {
+            "query": _req(args, "query"), "limit": args.get("limit", 8), "path_prefix": args.get("path_prefix")})
+    if tool == "lba_dossier_creer":
+        return _post("/api/lba-docs/mkdir", {"path": _req(args, "path")})
+    if tool == "lba_dossier_note":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/lba-docs/note", {
+            "path": _req(args, "path"), "filename": _req(args, "filename"),
+            "contenu": _req(args, "contenu"), "agent_id": agent_id})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
