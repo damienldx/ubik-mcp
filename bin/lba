@@ -1621,6 +1621,9 @@ TOOLS = [
             "nom": {"type": "string", "description": "identifiant stable, alnum/-/_ uniquement (ex: facture-meteor)"},
             "description": {"type": "string"},
             "contenu": {"type": "string"},
+            "domaine": {"type": "string", "description": "thématique métier courte, ex: tarification, "
+                        "recouvrement, logistique — 'general' si non précisé. Sur une mise à jour d'un "
+                        "skill existant, omettre ce champ préserve son domaine déjà enregistré."},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
@@ -2179,9 +2182,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "code_client": args.get("code_client"), "limit": args.get("limit", 10)})
     if tool == "lba_skill_save":
         agent_id = _resolve_agent_id(args.get("agent_id"))
-        return _post("/api/bacchus/skills/save", {
+        payload = {
             "agent_id": agent_id, "nom": _req(args, "nom"),
-            "description": _req(args, "description"), "contenu": _req(args, "contenu")})
+            "description": _req(args, "description"), "contenu": _req(args, "contenu")}
+        if args.get("domaine"):
+            payload["domaine"] = args["domaine"]
+        return _post("/api/bacchus/skills/save", payload)
     if tool == "lba_skill_liste":
         return _get("/api/bacchus/skills/liste", {"limit": args.get("limit", 100)})
     if tool == "lba_skill_charger":
