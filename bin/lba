@@ -63,6 +63,7 @@ BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
 # les 18 tools DATA de Caton restent inchangés, zéro session requise.
 _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer", "lba_mail_marquer",
+    "lba_mail_pieces_jointes_lister", "lba_mail_piece_jointe_telecharger",
     "lba_calendar_liste", "lba_calendar_creer",
     "lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire",
     "lba_calendar_modifier", "lba_calendar_disponibilite",
@@ -1063,6 +1064,28 @@ TOOLS = [
             "status": {"type": "string", "description": "flagged (défaut) | complete | notFlagged"}}},
     },
     {
+        "name": "lba_mail_pieces_jointes_lister",
+        "description": ("Lecture pure — liste les pièces jointes d'un message Outlook (nom, type, "
+                         "taille), SANS télécharger le contenu. Appeler AVANT lba_mail_piece_jointe_"
+                         "telecharger pour connaître l'attachment_id, surtout si le message a "
+                         "plusieurs pièces jointes. GET /api/bacchus/mail/{message_id}/pieces-jointes."),
+        "inputSchema": {"type": "object", "required": ["message_id"], "properties": {
+            "message_id": {"type": "string"}}},
+    },
+    {
+        "name": "lba_mail_piece_jointe_telecharger",
+        "description": ("ÉCRITURE (locale uniquement, rien envoyé sur Microsoft/PrismaSoft) — "
+                         "télécharge UNE pièce jointe d'un message Outlook et l'enregistre "
+                         "localement, dans le MÊME répertoire que les pièces jointes uploadées au "
+                         "chat. Le `path` retourné est directement utilisable par lba_facture_lire "
+                         "puis lba_facture_piece_jointe_attacher — permet de traiter une facture "
+                         "reçue par email SANS que l'utilisateur ait à la télécharger et la joindre "
+                         "manuellement au chat. POST /api/bacchus/mail/{message_id}/pieces-jointes/"
+                         "{attachment_id}/telecharger."),
+        "inputSchema": {"type": "object", "required": ["message_id", "attachment_id"], "properties": {
+            "message_id": {"type": "string"}, "attachment_id": {"type": "string"}}},
+    },
+    {
         "name": "lba_mail_envoyer",
         "description": ("[ÉCRITURE] Compose et envoie un mail Outlook NEUF (pas un reply) — POST /api/bacchus/mail/envoyer. "
                          "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend."),
@@ -1778,6 +1801,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         message_id = _req(args, "message_id")
         return _patch(f"/api/bacchus/mail/{message_id}/marquer", {
             "status": args.get("status", "flagged")}, headers)
+    if tool == "lba_mail_pieces_jointes_lister":
+        message_id = _req(args, "message_id")
+        return _get(f"/api/bacchus/mail/{message_id}/pieces-jointes", {}, headers)
+    if tool == "lba_mail_piece_jointe_telecharger":
+        message_id = _req(args, "message_id")
+        attachment_id = _req(args, "attachment_id")
+        return _post(f"/api/bacchus/mail/{message_id}/pieces-jointes/{attachment_id}/telecharger", {}, headers)
     if tool == "lba_mail_envoyer":
         return _post("/api/bacchus/mail/envoyer", {
             "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
