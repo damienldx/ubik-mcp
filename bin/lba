@@ -690,6 +690,31 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["path"], "properties": {
             "path": {"type": "string", "description": "chemin absolu du fichier joint (répertoire chat-attachments)"}}},
     },
+    # ── Fallback visuel facture PDF -> image (2026-08-24, brief Ivan Diril,
+    # cas fondateur CCEP France 9401819987) — quand lba_facture_lire renvoie
+    # un avertissement/necessite_clarification, convertit la page concernée
+    # en image PNG pour lecture visuelle DIRECTE par Bacchus (vision native,
+    # session Claude Code) via son tool Read — AUCUNE extraction/LLM ici,
+    # pur rendu mécanique borné. Read reste interdit sur un PDF (risque de
+    # boucle, incident 07/08/2026) mais est sûr sur une image.
+    {
+        "name": "lba_facture_image",
+        "description": ("Lecture pure — convertit une ou plusieurs pages d'une facture PDF jointe "
+                         "au chat en image(s) PNG, pour un FALLBACK DE LECTURE VISUELLE (à lire "
+                         "ensuite avec ton tool Read natif — une image, jamais un PDF) quand "
+                         "lba_facture_lire renvoie un `avertissements` non vide ou "
+                         "`necessite_clarification` — JAMAIS en remplacement systématique du flux "
+                         "structuré rapide, seulement en complément ciblé sur les cas ambigus. "
+                         "AUCUNE extraction/interprétation faite ici — pur rendu mécanique, zéro "
+                         "appel LLM. Bornée en pages (cibler la/les page(s) contenant la zone "
+                         "ambiguë, pas le document entier) et en résolution. "
+                         "POST /api/bacchus/facture/image."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin absolu du fichier joint (répertoire chat-attachments)"},
+            "pages": {"type": "array", "items": {"type": "integer"}, "description": "1-indexé — défaut: toutes les pages du document (bornées)"},
+            "dpi": {"type": "integer", "description": "défaut 150 — résolution du rendu, plafonnée"},
+        }},
+    },
     # ── Saisie commerciale d'une pièce d'achat (Phase A, audit 2026-08-07) —
     # PAS de stock physique/valorisation (Phase B en attente réponse Ivan).
     {
@@ -2289,6 +2314,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         # borné côté serveur en plus (asyncio.wait_for, bacchus_facture_tools.py)
         # pour ne jamais reproduire le hang sans plafond de l'incident d'origine.
         return _post("/api/bacchus/facture/lire", {"path": _req(args, "path")}, timeout=90)
+    if tool == "lba_facture_image":
+        return _post("/api/bacchus/facture/image", {
+            "path": _req(args, "path"), "pages": args.get("pages"), "dpi": args.get("dpi")})
     if tool == "lba_achats_reception_simuler":
         return _post("/api/bacchus/achats/reception/simuler", {
             "type_document": _req(args, "type_document"), "numero_piece": args.get("numero_piece"),
