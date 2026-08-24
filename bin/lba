@@ -945,6 +945,81 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
+    # Articles liés NATIFS sur facture existante (VOLET A ter, 2026-08-24,
+    # suite CCEP France 9401819987, ledger l_f42394eccc/l_cbbbd8a3bb).
+    # DISTINCT de lba_achats_lignes_hors_bl_* ci-dessus : ce flux-ci calcule
+    # les lignes via la procédure stockée native PrismaSoft (bouton "ajout
+    # des articles liés" de l'écran natif), jamais un code article deviné.
+    # hors_bl reste réservé aux vraies lignes SANS article lié configuré.
+    {
+        "name": "lba_achats_articles_lies_simuler",
+        "description": ("Lecture pure — calcule les articles liés NATIFS (consigne/taxe) à "
+                         "ajouter sur une facture fournisseur DÉJÀ EXISTANTE, via la procédure "
+                         "stockée native PrismaSoft (même formule que le bouton 'ajout des "
+                         "articles liés' de l'écran natif). N'écrit rien. À utiliser À LA PLACE "
+                         "de lba_achats_lignes_hors_bl_simuler dès qu'un article principal a un "
+                         "mécanisme articles liés natif configuré (casiers CHEP/FUZE, palette "
+                         "LPR, taxes DSA...) — vérifiable AVANT avec "
+                         "lba_achats_articles_lies_configures. TOUJOURS appeler AVANT "
+                         "lba_achats_articles_lies_importer. "
+                         "POST /api/bacchus/achats/facturation/articles-lies/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
+            "id_facture": {"type": "integer", "description": "facture DÉJÀ EXISTANTE"},
+        }},
+    },
+    {
+        "name": "lba_achats_articles_lies_importer",
+        "description": ("ÉCRITURE — ajoute sur une facture fournisseur déjà existante les lignes "
+                         "d'articles liés natifs calculées par lba_achats_articles_lies_simuler. "
+                         "confirm=true REQUIS. TOUJOURS avoir appelé "
+                         "lba_achats_articles_lies_simuler AVANT et présenté le résultat à "
+                         "l'utilisateur — n'appeler qu'APRÈS confirmation explicite. "
+                         "POST /api/bacchus/achats/facturation/articles-lies/importer."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_achats_articles_lies_configures",
+        "description": ("Lecture pure — articles liés déjà configurés (référentiel natif "
+                         "PrismaSoft) pour un article principal donné, PAR CODE. N'écrit rien. "
+                         "À appeler pour VÉRIFIER avant saisie plutôt que deviner. "
+                         "GET /api/bacchus/achats/articles-lies-configures."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"},
+        }},
+    },
+    # Suppression / annulation de facture fournisseur non comptabilisée
+    # (VOLET A quater, 2026-08-24, ledger l_f42394eccc — cibles pièces 4360
+    # CCEP et 4358 doublon Meteor).
+    {
+        "name": "lba_achats_facture_supprimer_simuler",
+        "description": ("Lecture pure — prévisualise la suppression d'une facture fournisseur "
+                         "non comptabilisée : lignes qui seraient détachées (issues d'un vrai BL, "
+                         "JAMAIS perdues) vs supprimées (créées hors-BL pour cette facture). "
+                         "N'écrit rien. TOUJOURS appeler AVANT lba_achats_facture_supprimer. "
+                         "POST /api/bacchus/achats/facturation/supprimer/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
+            "id_facture": {"type": "integer"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_supprimer",
+        "description": ("ÉCRITURE DESTRUCTIVE — supprime une facture fournisseur non "
+                         "comptabilisée (idEcriture NULL). Détache les lignes issues d'un vrai "
+                         "BL (jamais perdues), supprime seulement les lignes hors-BL propres à "
+                         "cette facture, puis l'en-tête. confirm=true REQUIS. TOUJOURS avoir "
+                         "appelé lba_achats_facture_supprimer_simuler AVANT et présenté le "
+                         "résultat à l'utilisateur. "
+                         "POST /api/bacchus/achats/facturation/supprimer."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     {
         "name": "lba_facture_piece_jointe_attacher",
         "description": ("ÉCRITURE — lie un fichier déjà joint au chat (cf lba_facture_lire, "
@@ -2365,6 +2440,25 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/lignes-hors-bl/importer", {
             "id_facture": _req(args, "id_facture"), "lignes": _req(args, "lignes"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_articles_lies_simuler":
+        return _post("/api/bacchus/achats/facturation/articles-lies/simuler", {
+            "id_facture": _req(args, "id_facture")})
+    if tool == "lba_achats_articles_lies_importer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/articles-lies/importer", {
+            "id_facture": _req(args, "id_facture"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_articles_lies_configures":
+        return _get("/api/bacchus/achats/articles-lies-configures", {
+            "code_article": _req(args, "code_article")})
+    if tool == "lba_achats_facture_supprimer_simuler":
+        return _post("/api/bacchus/achats/facturation/supprimer/simuler", {
+            "id_facture": _req(args, "id_facture")})
+    if tool == "lba_achats_facture_supprimer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/supprimer", {
+            "id_facture": _req(args, "id_facture"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lire_entete":
         return _get("/api/bacchus/achats/facturation/lire-entete", {
