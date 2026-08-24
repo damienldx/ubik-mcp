@@ -1067,7 +1067,7 @@ TOOLS = [
     {
         "name": "lba_mail_dossiers_lister",
         "description": ("Lecture pure — liste TOUS les dossiers mail de l'utilisateur connecté "
-                         "(boîte principale + sous-dossiers, jusqu'à 3 niveaux), avec leur chemin "
+                         "(boîte principale + sous-dossiers, jusqu'à 8 niveaux), avec leur chemin "
                          "complet (ex. \"Fournisseurs/Meteor\"). Appeler ceci AVANT lba_mail_"
                          "rechercher dès que l'utilisateur nomme un dossier précis — ne jamais "
                          "deviner un dossier_id depuis son nom seul. GET /api/bacchus/mail/dossiers."),
