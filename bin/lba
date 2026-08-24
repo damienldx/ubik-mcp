@@ -866,6 +866,60 @@ TOOLS = [
             "id_facture": {"type": "integer"},
         }},
     },
+    # ── Lignes hors-BL sur facture existante (VOLET A bis, plan_3d76dd97/
+    # plan_b49dd30d, cas fondateur CCEP France 9401819987) — un article lié
+    # consigne/taxe (casiers CHEP/FUZE, palette LPR, accises...) n'a
+    # STRUCTURELLEMENT jamais de ligne BL de réception (la gestion physique
+    # de la consigne démarre au retour client, jamais à la réception
+    # fournisseur), donc n'entre jamais dans lba_achats_bl_lignes_non_
+    # imputees. Distinct de lba_achats_reception_creer qui crée toujours
+    # une NOUVELLE facture (scinderait une facture fournisseur réelle en 2
+    # enregistrements) — ce flux-ci rattache directement à une facture
+    # DÉJÀ EXISTANTE (celle créée par lba_achats_bl_importer_lignes pour
+    # les lignes produit avec BL).
+    {
+        "name": "lba_achats_lignes_hors_bl_simuler",
+        "description": ("Lecture pure — résout chaque ligne (article, unité) à ajouter SANS BL "
+                         "correspondant sur une facture fournisseur DÉJÀ EXISTANTE (articles liés "
+                         "consigne/taxe). N'écrit rien. Chaque ligne résolue porte "
+                         "`est_article_consigne`/`prix_confirme`/`prix_reference` — signal "
+                         "confirmatoire, JAMAIS une décision automatique : c'est à l'appelant de "
+                         "décider quelle ligne est un article lié avant de la soumettre, jamais à "
+                         "deviner ici. TOUJOURS appeler AVANT lba_achats_lignes_hors_bl_importer. "
+                         "POST /api/bacchus/achats/facturation/lignes-hors-bl/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "lignes"], "properties": {
+            "id_facture": {"type": "integer", "description": "facture DÉJÀ EXISTANTE (ex: créée par lba_achats_bl_importer_lignes)"},
+            "lignes": {"type": "array", "items": {"type": "object", "properties": {
+                "code_article": {"type": "string"},
+                "quantite": {"type": "number"},
+                "prix_unitaire_ht": {"type": "number"},
+                "unite": {"type": "string"},
+            }}},
+        }},
+    },
+    {
+        "name": "lba_achats_lignes_hors_bl_importer",
+        "description": ("ÉCRITURE — ajoute des lignes SANS BL correspondant sur une facture "
+                         "fournisseur déjà existante (articles liés consigne/taxe — cf CCEP France "
+                         "9401819987). Crée de NOUVELLES lignes rattachées directement à "
+                         "id_facture, jamais de BL fictif inventé, jamais une 2e facture créée. "
+                         "confirm=true REQUIS. TOUJOURS avoir appelé "
+                         "lba_achats_lignes_hors_bl_simuler AVANT et présenté le résultat (en "
+                         "particulier est_article_consigne/prix_confirme) à l'utilisateur — "
+                         "n'appeler qu'APRÈS confirmation explicite sur les valeurs affichées. "
+                         "POST /api/bacchus/achats/facturation/lignes-hors-bl/importer."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "lignes", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "lignes": {"type": "array", "items": {"type": "object", "properties": {
+                "code_article": {"type": "string"},
+                "quantite": {"type": "number"},
+                "prix_unitaire_ht": {"type": "number"},
+                "unite": {"type": "string"},
+            }}},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     {
         "name": "lba_facture_piece_jointe_attacher",
         "description": ("ÉCRITURE — lie un fichier déjà joint au chat (cf lba_facture_lire, "
@@ -2275,6 +2329,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "id_facture": _req(args, "id_facture"), "numero_facture": args.get("numero_facture"),
             "reference_externe_fournisseur": args.get("reference_externe_fournisseur"),
             "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_lignes_hors_bl_simuler":
+        return _post("/api/bacchus/achats/facturation/lignes-hors-bl/simuler", {
+            "id_facture": _req(args, "id_facture"), "lignes": _req(args, "lignes")})
+    if tool == "lba_achats_lignes_hors_bl_importer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/lignes-hors-bl/importer", {
+            "id_facture": _req(args, "id_facture"), "lignes": _req(args, "lignes"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lire_entete":
         return _get("/api/bacchus/achats/facturation/lire-entete", {
