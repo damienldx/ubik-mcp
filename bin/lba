@@ -836,8 +836,10 @@ TOOLS = [
                          "formelle est requise, hors scope de cet outil. P1 : numero_facture "
                          "(numFacture, numéro de séquence INTERNE PrismaSoft, entier pur uniquement) "
                          "et reference_externe_fournisseur "
-                         "(interoperabiliteReferenceExterneFactFournisseur, référence TELLE QUE LUE "
-                         "chez le fournisseur, ex. \"CNUR 112\") sont DEUX CHAMPS INDÉPENDANTS — "
+                         "(commentaireFacture -- le champ RÉELLEMENT rendu à l'écran natif "
+                         "PrismaSoft, Fournisseurs -> Facturation, \"Réf. fourn.\" -- corrigé "
+                         "2026-08-24, l'ancienne colonne interop n'était jamais affichée à l'écran) "
+                         "sont DEUX CHAMPS INDÉPENDANTS — "
                          "utiliser reference_externe_fournisseur pour corriger un numéro de facture "
                          "mal extrait d'un PDF (cf lba_facture_lire), JAMAIS numero_facture. "
                          "confirm=true REQUIS. POST /api/bacchus/achats/facturation/modifier-entete."),
@@ -858,6 +860,31 @@ TOOLS = [
                          "TTC). Permet de vérifier l'état RÉEL d'une pièce après une écriture (ex. "
                          "après lba_achats_bl_modifier_entete), sans dépendre d'un rapport tiers. "
                          "GET /api/bacchus/achats/facturation/lire-entete."),
+        "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
+            "id_facture": {"type": "integer"},
+        }},
+    },
+    {
+        "name": "lba_facture_piece_jointe_attacher",
+        "description": ("ÉCRITURE — lie un fichier déjà joint au chat (cf lba_facture_lire, "
+                         "même path) à une facture fournisseur PrismaSoft. PrismaSoft n'a AUCUNE "
+                         "table native pour lier un document à une facture d'achat (vérifié "
+                         "exhaustivement) -- ce tool enregistre le lien dans une table externe "
+                         "dédiée, ne déplace ni ne copie le fichier. Le drag-and-drop natif "
+                         "PrismaSoft (fichier réseau/local hors base de données) reste inchangé et "
+                         "indépendant de ce mécanisme. POST /api/bacchus/facture/piece-jointe/"
+                         "attacher."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "path"], "properties": {
+            "id_facture": {"type": "integer"},
+            "path": {"type": "string", "description": "chemin du fichier déjà joint au chat, même valeur que pour lba_facture_lire"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_facture_piece_jointe_lister",
+        "description": ("Lecture pure — liste les pièces jointes liées à une facture "
+                         "fournisseur (cf lba_facture_piece_jointe_attacher). GET /api/bacchus/"
+                         "facture/piece-jointe/lister."),
         "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
             "id_facture": {"type": "integer"},
         }},
@@ -2192,6 +2219,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lire_entete":
         return _get("/api/bacchus/achats/facturation/lire-entete", {
+            "id_facture": _req(args, "id_facture")})
+    if tool == "lba_facture_piece_jointe_attacher":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/facture/piece-jointe/attacher", {
+            "id_facture": _req(args, "id_facture"), "path": _req(args, "path"), "agent_id": agent_id})
+    if tool == "lba_facture_piece_jointe_lister":
+        return _get("/api/bacchus/facture/piece-jointe/lister", {
             "id_facture": _req(args, "id_facture")})
     if tool == "lba_avoir_simuler":
         return _post("/api/bacchus/avoirs/simuler", {
