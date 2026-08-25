@@ -803,6 +803,26 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_bl_deduire_taxes_calculees",
+        "description": ("Lecture pure, calcul déterministe — déduit d'un prix unitaire NET LU sur "
+                         "une facture (taxes parafiscales déjà incluses, ex. la valeur en bas de "
+                         "bloc « PRIX NET » d'une facture CCEP-style) le montant de ces taxes, via "
+                         "le référentiel natif PrismaSoft déjà exact pour cet article (famille TAXE "
+                         "PARAFISCALE). DOCTRINE (diagnostic facture CCEP 9401819987, ledger "
+                         "l_c6a4e12535) : PrismaSoft ajoute DÉJÀ les taxes/consigne via le mécanisme "
+                         "natif articles-liés (lba_achats_articles_lies_importer) — la ligne produit "
+                         "doit TOUJOURS être saisie hors ces taxes, jamais avec. TOUJOURS appeler ce "
+                         "tool pour chaque ligne AVANT de passer un prix « net final lu sur facture » "
+                         "à lba_achats_bl_importer_lignes — le `prix_hors_taxes_calculees` retourné "
+                         "est celui à saisir, jamais le prix lu directement. N'écrit rien, aucune "
+                         "identité requise. POST /api/bacchus/achats/facturation/"
+                         "deduire-taxes-calculees."),
+        "inputSchema": {"type": "object", "required": ["code_article", "prix_incluant_taxes"], "properties": {
+            "code_article": {"type": "string"},
+            "prix_incluant_taxes": {"type": "number", "description": "prix unitaire NET lu tel quel sur la facture, taxes parafiscales déjà incluses"},
+        }},
+    },
+    {
         "name": "lba_achats_bl_importer_lignes",
         "description": ("ÉCRITURE — rattache des lignes BL/réception non imputées sur une "
                          "NOUVELLE facture. `lignes_facturees` (optionnel, PAR LIGNE) : la "
@@ -2412,6 +2432,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "fournisseur": _req(args, "fournisseur"),
             "reference_fournisseur": _req(args, "reference_fournisseur"),
             "date_reference": args.get("date_reference")})
+    if tool == "lba_achats_bl_deduire_taxes_calculees":
+        return _post("/api/bacchus/achats/facturation/deduire-taxes-calculees", {
+            "code_article": _req(args, "code_article"),
+            "prix_incluant_taxes": _req(args, "prix_incluant_taxes")})
     if tool == "lba_achats_bl_importer_lignes":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/importer-lignes", {

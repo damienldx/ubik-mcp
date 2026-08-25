@@ -184,6 +184,43 @@ class TestT19HarmonisationAppliquerCodeArticle(unittest.TestCase):
         self.assertEqual(cap.payload["r2_cible"], 0.0)
 
 
+class TestAchatsBlDeduireTaxesCalculees(unittest.TestCase):
+    """P1 signalé Ivan via Pierre (msg_ref=91571b5f3457, plan_b4be7a9b) : le
+    tool n'était jamais câblé dans le registre CLI (0 résultat sur `deduire`
+    dans bin/lba avant ce commit — diagnostic confirmé ledger l_a1165b0613).
+    Verrouille le contrat POST exact attendu côté backend
+    (LBA-DESKTOP/plan/bacchus_achats_tools.py:249, DeduireTaxesCalculees)."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    def _captured(self, args):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_achats_bl_deduire_taxes_calculees", args)
+        return ctx.exception
+
+    def test_transmet_code_article_et_prix_incluant_taxes(self):
+        cap = self._captured({"code_article": "3337", "prix_incluant_taxes": 12.5})
+        self.assertEqual(cap.path, "/api/bacchus/achats/facturation/deduire-taxes-calculees")
+        self.assertEqual(cap.payload, {"code_article": "3337", "prix_incluant_taxes": 12.5})
+
+    def test_code_article_manquant_leve(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_achats_bl_deduire_taxes_calculees", {"prix_incluant_taxes": 12.5})
+
+    def test_prix_incluant_taxes_manquant_leve(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_achats_bl_deduire_taxes_calculees", {"code_article": "3337"})
+
+
 class TestCliSurface(unittest.TestCase):
     def test_list_returns_18_tools(self):
         out = subprocess.run(
@@ -255,7 +292,22 @@ class TestCliSurface(unittest.TestCase):
         # cbdf231, GET /api/bacchus/achats/facturation/lire-entete) — ce
         # tool EST fonctionnel bout-en-bout dès ce commit, contrairement
         # à l'avertissement ci-dessus sur modifier-entete) = 114.
-        self.assertEqual(len(tools), 114)
+        # DRIFT PRÉ-EXISTANT DÉCOUVERT ICI (plan_b4be7a9b, 2026-08-25,
+        # mission P1 signalé Ivan — deduire-taxes-calculees jamais câblé) :
+        # la baseline RÉELLE sur HEAD avant cette mission était déjà 134
+        # (`bin/lba --list` + `git stash`, même méthode que tous les drifts
+        # précédents ci-dessus), pas 114 — beaucoup de tools ajoutés depuis
+        # sans mise à jour de ce test. Non ré-audité ligne à ligne (hors
+        # scope, seul livrable ici = lba_achats_bl_deduire_taxes_calculees)
+        # — signalé au Chef d'Atelier plutôt que corrigé silencieusement,
+        # même doctrine que tous les drifts précédents.
+        # 134 (baseline réelle mesurée) + lba_achats_bl_deduire_taxes_
+        # calculees (P1 signalé Ivan via Pierre, msg_ref=91571b5f3457 :
+        # POST /achats/facturation/deduire-taxes-calculees existait déjà
+        # côté backend, ledger l_c6a4e12535, mais n'avait JAMAIS été câblé
+        # dans le registre CLI — diagnostic confirmé ledger l_a1165b0613)
+        # = 135.
+        self.assertEqual(len(tools), 135)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -269,6 +321,7 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("lba_achats_bl_tracer_resolution_forcee", names)
         self.assertIn("lba_achats_bl_modifier_entete", names)
         self.assertIn("lba_achats_bl_lire_entete", names)
+        self.assertIn("lba_achats_bl_deduire_taxes_calculees", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(
