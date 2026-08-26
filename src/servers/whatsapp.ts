@@ -2,10 +2,15 @@
 /**
  * WhatsApp — standalone MCP stdio server.
  *
- * Tools (3) — naming convention `whatsapp_<verb>_<object>`:
- *   - whatsapp_send_message  — Send a text message to a chat/contact.
- *   - whatsapp_send_media    — Send an image/video/audio/document from a local file path.
- *   - whatsapp_get_chat      — Get chat info (name, group participants).
+ * Tools (4) — naming convention `whatsapp_<verb>_<object>`:
+ *   - whatsapp_send_message         — Send a text message to a chat/contact.
+ *   - whatsapp_send_media           — Send an image/video/audio/document from a local file path.
+ *   - whatsapp_get_chat             — Get chat info (name, group participants).
+ *   - whatsapp_get_recent_messages  — Non-destructive read of the N most recent
+ *     messages (proxies GET /messages/recent, added in hermes-agent commit
+ *     3ea0b4d5 — mission #1, plan_41391cc2). Read-only; unlike the bridge's
+ *     /messages, it never drains the destructive routing queue used by the
+ *     future bacchus_whatsapp_router.py poller.
  *
  * No OAuth here: this proxies over HTTP to the persistent Baileys bridge
  * (wa-video-capture.service, ~/.hermes/whatsapp/session — already paired by
@@ -68,6 +73,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { createMcpServer, runServer } from "../lib/server";
+import { buildRecentMessagesPath } from "./whatsapp-recent";
 
 config({ path: join(process.cwd(), ".env") });
 
@@ -160,6 +166,18 @@ server.tool(
   },
   async ({ chatId }) => {
     const data = await bridgeFetch(`/chat/${encodeURIComponent(chatId)}`);
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_get_recent_messages",
+  "Non-destructive read of the N most recent WhatsApp messages. Unlike the bridge's polling queue, this never removes messages from the routing queue reserved for the WhatsApp message router.",
+  {
+    limit: z.number().int().positive().optional().describe("Max messages to return (default 50, capped at 200)"),
+  },
+  async ({ limit }) => {
+    const data = await bridgeFetch(buildRecentMessagesPath(limit));
     return { content: [{ type: "text", text: JSON.stringify(data) }] };
   },
 );
