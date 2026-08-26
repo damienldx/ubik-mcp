@@ -28,11 +28,38 @@
  * needs its own --port/--session, one WhatsApp number per tenant — see
  * hermes-agent's bridge.js, same 1-session-per-WebSocket constraint.
  *
+ * Autonomy gate (plan_60514194, mission #6 revised scope, ordre LEAD/Damien
+ * 2026-08-26): bacchus seats (lba-seat/lba-direction) must NEVER be able to
+ * send a WhatsApp message without going through the same VERT/ORANGE/ROUGE
+ * classify_niveau() gate already coded+tested 900+ times for mail/Teams
+ * (LBA-DESKTOP/plan/bacchus_direction_autonomie.py — Python, SQLite-backed
+ * ORANGE-tier persist+confirm flow). That gate is NOT reachable from here:
+ * this is a generic, repo-agnostic TS proxy used fleet-wide (not just by
+ * bacchus — e.g. the fleet's own mcp__ubik__whatsapp_* tools), with no
+ * caller identity and no coupling to LBA-DESKTOP's Python backend. Two bad
+ * options were rejected: (a) unconditionally block all sends here would
+ * regress every EXISTING non-bacchus caller of this shared server; (b)
+ * reimplementing classify_niveau() in TypeScript here would duplicate
+ * business logic across languages/repos with real drift risk, and couldn't
+ * reach the ORANGE-tier SQLite persist+confirm state LBA-DESKTOP already
+ * has. Chosen instead (default-safe, zero regression, zero duplication):
+ * an opt-in kill switch, OFF by default (today's fleet-wide behavior is
+ * UNCHANGED), that a bacchus per-tenant instance turns ON to refuse EVERY
+ * send outright until the real gate is wired at the correct layer (a new
+ * LBA-DESKTOP endpoint mirroring mail_envoyer's classify_niveau() call,
+ * itself proxying to this bridge — separate chantier, not this mission).
+ * This satisfies the hard constraint ("never an ungated whatsapp send")
+ * for bacchus without touching shared infra behavior for anyone else.
+ *
  * Required env vars (loaded from .env via dotenv):
  *   - WHATSAPP_BRIDGE_URL (optional, defaults to http://127.0.0.1:3000 —
  *     for multi-tenant use, ALWAYS set this explicitly per instance; the
  *     startup log line below makes a forgotten override visible instead of
  *     silently sharing the default bridge across tenants)
+ *   - WHATSAPP_REQUIRE_AUTONOMY_GATE (optional, default unset/false — set
+ *     to "true"/"1" on a bacchus per-tenant instance to refuse ALL sends
+ *     until the classify_niveau() gate is wired server-side; whatsapp_get_chat
+ *     stays unaffected, it's read-only)
  *
  * Run with: tsx src/servers/whatsapp.ts
  */
@@ -52,6 +79,30 @@ console.error(
       `For multi-tenant/per-seat use, set WHATSAPP_BRIDGE_URL explicitly so this instance never ` +
       `silently shares another tenant's bridge.`,
 );
+
+const REQUIRE_AUTONOMY_GATE = /^(1|true)$/i.test(process.env.WHATSAPP_REQUIRE_AUTONOMY_GATE || "");
+if (REQUIRE_AUTONOMY_GATE) {
+  console.error(
+    "[ubik-whatsapp] WHATSAPP_REQUIRE_AUTONOMY_GATE is set — whatsapp_send_message/send_media " +
+    "will refuse every call until the classify_niveau() autonomy gate is wired server-side " +
+    "(LBA-DESKTOP endpoint, mirrors mail_envoyer). whatsapp_get_chat is unaffected.",
+  );
+}
+
+function autonomyGateRefusal(): { content: Array<{ type: "text"; text: string }> } {
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        error: "autonomy_gate_not_wired",
+        message:
+          "Refused: this instance requires the VERT/ORANGE/ROUGE autonomy gate (classify_niveau) " +
+          "before any WhatsApp send, same as mail/Teams — that gate is not yet wired for WhatsApp. " +
+          "No message was sent. This is not a transient error; do not retry.",
+      }),
+    }],
+  };
+}
 
 async function bridgeFetch(pathAndQuery: string, init?: RequestInit): Promise<any> {
   const res = await fetch(`${BRIDGE_URL}${pathAndQuery}`, {
@@ -75,6 +126,7 @@ server.tool(
     message: z.string().describe("Text message body"),
   },
   async ({ chatId, message }) => {
+    if (REQUIRE_AUTONOMY_GATE) return autonomyGateRefusal();
     const data = await bridgeFetch("/send", { method: "POST", body: JSON.stringify({ chatId, message }) });
     return { content: [{ type: "text", text: JSON.stringify(data) }] };
   },
@@ -91,6 +143,7 @@ server.tool(
     fileName: z.string().optional().describe("Display name for document sends"),
   },
   async ({ chatId, filePath, mediaType, caption, fileName }) => {
+    if (REQUIRE_AUTONOMY_GATE) return autonomyGateRefusal();
     const data = await bridgeFetch("/send-media", {
       method: "POST",
       body: JSON.stringify({ chatId, filePath, mediaType, caption, fileName }),
