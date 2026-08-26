@@ -307,7 +307,15 @@ class TestCliSurface(unittest.TestCase):
         # côté backend, ledger l_c6a4e12535, mais n'avait JAMAIS été câblé
         # dans le registre CLI — diagnostic confirmé ledger l_a1165b0613)
         # = 135.
-        self.assertEqual(len(tools), 135)
+        # BASELINE VÉRIFIÉE (carte t_710b1c78d3, plan_425ab05c, mission #2,
+        # 2026-08-26, `bin/lba --list` + `git stash`, même méthode que tous
+        # les drifts ci-dessus) : 135 sur HEAD avant cette mission — AUCUN
+        # drift détecté cette fois, la valeur documentée correspondait déjà
+        # à la réalité. 135 + lba_whatsapp_envoyer (mirroir lba_mail_envoyer,
+        # gate d'envoi WhatsApp VERT/ORANGE/ROUGE, backend
+        # LBA-DESKTOP/plan/bacchus_whatsapp_envoyer.py déjà livré mission
+        # #1, commit LBA-DESKTOP 2fe78ab) = 136.
+        self.assertEqual(len(tools), 136)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

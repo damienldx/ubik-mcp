@@ -87,6 +87,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
     "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
     "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
+    # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
+    # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
+    "lba_whatsapp_envoyer",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -1294,6 +1297,19 @@ TOOLS = [
             "is_html": {"type": "boolean", "description": "défaut false"}}},
     },
     {
+        "name": "lba_whatsapp_envoyer",
+        "description": ("[ÉCRITURE] Compose et envoie un message WhatsApp SORTANT — POST /api/bacchus/whatsapp/envoyer. "
+                         "Mirroir exact de lba_mail_envoyer (même gate VERT/ORANGE/ROUGE côté backend, "
+                         "bacchus_direction_autonomie.py) : VERT envoie immédiatement, ORANGE persiste et retourne "
+                         "pending_id SANS envoyer (validation explicite requise, clic front UNIQUEMENT — AUCUN tool "
+                         "CLI de confirmation n'existe, exprès, jamais le LLM), ROUGE refuse (403) sans rien préparer. "
+                         "Confirmation destinataire+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend "
+                         "côté préparation elle-même (la garde ORANGE/ROUGE est côté serveur, pas ici)."),
+        "inputSchema": {"type": "object", "required": ["chatId", "message"], "properties": {
+            "chatId": {"type": "string", "description": "JID destinataire WhatsApp, ex. '33612345678@s.whatsapp.net' ou groupe '...@g.us'"},
+            "message": {"type": "string"}}},
+    },
+    {
         "name": "lba_calendar_liste",
         "description": "Événements calendrier de l'utilisateur connecté — GET /api/bacchus/calendar/liste.",
         "inputSchema": {"type": "object", "properties": {
@@ -2015,6 +2031,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/mail/envoyer", {
             "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
             "cc": args.get("cc"), "is_html": args.get("is_html", False)}, headers)
+    if tool == "lba_whatsapp_envoyer":
+        return _post("/api/bacchus/whatsapp/envoyer", {
+            "chatId": _req(args, "chatId"), "message": _req(args, "message")}, headers)
     if tool == "lba_calendar_liste":
         return _get("/api/bacchus/calendar/liste", {
             "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
