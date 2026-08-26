@@ -2,15 +2,30 @@
 /**
  * WhatsApp — standalone MCP stdio server.
  *
- * Tools (4) — naming convention `whatsapp_<verb>_<object>`:
- *   - whatsapp_send_message         — Send a text message to a chat/contact.
- *   - whatsapp_send_media           — Send an image/video/audio/document from a local file path.
+ * Tools (8) — naming convention `whatsapp_<verb>_<object>`:
+ *   - whatsapp_send_message         — Send a text message to a chat/contact. GATED.
+ *   - whatsapp_send_media           — Send an image/video/audio/document from a local file path. GATED.
+ *   - whatsapp_edit_message         — Edit a previously sent message. GATED.
+ *   - whatsapp_typing               — Send a typing/composing indicator. Ungated (ephemeral, no content).
+ *   - whatsapp_health               — Bridge connection health (status, queue length, uptime). Ungated (read-only).
  *   - whatsapp_get_chat             — Get chat info (name, group participants).
  *   - whatsapp_get_recent_messages  — Non-destructive read of the N most recent
  *     messages (proxies GET /messages/recent, added in hermes-agent commit
  *     3ea0b4d5 — mission #1, plan_41391cc2). Read-only; unlike the bridge's
  *     /messages, it never drains the destructive routing queue used by the
  *     future bacchus_whatsapp_router.py poller.
+ *   - whatsapp_download_media       — Download the media attached to a
+ *     previously received message (proxies GET /media/:messageId, added in
+ *     hermes-agent commit aaa59aaa — mission #5, plan_14995c8c). Read-only,
+ *     ungated (downloads content already received, not an outbound action).
+ *     Only messages still in the bridge's recentHistory (last 200) are
+ *     downloadable — an older messageId returns 404 even if the file is
+ *     still on disk. Bridge caps cached files at 25 MB (413 above that).
+ *
+ * NOT exposed: GET /messages — destructive read (drains the routing queue
+ * reserved for bacchus_whatsapp_router.py's poller); a second reader here
+ * would steal messages from that poller. Use whatsapp_get_recent_messages
+ * instead.
  *
  * No OAuth here: this proxies over HTTP to the persistent Baileys bridge
  * (wa-video-capture.service, ~/.hermes/whatsapp/session — already paired by
@@ -33,8 +48,13 @@
  * needs its own --port/--session, one WhatsApp number per tenant — see
  * hermes-agent's bridge.js, same 1-session-per-WebSocket constraint.
  *
- * Autonomy gate (plan_60514194, mission #6 revised scope, ordre LEAD/Damien
- * 2026-08-26): bacchus seats (lba-seat/lba-direction) must NEVER be able to
+ * Autonomy gate (plan_60514194, mission #6; extended to whatsapp_edit_message
+ * and fixed on whatsapp_send_media in mission #4, plan_14995c8c, 2026-08-26 —
+ * send_media was missing the gate check entirely, an inconsistency with
+ * send_message despite the mandate yamls already documenting it as gated).
+ * Gate covers every tool that writes content the recipient actually sees
+ * (send_message, send_media, edit_message) — never typing/health/reads.
+ * Bacchus seats (lba-seat/lba-direction) must NEVER be able to
  * send a WhatsApp message without going through the same VERT/ORANGE/ROUGE
  * classify_niveau() gate already coded+tested 900+ times for mail/Teams
  * (LBA-DESKTOP/plan/bacchus_direction_autonomie.py — Python, SQLite-backed
@@ -62,9 +82,10 @@
  *     startup log line below makes a forgotten override visible instead of
  *     silently sharing the default bridge across tenants)
  *   - WHATSAPP_REQUIRE_AUTONOMY_GATE (optional, default unset/false — set
- *     to "true"/"1" on a bacchus per-tenant instance to refuse ALL sends
- *     until the classify_niveau() gate is wired server-side; whatsapp_get_chat
- *     stays unaffected, it's read-only)
+ *     to "true"/"1" on a bacchus per-tenant instance to refuse ALL sends/
+ *     edits (send_message, send_media, edit_message) until the
+ *     classify_niveau() gate is wired server-side; typing/health/get_chat/
+ *     get_recent_messages stay unaffected, they don't write content)
  *
  * Run with: tsx src/servers/whatsapp.ts
  */
@@ -89,9 +110,10 @@ console.error(
 const REQUIRE_AUTONOMY_GATE = /^(1|true)$/i.test(process.env.WHATSAPP_REQUIRE_AUTONOMY_GATE || "");
 if (REQUIRE_AUTONOMY_GATE) {
   console.error(
-    "[ubik-whatsapp] WHATSAPP_REQUIRE_AUTONOMY_GATE is set — whatsapp_send_message/send_media " +
-    "will refuse every call until the classify_niveau() autonomy gate is wired server-side " +
-    "(LBA-DESKTOP endpoint, mirrors mail_envoyer). whatsapp_get_chat is unaffected.",
+    "[ubik-whatsapp] WHATSAPP_REQUIRE_AUTONOMY_GATE is set — whatsapp_send_message/send_media/" +
+    "edit_message will refuse every call until the classify_niveau() autonomy gate is wired " +
+    "server-side (LBA-DESKTOP endpoint, mirrors mail_envoyer). whatsapp_typing/health/get_chat/" +
+    "get_recent_messages are unaffected.",
   );
 }
 
@@ -159,6 +181,46 @@ server.tool(
 );
 
 server.tool(
+  "whatsapp_edit_message",
+  "Edits a previously sent WhatsApp text message (only messages sent by this account can be edited).",
+  {
+    chatId: z.string().describe("Chat JID the original message was sent to"),
+    messageId: z.string().describe("The sent message's id (returned as messageId by whatsapp_send_message/whatsapp_send_media)"),
+    message: z.string().describe("New text content replacing the original message"),
+  },
+  async ({ chatId, messageId, message }) => {
+    if (REQUIRE_AUTONOMY_GATE) return autonomyGateRefusal();
+    const data = await bridgeFetch("/edit", {
+      method: "POST",
+      body: JSON.stringify({ chatId, messageId, message }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_typing",
+  "Sends a 'composing' (typing…) indicator to a chat. Ephemeral UI signal, no message content — not gated.",
+  {
+    chatId: z.string().describe("Chat JID to show the typing indicator in"),
+  },
+  async ({ chatId }) => {
+    const data = await bridgeFetch("/typing", { method: "POST", body: JSON.stringify({ chatId }) });
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_health",
+  "Checks the WhatsApp bridge's connection health: connection status, pending queue length, recent-history length, process uptime. Read-only, not gated — lets the caller verify its own WhatsApp connection before acting.",
+  {},
+  async () => {
+    const data = await bridgeFetch("/health");
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
   "whatsapp_get_chat",
   "Gets chat info (display name, whether it's a group, group participant JIDs).",
   {
@@ -179,6 +241,33 @@ server.tool(
   async ({ limit }) => {
     const data = await bridgeFetch(buildRecentMessagesPath(limit));
     return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_download_media",
+  "Downloads the media (image/video/audio/document) attached to a previously received WhatsApp message, returned as base64-encoded bytes. Read-only, not gated — downloads content already received, not an outbound action. Only messages still in the bridge's recent history (last 200) are downloadable; an older messageId returns a not-found error even if the file still exists on disk. The bridge caps cached files at 25 MB and refuses larger ones.",
+  {
+    messageId: z.string().describe("The WhatsApp message id whose attached media to download (e.g. from whatsapp_get_recent_messages)"),
+  },
+  async ({ messageId }) => {
+    const res = await fetch(`${BRIDGE_URL}/media/${encodeURIComponent(messageId)}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(`WhatsApp media download error (${res.status}): ${data?.error || JSON.stringify(data)}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          messageId,
+          contentType: res.headers.get("content-type") ?? null,
+          sizeBytes: buf.length,
+          base64Body: buf.toString("base64"),
+        }),
+      }],
+    };
   },
 );
 
