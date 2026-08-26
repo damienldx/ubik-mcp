@@ -85,6 +85,11 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
     "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
     "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
+    # carte t_710b1c78d3 (plan_425ab05c, mission #2) — gate d'envoi WhatsApp
+    # sortant, mirroir exact lba_mail_envoyer/lba_devis_envoyer : POST
+    # /api/bacchus/whatsapp/envoyer, Depends(current_user) réel côté backend
+    # (bacchus_whatsapp_envoyer.py, mission #1 LBA-DESKTOP déjà livrée).
+    "lba_whatsapp_envoyer",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -846,6 +851,60 @@ def test_lba_devis_envoyer_proceeds_with_confirmed_by_user_true(monkeypatch):
     # contrat backend, ne doit jamais fuiter dans le payload envoyé.
     assert "confirmed_by_user" not in captured["payload"]
     assert captured["payload"] == {"to_email": "x@y.fr", "message": "bonjour"}
+
+
+# ── Wiring de lba_whatsapp_envoyer (carte t_710b1c78d3, plan_425ab05c,
+# mission #2) — mirroir exact du wiring lba_mail_envoyer : juste le câblage
+# path/payload/headers, la garde VERT/ORANGE/ROUGE elle-même est côté
+# backend (bacchus_whatsapp_envoyer.py, mission #1 déjà testée là-bas) —
+# pas à retester ici. AUCUN tool CLI pour /confirmer (exclusion volontaire
+# délibérée, même choix que mail/teams : le LLM ne doit jamais pouvoir
+# confirmer un envoi ORANGE lui-même, seul un clic front humain le peut) —
+# vérifié ci-dessous par absence dans TOOLS.
+
+def test_lba_whatsapp_envoyer_posts_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_post(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_post", _fake_post)
+    lba._exec("lba_whatsapp_envoyer", {
+        "chatId": "33612345678@s.whatsapp.net", "message": "Bonjour, confirmation."}, "22fcf4a5-agent-1")
+
+    assert captured["path"] == "/api/bacchus/whatsapp/envoyer"
+    assert captured["payload"] == {
+        "chatId": "33612345678@s.whatsapp.net", "message": "Bonjour, confirmation."}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_whatsapp_envoyer_requires_chatid_and_message(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_whatsapp_envoyer", {"message": "sans chatId"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (chatId manquant)")
+    except lba.LbaCliError:
+        pass
+    try:
+        lba._exec("lba_whatsapp_envoyer", {"chatId": "33612345678@s.whatsapp.net"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (message manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_whatsapp_envoyer_has_no_confirmer_counterpart_in_tools():
+    """Verrou dur : contrairement à lba_mail_envoyer, aucun tool CLI
+    'lba_whatsapp_envoyer_confirmer' (ni variante) ne doit exister — la
+    confirmation d'un envoi ORANGE reste un clic front humain uniquement."""
+    lba = _load_lba()
+    all_names = {t["name"] for t in lba.TOOLS}
+    assert not any("whatsapp" in n and "confirmer" in n for n in all_names)
 
 
 # ── Runner sans pytest (convention du repo — cf test_relay_no_response_repro.py) ──
