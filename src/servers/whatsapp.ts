@@ -2,7 +2,7 @@
 /**
  * WhatsApp — standalone MCP stdio server.
  *
- * Tools (7) — naming convention `whatsapp_<verb>_<object>`:
+ * Tools (8) — naming convention `whatsapp_<verb>_<object>`:
  *   - whatsapp_send_message         — Send a text message to a chat/contact. GATED.
  *   - whatsapp_send_media           — Send an image/video/audio/document from a local file path. GATED.
  *   - whatsapp_edit_message         — Edit a previously sent message. GATED.
@@ -14,6 +14,13 @@
  *     3ea0b4d5 — mission #1, plan_41391cc2). Read-only; unlike the bridge's
  *     /messages, it never drains the destructive routing queue used by the
  *     future bacchus_whatsapp_router.py poller.
+ *   - whatsapp_download_media       — Download the media attached to a
+ *     previously received message (proxies GET /media/:messageId, added in
+ *     hermes-agent commit aaa59aaa — mission #5, plan_14995c8c). Read-only,
+ *     ungated (downloads content already received, not an outbound action).
+ *     Only messages still in the bridge's recentHistory (last 200) are
+ *     downloadable — an older messageId returns 404 even if the file is
+ *     still on disk. Bridge caps cached files at 25 MB (413 above that).
  *
  * NOT exposed: GET /messages — destructive read (drains the routing queue
  * reserved for bacchus_whatsapp_router.py's poller); a second reader here
@@ -234,6 +241,33 @@ server.tool(
   async ({ limit }) => {
     const data = await bridgeFetch(buildRecentMessagesPath(limit));
     return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_download_media",
+  "Downloads the media (image/video/audio/document) attached to a previously received WhatsApp message, returned as base64-encoded bytes. Read-only, not gated — downloads content already received, not an outbound action. Only messages still in the bridge's recent history (last 200) are downloadable; an older messageId returns a not-found error even if the file still exists on disk. The bridge caps cached files at 25 MB and refuses larger ones.",
+  {
+    messageId: z.string().describe("The WhatsApp message id whose attached media to download (e.g. from whatsapp_get_recent_messages)"),
+  },
+  async ({ messageId }) => {
+    const res = await fetch(`${BRIDGE_URL}/media/${encodeURIComponent(messageId)}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(`WhatsApp media download error (${res.status}): ${data?.error || JSON.stringify(data)}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          messageId,
+          contentType: res.headers.get("content-type") ?? null,
+          sizeBytes: buf.length,
+          base64Body: buf.toString("base64"),
+        }),
+      }],
+    };
   },
 );
 
