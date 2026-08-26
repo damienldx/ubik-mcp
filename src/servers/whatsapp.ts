@@ -15,8 +15,24 @@
  * If the bridge is down or the session is logged out, calls fail with a
  * clear error instead of silently opening a second, conflicting connection.
  *
+ * Multi-tenant / per-seat usage (plan_60514194, mission #6): the target
+ * bridge URL was already NOT hardcoded — WHATSAPP_BRIDGE_URL was already
+ * read from the environment, just with a fallback default. What was
+ * missing for real per-seat/tenant use is that this server must run as
+ * ONE STANDALONE INSTANCE PER TENANT (declared directly in that tenant's
+ * own .mcp.json with its own WHATSAPP_BRIDGE_URL), NOT spawned through the
+ * shared aggregator gateway (src/gateway.ts, :8902) — the gateway spawns
+ * each backend server ONCE and forwards its OWN process.env, so a single
+ * gateway instance cannot differentiate the bridge URL per caller/seat.
+ * Each tenant's bridge process (scripts/whatsapp-bridge/bridge.js) also
+ * needs its own --port/--session, one WhatsApp number per tenant — see
+ * hermes-agent's bridge.js, same 1-session-per-WebSocket constraint.
+ *
  * Required env vars (loaded from .env via dotenv):
- *   - WHATSAPP_BRIDGE_URL (optional, defaults to http://127.0.0.1:3000)
+ *   - WHATSAPP_BRIDGE_URL (optional, defaults to http://127.0.0.1:3000 —
+ *     for multi-tenant use, ALWAYS set this explicitly per instance; the
+ *     startup log line below makes a forgotten override visible instead of
+ *     silently sharing the default bridge across tenants)
  *
  * Run with: tsx src/servers/whatsapp.ts
  */
@@ -29,6 +45,13 @@ import { createMcpServer, runServer } from "../lib/server";
 config({ path: join(process.cwd(), ".env") });
 
 const BRIDGE_URL = process.env.WHATSAPP_BRIDGE_URL || "http://127.0.0.1:3000";
+console.error(
+  process.env.WHATSAPP_BRIDGE_URL
+    ? `[ubik-whatsapp] proxying to bridge at ${BRIDGE_URL} (from WHATSAPP_BRIDGE_URL)`
+    : `[ubik-whatsapp] WHATSAPP_BRIDGE_URL not set — proxying to DEFAULT bridge at ${BRIDGE_URL}. ` +
+      `For multi-tenant/per-seat use, set WHATSAPP_BRIDGE_URL explicitly so this instance never ` +
+      `silently shares another tenant's bridge.`,
+);
 
 async function bridgeFetch(pathAndQuery: string, init?: RequestInit): Promise<any> {
   const res = await fetch(`${BRIDGE_URL}${pathAndQuery}`, {
