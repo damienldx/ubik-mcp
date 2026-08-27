@@ -2,7 +2,7 @@
 /**
  * WhatsApp — standalone MCP stdio server.
  *
- * Tools (8) — naming convention `whatsapp_<verb>_<object>`:
+ * Tools (9) — naming convention `whatsapp_<verb>_<object>`:
  *   - whatsapp_send_message         — Send a text message to a chat/contact. GATED.
  *   - whatsapp_send_media           — Send an image/video/audio/document from a local file path. GATED.
  *   - whatsapp_edit_message         — Edit a previously sent message. GATED.
@@ -14,6 +14,14 @@
  *     3ea0b4d5 — mission #1, plan_41391cc2). Read-only; unlike the bridge's
  *     /messages, it never drains the destructive routing queue used by the
  *     future bacchus_whatsapp_router.py poller.
+ *   - whatsapp_get_chat_messages    — Non-destructive read of the N most
+ *     recent messages of ONE conversation, filtered by chatId (proxies
+ *     GET /messages/recent/:chatId, added in hermes-agent commit 844290e2
+ *     — mission #1, plan_e99959c1, reviewed/approved by Orion). Fills the
+ *     gap where get_recent_messages is unfiltered (global feed) and
+ *     get_chat returns metadata only, no content — Bacchus had no way to
+ *     read the actual history of a specific chat. Same buffer/shape as
+ *     get_recent_messages, just server-side filtered; unknown chatId -> [].
  *   - whatsapp_download_media       — Download the media attached to a
  *     previously received message (proxies GET /media/:messageId, added in
  *     hermes-agent commit aaa59aaa — mission #5, plan_14995c8c). Read-only,
@@ -94,7 +102,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { createMcpServer, runServer } from "../lib/server";
-import { buildRecentMessagesPath } from "./whatsapp-recent";
+import { buildChatMessagesPath, buildRecentMessagesPath } from "./whatsapp-recent";
 
 config({ path: join(process.cwd(), ".env") });
 
@@ -240,6 +248,19 @@ server.tool(
   },
   async ({ limit }) => {
     const data = await bridgeFetch(buildRecentMessagesPath(limit));
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  },
+);
+
+server.tool(
+  "whatsapp_get_chat_messages",
+  "Non-destructive read of the N most recent WhatsApp messages of ONE conversation, filtered by chatId. Unlike whatsapp_get_recent_messages (global feed) or whatsapp_get_chat (metadata only), this returns the actual message content of a specific chat. Unknown chatId returns an empty list, not an error.",
+  {
+    chatId: z.string().describe("Chat JID to read, e.g. '33612345678@s.whatsapp.net' or a group '...@g.us'"),
+    limit: z.number().int().positive().optional().describe("Max messages to return (default 50, capped at 200)"),
+  },
+  async ({ chatId, limit }) => {
+    const data = await bridgeFetch(buildChatMessagesPath(chatId, limit));
     return { content: [{ type: "text", text: JSON.stringify(data) }] };
   },
 );

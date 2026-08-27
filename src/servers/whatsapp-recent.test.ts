@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildChatMessagesPath,
   buildRecentMessagesPath,
   RECENT_MESSAGES_DEFAULT_LIMIT,
   RECENT_MESSAGES_MAX_LIMIT,
@@ -47,5 +48,54 @@ test("proxy correctness: tool forwards to the bridge path built by buildRecentMe
   assert.deepEqual(calls, ["/messages/recent?limit=5"]);
   assert.deepEqual(JSON.parse(result.content[0].text), [
     { messageId: "abc", chatId: "1@s.whatsapp.net", body: "hi" },
+  ]);
+});
+
+test("buildChatMessagesPath transmits chatId and an explicit valid limit", () => {
+  assert.equal(
+    buildChatMessagesPath("33612345678@s.whatsapp.net", 10),
+    "/messages/recent/33612345678%40s.whatsapp.net?limit=10",
+  );
+});
+
+test("buildChatMessagesPath falls back to the default limit when omitted or invalid", () => {
+  assert.equal(
+    buildChatMessagesPath("1@g.us", undefined),
+    `/messages/recent/1%40g.us?limit=${RECENT_MESSAGES_DEFAULT_LIMIT}`,
+  );
+  assert.equal(
+    buildChatMessagesPath("1@g.us", 0),
+    `/messages/recent/1%40g.us?limit=${RECENT_MESSAGES_DEFAULT_LIMIT}`,
+  );
+  assert.equal(
+    buildChatMessagesPath("1@g.us", -5),
+    `/messages/recent/1%40g.us?limit=${RECENT_MESSAGES_DEFAULT_LIMIT}`,
+  );
+});
+
+test("buildChatMessagesPath clamps an oversized limit to the bridge's contract max", () => {
+  assert.equal(
+    buildChatMessagesPath("1@g.us", 99999),
+    `/messages/recent/1%40g.us?limit=${RECENT_MESSAGES_MAX_LIMIT}`,
+  );
+});
+
+test("proxy correctness: whatsapp_get_chat_messages forwards to the bridge path built by buildChatMessagesPath", async () => {
+  const calls: string[] = [];
+  async function fakeBridgeFetch(pathAndQuery: string) {
+    calls.push(pathAndQuery);
+    return [{ messageId: "xyz", chatId: "1@s.whatsapp.net", body: "hey" }];
+  }
+
+  async function handler({ chatId, limit }: { chatId: string; limit?: number }) {
+    const data = await fakeBridgeFetch(buildChatMessagesPath(chatId, limit));
+    return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+  }
+
+  const result = await handler({ chatId: "1@s.whatsapp.net", limit: 3 });
+
+  assert.deepEqual(calls, ["/messages/recent/1%40s.whatsapp.net?limit=3"]);
+  assert.deepEqual(JSON.parse(result.content[0].text), [
+    { messageId: "xyz", chatId: "1@s.whatsapp.net", body: "hey" },
   ]);
 });
