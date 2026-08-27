@@ -1987,6 +1987,32 @@ TOOLS = [
             "contenu": {"type": "string"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
+    {
+        "name": "lba_direction_proposition_creer",
+        "description": ("ÉCRITURE — soumet une proposition d'action à André au lieu d'agir "
+                         "directement (mandat lba-direction, mode PROACTIF/FOND uniquement — cf "
+                         "skill.md §10, ne PAS utiliser quand André demande une action précise "
+                         "dans le tour de conversation en cours : dans ce cas exécuter directement "
+                         "via lba_mail_envoyer/lba_teams_repondre/lba_whatsapp_envoyer, comme "
+                         "d'habitude). Ne DÉCLENCHE JAMAIS l'action elle-même (aucun envoi, aucune "
+                         "délégation, aucune écriture sur le dossier) — crée seulement un enregistrement "
+                         "'pending' qu'André accepte/rejette/modifie depuis le cockpit LBA-DESKTOP "
+                         "(GET/POST /api/direction/propositions/*). POST /api/direction/propositions "
+                         "(plan_service.py, LBA-DESKTOP repo, endpoint ouvert agent Bacchus, sans "
+                         "auth — mission #1 plan_7606b51f, contrat direction_propositions_api.py). "
+                         "`type` doit être l'une de : mail_envoyer, teams_repondre, whatsapp_envoyer, "
+                         "delegation, classification, action_libre — une relance suit le type de son "
+                         "canal (pas un 7e type), `origin_link` référence le dossier de suivi "
+                         "concerné (ex: 'mission_requests:<id>')."),
+        "inputSchema": {"type": "object", "required": ["type", "titre", "action_proposee"], "properties": {
+            "type": {"type": "string", "enum": ["mail_envoyer", "teams_repondre", "whatsapp_envoyer",
+                                                  "delegation", "classification", "action_libre"]},
+            "titre": {"type": "string"},
+            "action_proposee": {"type": "string", "description": "ce qui sera fait si André accepte"},
+            "contexte": {"type": "string", "description": "optionnel — pourquoi cette action est proposée"},
+            "options": {"description": "optionnel — objet/liste libre (ex. plusieurs formulations, responsables candidats)"},
+            "origin_link": {"type": "string", "description": "optionnel — référence texte libre vers l'objet source, ex. 'mission_requests:<id>'"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -2603,6 +2629,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/lba-docs/note", {
             "path": _req(args, "path"), "filename": _req(args, "filename"),
             "contenu": _req(args, "contenu"), "agent_id": agent_id})
+    if tool == "lba_direction_proposition_creer":
+        return _post("/api/direction/propositions", {
+            "type": _req(args, "type"), "titre": _req(args, "titre"),
+            "action_proposee": _req(args, "action_proposee"),
+            "contexte": args.get("contexte"), "options": args.get("options"),
+            "origin_link": args.get("origin_link")})
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
