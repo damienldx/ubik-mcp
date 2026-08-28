@@ -1310,6 +1310,25 @@ TOOLS = [
             "message": {"type": "string"}}},
     },
     {
+        "name": "lba_whatsapp_liste",
+        "description": ("Lecture pure — flux global des derniers messages WhatsApp reçus, toutes "
+                         "conversations confondues — GET /api/bacchus/whatsapp/liste. Aucun "
+                         "Depends(current_user) côté backend (bridge Baileys per-tenant sans notion "
+                         "Graph, même posture que lba_whatsapp_envoyer)."),
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "optionnel, défaut/max côté bridge"}}},
+    },
+    {
+        "name": "lba_whatsapp_lire",
+        "description": ("Lecture pure — derniers messages d'UNE conversation WhatsApp — GET "
+                         "/api/bacchus/whatsapp/{chat_id}/lire. chat_id = JID WhatsApp "
+                         "(ex. '33612345678@s.whatsapp.net' ou groupe '...@g.us', cf lba_whatsapp_liste "
+                         "pour en découvrir un). chat_id inconnu → liste vide (pas une erreur)."),
+        "inputSchema": {"type": "object", "required": ["chat_id"], "properties": {
+            "chat_id": {"type": "string"},
+            "limit": {"type": "integer", "description": "optionnel, défaut/max côté bridge"}}},
+    },
+    {
         "name": "lba_calendar_liste",
         "description": "Événements calendrier de l'utilisateur connecté — GET /api/bacchus/calendar/liste.",
         "inputSchema": {"type": "object", "properties": {
@@ -2060,6 +2079,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_whatsapp_envoyer":
         return _post("/api/bacchus/whatsapp/envoyer", {
             "chatId": _req(args, "chatId"), "message": _req(args, "message")}, headers)
+    if tool == "lba_whatsapp_liste":
+        return _get("/api/bacchus/whatsapp/liste", {"limit": args.get("limit")}, headers)
+    if tool == "lba_whatsapp_lire":
+        chat_id = _req(args, "chat_id")
+        return _get(f"/api/bacchus/whatsapp/{_seg(chat_id)}/lire", {"limit": args.get("limit")}, headers)
     if tool == "lba_calendar_liste":
         return _get("/api/bacchus/calendar/liste", {
             "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
