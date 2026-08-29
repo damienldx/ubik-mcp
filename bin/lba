@@ -76,7 +76,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
     "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_lire", "lba_visite_modifier",
-    "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_clients_sous_visites",
+    "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_visites_value_key", "lba_clients_sous_visites",
     "lba_clients_gagnes_perdus", "lba_representants_agenda",
     "lba_planning_reps", "lba_planning_current",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
@@ -1607,10 +1607,27 @@ TOOLS = [
     # DÉJÀ EXPOSÉS (aucune route backend nouvelle) — même famille auth que
     # lba_visites_liste (session, ticket-exchange). Objectif : Q&R
     # conversationnelle sans naviguer les panels CRM Visites / Planning.
+    #
+    # SOURCE CANONIQUE DES KPI AGRÉGÉS (audit t_eafa2f3ea0, 2026-08-29,
+    # incident constaté : Calypso a répondu à "montre-moi mes KPI de visites"
+    # en rappelant lba_visites_liste et en recalculant lui-même des totaux à
+    # la main, plutôt que d'utiliser lba_visites_kpis — résultat incomplet
+    # (aucune couverture/valeur créée/conquête) ET incohérent (note textuelle
+    # contredisant son propre tableau). lba_visites_kpis/qualite_ciblage/
+    # value_key/clients_gagnes_perdus sont les 4 sources DÉJÀ AGRÉGÉES par le
+    # backend (mêmes calculs que le bandeau KPI Terrain de PORTAL-LBA) — TOUJOURS
+    # les préférer à un recalcul manuel depuis lba_visites_liste, qui reste
+    # réservé au détail ligne par ligne (ex: lister les RDV d'un jour précis).
+    # Une vraie synthèse "KPI de visites" appelle les 4 tools ci-dessous.
     {
         "name": "lba_visites_kpis",
-        "description": ("KPIs agrégés visites (nb_visites, taux de couverture, rythme/semaine) "
-                         "sur une fenêtre — GET /api/me/evenements/kpis."),
+        "description": ("SOURCE CANONIQUE des KPI agrégés de visites — nb_visites (etat=Traité "
+                         "uniquement), nb_portefeuille, taux_couverture_pct, nb_clients_uniques_visites, "
+                         "rythme_semaine — GET /api/me/evenements/kpis. 1 des 4 piliers d'une synthèse "
+                         "'KPI de visites' complète (avec lba_visites_qualite_ciblage, "
+                         "lba_visites_value_key, lba_clients_gagnes_perdus) — NE PAS recalculer ces "
+                         "chiffres à la main depuis lba_visites_liste, les deux sources peuvent diverger "
+                         "(lba_visites_liste ne filtre pas par etat ni par segment de portefeuille)."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
@@ -1621,12 +1638,29 @@ TOOLS = [
     {
         "name": "lba_visites_qualite_ciblage",
         "description": ("Ciblage CA portefeuille : les visites portent-elles sur les clients qui "
-                         "pèsent le plus dans le CA ? Buckets A/B/C — GET /api/me/evenements/qualite-ciblage."),
+                         "pèsent le plus dans le CA ? Buckets A/B/C — GET /api/me/evenements/qualite-ciblage. "
+                         "2ème des 4 piliers d'une synthèse 'KPI de visites' complète (cf lba_visites_kpis)."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
+    },
+    {
+        "name": "lba_visites_value_key",
+        "description": ("Valeur créée par les visites : pour chaque client visité (1ère visite de la "
+                         "période), delta de CA HT sur une fenêtre post-visite vs N-1 — taux de "
+                         "transformation, CA post-visite N vs N-1 — GET /api/me/evenements/value-key. "
+                         "3ème des 4 piliers d'une synthèse 'KPI de visites' complète (cf "
+                         "lba_visites_kpis) — c'est la SEULE source pour la 'valeur créée', aucun autre "
+                         "tool ne l'expose."),
+        "inputSchema": {"type": "object", "properties": {
+            "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "post_window_days": {"type": "integer", "description": "optionnel, défaut 14 côté backend (fenêtre post-visite en jours, 1-60)"},
+            "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"}}},
     },
     {
         "name": "lba_clients_sous_visites",
@@ -1644,7 +1678,8 @@ TOOLS = [
     {
         "name": "lba_clients_gagnes_perdus",
         "description": ("Conquête vs attrition : clients gagnés (facturé N, rien en N-1) et perdus "
-                         "(rien en N, facturé N-1), CA N vs N-1 — GET /api/me/clients-gagnes-perdus."),
+                         "(rien en N, facturé N-1), CA N vs N-1 — GET /api/me/clients-gagnes-perdus. "
+                         "4ème et dernier pilier d'une synthèse 'KPI de visites' complète (cf lba_visites_kpis)."),
         "inputSchema": {"type": "object", "properties": {
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
             "limit": {"type": "integer", "description": "optionnel, défaut 200 côté backend (cap par catégorie)"},
@@ -2318,6 +2353,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/me/evenements/qualite-ciblage", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),
             "days_back": args.get("days_back"), "rep_code": args.get("rep_code")}, headers)
+    if tool == "lba_visites_value_key":
+        return _get("/api/me/evenements/value-key", {
+            "period_start": args.get("period_start"), "period_end": args.get("period_end"),
+            "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
+            "post_window_days": args.get("post_window_days"), "marque": args.get("marque")}, headers)
     if tool == "lba_clients_sous_visites":
         return _get("/api/me/clients-sous-visites", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),

@@ -315,7 +315,18 @@ class TestCliSurface(unittest.TestCase):
         # gate d'envoi WhatsApp VERT/ORANGE/ROUGE, backend
         # LBA-DESKTOP/plan/bacchus_whatsapp_envoyer.py déjà livré mission
         # #1, commit LBA-DESKTOP 2fe78ab) = 136.
-        self.assertEqual(len(tools), 136)
+        # DRIFT PRÉ-EXISTANT DÉCOUVERT ICI (t_eafa2f3ea0, 2026-08-29, audit
+        # qualité synthèse Calypso "KPI de visites") : `git stash` + `bin/lba
+        # --list` sur HEAD avant cette mission mesure 147, pas 136 — 11 tools
+        # ajoutés depuis (commit "Ajoute 7 tools Q&R lecture seule Terrain &
+        # Visites / Planning (Tier 1)" notamment) sans mise à jour de ce
+        # test. Non ré-audité ligne à ligne (hors scope, seul livrable ici =
+        # lba_visites_value_key), signalé au Chef d'Atelier plutôt que
+        # corrigé silencieusement, même doctrine que tous les drifts
+        # précédents. 147 (baseline réelle mesurée) + lba_visites_value_key
+        # (GET /api/me/evenements/value-key, complète les 4 piliers d'une
+        # synthèse KPI de visites — cf lba_visites_kpis) = 148.
+        self.assertEqual(len(tools), 148)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
