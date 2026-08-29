@@ -273,6 +273,22 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
     },
     {
+        "name": "lba_client_fiche_adv",
+        "description": ("Historique appels Télévente ADV + dernière commande app (Goot) + PLV "
+                         "distribué (année en cours) d'un client — GET /api/bacchus/client/{code}/"
+                         "fiche-adv. Complète lba_client_fiche (ventes/marge) côté ADV/relation "
+                         "commerciale, pas de doublon."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"}, "limit": {"type": "integer", "description": "défaut 10, max 200 — nb d'appels"}}},
+    },
+    {
+        "name": "lba_client_familles_non_commandees",
+        "description": ("Cross-sell : familles d'articles jamais commandées par ce client sur la "
+                         "période — GET /api/bacchus/client/{code}/familles-non-commandees."),
+        "inputSchema": {"type": "object", "required": ["code", "date_from", "date_to"], "properties": {
+            "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+    },
+    {
         "name": "lba_client_tarif",
         "description": ("Tarif contractuel en vigueur d'un client (numéro + libellé PRISMA, ex. "
                          "'20 - ESSENTIELLE') — GET /api/bacchus/client/{code}/tarif. NE renvoie PAS "
@@ -410,6 +426,53 @@ TOOLS = [
             "granularite": {"type": "string", "description": "JOUR|SEMAINE|MOIS|ANNEE"},
             "periode_ref": {"type": "string"}, "months": {"type": "string", "description": "CSV YYYY-MM"},
             "rep_code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_kpis_ventes_full",
+        "description": ("KPI ventes N/N-1 (CA HT, marge HT, taux de marque, nb clients, nb commandes, "
+                         "panier moyen, DN/commande, DN/client, remises pied) — GET /api/bacchus/ventes/"
+                         "kpis-full. ⚠️ SÉMANTIQUE CRM CLIENT (vue comptable, attribution dateFacture), "
+                         "PAS la sémantique TDC (vue activité, dateBL/dateFacture COALESCE, périmètre "
+                         "CHR+3ème marché) — cf lba_tdc_kpis pour cette dernière. Ne jamais comparer un "
+                         "chiffre de ce tool à un chiffre lba_tdc_kpis comme s'ils mesuraient la même "
+                         "chose (écart mesuré : plusieurs milliers d'euros sur la même période)."),
+        "inputSchema": {"type": "object", "required": ["date_from", "date_to"], "properties": {
+            "date_from": {"type": "string", "description": "YYYY-MM-DD"}, "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+            "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois exact, prioritaire sur date_from/date_to si fourni"}}},
+    },
+    {
+        "name": "lba_ventes_pieces",
+        "description": ("Liste paginée des pièces de vente (Devis/Commande/Preparation/Livraison/"
+                         "Facture/Avoir) avec KPI agrégés (%app, %≥10 articles, %≥500€, CA, marge, "
+                         "évolution N-1) — GET /api/bacchus/ventes/pieces. Retourne {total, items, kpis}."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "CSV — Devis,Commande,Preparation,Livraison,Facture,Avoir (vide = tous types)"},
+            "date_from": {"type": "string", "description": "YYYY-MM-DD"}, "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_field": {"type": "string", "description": "creation (défaut) | livraison | facture"},
+            "q": {"type": "string", "description": "recherche texte — n° pièce, client, réf. client"},
+            "order": {"type": "string", "description": "'date' (défaut) ou 'type' (ordre métier)"},
+            "rep_codes": {"type": "string", "description": "CSV de codes représentant — vide = tout le parc"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_piece_lire",
+        "description": ("Détail d'une pièce de vente (header, lignes, fiche client, journal d'audit) "
+                         "— GET /api/bacchus/piece/{piece_id}, lecture LIVE PRISMA. ⚠️ PIÈGE ID : l'ID "
+                         "d'une pièce de vente et l'ID d'une facture fournisseur/achats sont deux "
+                         "espaces distincts qui peuvent coïncider par hasard — si ce tool ne renvoie "
+                         "rien de cohérent, essayer lba_achats_bl_lire_entete avant de conclure à une "
+                         "erreur de saisie."),
+        "inputSchema": {"type": "object", "required": ["piece_id"], "properties": {
+            "piece_id": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_planning_appel",
+        "description": ("Planning d'appel ADV du jour (clients à appeler, tournée assignée, état "
+                         "natif PRISMA Traité/À appeler), toutes tournées — GET /api/bacchus/"
+                         "planning-appel."),
+        "inputSchema": {"type": "object", "required": ["date"], "properties": {
+            "date": {"type": "string", "description": "YYYY-MM-DD — jour du planning"}}},
     },
     {
         "name": "lba_clients_sans_visites",
@@ -2594,6 +2657,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_client_recouvrement_statut":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/recouvrement-statut", {})
+    if tool == "lba_client_fiche_adv":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/fiche-adv", {"limit": args.get("limit", 10)})
+    if tool == "lba_client_familles_non_commandees":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/familles-non-commandees", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
     if tool == "lba_client_tarif":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/tarif", {})
@@ -2660,6 +2730,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/rentabilite/tdc-kpis", {
             "granularite": args.get("granularite"), "periode_ref": args.get("periode_ref"),
             "months": args.get("months"), "rep_code": args.get("rep_code")})
+    if tool == "lba_kpis_ventes_full":
+        return _get("/api/bacchus/ventes/kpis-full", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
+            "months": args.get("months")})
+    if tool == "lba_ventes_pieces":
+        return _get("/api/bacchus/ventes/pieces", {
+            "type": args.get("type"), "date_from": args.get("date_from"), "date_to": args.get("date_to"),
+            "date_field": args.get("date_field", "creation"), "q": args.get("q"),
+            "order": args.get("order", "date"), "rep_codes": args.get("rep_codes"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_piece_lire":
+        piece_id = _seg(_req(args, "piece_id"))
+        return _get(f"/api/bacchus/piece/{piece_id}", {})
+    if tool == "lba_planning_appel":
+        return _get("/api/bacchus/planning-appel", {"date": _req(args, "date")})
     if tool == "lba_clients_sans_visites":
         return _get("/api/bacchus/portefeuille/clients-sans-visites", {
             "limit": args.get("limit", 500), "marque": args.get("marque")})
