@@ -76,6 +76,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
     "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_lire", "lba_visite_modifier",
+    "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_clients_sous_visites",
+    "lba_clients_gagnes_perdus", "lba_representants_agenda",
+    "lba_planning_reps", "lba_planning_current",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",
@@ -1599,6 +1602,78 @@ TOOLS = [
             "idSocieteAffectation": {"type": "integer", "description": "optionnel — CRM_Societe.id (champ crmSocieteId de lba_recherche_client, PAS son champ id)"},
             "source": {"type": "string", "description": "optionnel — 'cr_live' UNIQUEMENT pendant la boucle d'audition automatique CR live visite, coupe la notif Teams sur @mention pour ce PATCH. Ne jamais passer cette valeur lors d'une modification normale à la demande de l'utilisateur."}}},
     },
+    # ── Q&R lecture seule Terrain & Visites / Planning (Tier 1, t_60bf1bb135,
+    # 2026-08-29) : wrappers directs sur des endpoints /api/me/*/api/planning/*
+    # DÉJÀ EXPOSÉS (aucune route backend nouvelle) — même famille auth que
+    # lba_visites_liste (session, ticket-exchange). Objectif : Q&R
+    # conversationnelle sans naviguer les panels CRM Visites / Planning.
+    {
+        "name": "lba_visites_kpis",
+        "description": ("KPIs agrégés visites (nb_visites, taux de couverture, rythme/semaine) "
+                         "sur une fenêtre — GET /api/me/evenements/kpis."),
+        "inputSchema": {"type": "object", "properties": {
+            "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
+            "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois EXACT (optionnel)"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
+    },
+    {
+        "name": "lba_visites_qualite_ciblage",
+        "description": ("Ciblage CA portefeuille : les visites portent-elles sur les clients qui "
+                         "pèsent le plus dans le CA ? Buckets A/B/C — GET /api/me/evenements/qualite-ciblage."),
+        "inputSchema": {"type": "object", "properties": {
+            "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
+    },
+    {
+        "name": "lba_clients_sous_visites",
+        "description": ("Clients du portefeuille NON visités depuis N jours, avec deltas CA/marge "
+                         "vs N-1 (plus grosse baisse en premier) — GET /api/me/clients-sous-visites."),
+        "inputSchema": {"type": "object", "properties": {
+            "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "not_visited_since_days": {"type": "integer", "description": "optionnel, défaut 30 côté backend (7-180)"},
+            "limit": {"type": "integer", "description": "optionnel, défaut 200 côté backend (cap liste détaillée)"},
+            "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"}}},
+    },
+    {
+        "name": "lba_clients_gagnes_perdus",
+        "description": ("Conquête vs attrition : clients gagnés (facturé N, rien en N-1) et perdus "
+                         "(rien en N, facturé N-1), CA N vs N-1 — GET /api/me/clients-gagnes-perdus."),
+        "inputSchema": {"type": "object", "properties": {
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "limit": {"type": "integer", "description": "optionnel, défaut 200 côté backend (cap par catégorie)"},
+            "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"}}},
+    },
+    {
+        "name": "lba_representants_agenda",
+        "description": ("Agenda hebdomadaire des représentants visibles : par jour, liste de RDVs "
+                         "{start,end,type,client,tiers_id,etat}, tous états inclus (permet de détecter "
+                         "les trous) — GET /api/me/representants/agenda."),
+        "inputSchema": {"type": "object", "properties": {
+            "week": {"type": "string", "description": "ISO week YYYY-WW (optionnel, défaut semaine courante)"}}},
+    },
+    {
+        "name": "lba_planning_reps",
+        "description": ("Les 4 commerciaux terrain éligibles au planning (id + label) — "
+                         "GET /api/planning/reps."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_planning_current",
+        "description": ("Planning déjà booké dans PRISMA, groupé par jour (YYYY-MM-DD -> liste de "
+                         "RDVs avec es_id, client, horaires) — GET /api/planning/current. Sans "
+                         "date_from/date_to : mois courant. rep_id absent ou 0 = tous les reps."),
+        "inputSchema": {"type": "object", "properties": {
+            "rep_id": {"type": "integer", "description": "optionnel — 0/absent = tous les reps (cf lba_planning_reps pour les id valides)"},
+            "date_from": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut début du mois courant)"},
+            "date_to": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut fin du mois courant)"}}},
+    },
     # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
     # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
     # PAS de wrapper pour /queue ni /{id}/validate : réservés
@@ -2234,6 +2309,33 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         if source:
             path += "?" + urlencode({"source": source})
         return _patch(path, payload, headers)
+    if tool == "lba_visites_kpis":
+        return _get("/api/me/evenements/kpis", {
+            "period_start": args.get("period_start"), "period_end": args.get("period_end"),
+            "days_back": args.get("days_back"), "months": args.get("months"),
+            "rep_code": args.get("rep_code")}, headers)
+    if tool == "lba_visites_qualite_ciblage":
+        return _get("/api/me/evenements/qualite-ciblage", {
+            "period_start": args.get("period_start"), "period_end": args.get("period_end"),
+            "days_back": args.get("days_back"), "rep_code": args.get("rep_code")}, headers)
+    if tool == "lba_clients_sous_visites":
+        return _get("/api/me/clients-sous-visites", {
+            "period_start": args.get("period_start"), "period_end": args.get("period_end"),
+            "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
+            "not_visited_since_days": args.get("not_visited_since_days"),
+            "limit": args.get("limit"), "marque": args.get("marque")}, headers)
+    if tool == "lba_clients_gagnes_perdus":
+        return _get("/api/me/clients-gagnes-perdus", {
+            "rep_code": args.get("rep_code"), "limit": args.get("limit"),
+            "marque": args.get("marque")}, headers)
+    if tool == "lba_representants_agenda":
+        return _get("/api/me/representants/agenda", {"week": args.get("week")}, headers)
+    if tool == "lba_planning_reps":
+        return _get("/api/planning/reps", {}, headers)
+    if tool == "lba_planning_current":
+        return _get("/api/planning/current", {
+            "rep_id": args.get("rep_id"), "date_from": args.get("date_from"),
+            "date_to": args.get("date_to")}, headers)
     if tool == "lba_procedure_creer":
         return _post("/api/me/procedures", {
             "titre": _req(args, "titre"), "theme": _req(args, "theme"),
