@@ -77,7 +77,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_lire", "lba_visite_modifier",
     "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_visites_value_key", "lba_clients_sous_visites",
-    "lba_clients_gagnes_perdus", "lba_representants_agenda",
+    "lba_clients_gagnes_perdus", "lba_clients_inactifs", "lba_representants_agenda",
     "lba_planning_reps", "lba_planning_current",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
@@ -1676,6 +1676,22 @@ TOOLS = [
             "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"}}},
     },
     {
+        "name": "lba_clients_inactifs",
+        "description": ("Clients du portefeuille SANS AUCUNE COMMANDE sur la période (défaut 30j) — "
+                         "GET /api/me/clients-inactifs. Distinct de lba_clients_sous_visites (qui porte "
+                         "sur les VISITES terrain, pas les commandes) : deux notions différentes de "
+                         "'client à relancer', ne pas les confondre ni les fusionner dans une même "
+                         "réponse sauf demande explicite des deux angles. Enrichi de la date de dernière "
+                         "commande et du CA de référence sur les 12 mois précédents (priorise les plus "
+                         "gros clients endormis)."),
+        "inputSchema": {"type": "object", "properties": {
+            "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
+            "days_back": {"type": "integer", "description": "optionnel, défaut 30 côté backend (1-730)"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "limit": {"type": "integer", "description": "optionnel, défaut 200 côté backend (cap liste détaillée)"}}},
+    },
+    {
         "name": "lba_clients_gagnes_perdus",
         "description": ("Conquête vs attrition : clients gagnés (facturé N, rien en N-1) et perdus "
                          "(rien en N, facturé N-1), CA N vs N-1 — GET /api/me/clients-gagnes-perdus. "
@@ -2364,6 +2380,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
             "not_visited_since_days": args.get("not_visited_since_days"),
             "limit": args.get("limit"), "marque": args.get("marque")}, headers)
+    if tool == "lba_clients_inactifs":
+        return _get("/api/me/clients-inactifs", {
+            "period_start": args.get("period_start"), "period_end": args.get("period_end"),
+            "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
+            "limit": args.get("limit")}, headers)
     if tool == "lba_clients_gagnes_perdus":
         return _get("/api/me/clients-gagnes-perdus", {
             "rep_code": args.get("rep_code"), "limit": args.get("limit"),

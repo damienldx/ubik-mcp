@@ -326,7 +326,14 @@ class TestCliSurface(unittest.TestCase):
         # précédents. 147 (baseline réelle mesurée) + lba_visites_value_key
         # (GET /api/me/evenements/value-key, complète les 4 piliers d'une
         # synthèse KPI de visites — cf lba_visites_kpis) = 148.
-        self.assertEqual(len(tools), 148)
+        # BASELINE VÉRIFIÉE (t_eafa2f3ea0, 2026-08-29, carte "Clients inactifs"
+        # scindée de "Clients à relancer") : `git stash` + `bin/lba --list`
+        # mesure 148 sur HEAD avant cette mission — AUCUN drift, la valeur
+        # documentée correspondait déjà à la réalité. 148 + lba_clients_inactifs
+        # (GET /api/me/clients-inactifs, nouveau — clients sans commande sur la
+        # période, distinct de lba_clients_sous_visites qui porte sur les
+        # visites) = 149.
+        self.assertEqual(len(tools), 149)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
