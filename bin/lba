@@ -75,7 +75,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
     "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
     "lba_todo_task_due", "lba_visite_creer",
-    "lba_visites_liste", "lba_visite_modifier",
+    "lba_visites_liste", "lba_visite_lire", "lba_visite_modifier",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",
@@ -1563,6 +1563,18 @@ TOOLS = [
             "etat": {"type": "string", "description": "optionnel — 'Traité' (défaut backend) | 'Non traité' | 'Annulé' | 'TOUS'"}}},
     },
     {
+        "name": "lba_visite_lire",
+        "description": ("Lit UNE visite/évènement CRM par es_id (shape VisiteRow, incl. "
+                         "observations) — GET /api/me/evenements/{es_id}. Root cause du gap "
+                         "documenté 2026-07-27 (visiteCrBridge.ts) : pendant/après un CR live "
+                         "visite (lba_visite_modifier en boucle), ce tool permet de RELIRE ce "
+                         "qui a été réellement écrit dans PRISMA — vérifier/confirmer un compte "
+                         "rendu au lieu de s'appuyer aveuglément sur la mémoire conversationnelle "
+                         "des chunks précédents. 404 si es_id introuvable."),
+        "inputSchema": {"type": "object", "required": ["es_id"], "properties": {
+            "es_id": {"type": "integer", "description": "PK CRM_EntreeSortie — cf lba_visites_liste / lba_visite_modifier"}}},
+    },
+    {
         "name": "lba_visite_modifier",
         "description": ("[ÉCRITURE] Modifie une visite/évènement CRM par es_id — PATCH "
                          "/api/me/evenements/{es_id}. Usages Bacchus : déposer un compte rendu "
@@ -2202,6 +2214,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "days_back": args.get("days_back", 30),
             "months": args.get("months"), "rep_code": args.get("rep_code"),
             "etat": args.get("etat")}, headers)
+    if tool == "lba_visite_lire":
+        es_id = _req(args, "es_id")
+        return _get(f"/api/me/evenements/{int(es_id)}", {}, headers)
     if tool == "lba_visite_modifier":
         es_id = _req(args, "es_id")
         raw = {"etat": args.get("etat"), "observations": args.get("observations"),
