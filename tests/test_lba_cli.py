@@ -333,7 +333,12 @@ class TestCliSurface(unittest.TestCase):
         # (GET /api/me/clients-inactifs, nouveau — clients sans commande sur la
         # période, distinct de lba_clients_sous_visites qui porte sur les
         # visites) = 149.
-        self.assertEqual(len(tools), 149)
+        # BASELINE VÉRIFIÉE (t_eafa2f3ea0, 2026-08-29, carte "Faire un devis") :
+        # `git stash` + `bin/lba --list` mesure 149 sur HEAD avant cette
+        # mission — AUCUN drift. 149 + lba_devis_article_prix + lba_devis_generer
+        # + lba_devis_envoyer (pont Node vers le code de rendu existant du
+        # panel Simulateur, cf plan/devis_bridge/render_devis.mjs) = 152.
+        self.assertEqual(len(tools), 152)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

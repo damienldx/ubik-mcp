@@ -79,6 +79,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_visites_value_key", "lba_clients_sous_visites",
     "lba_clients_gagnes_perdus", "lba_clients_inactifs", "lba_representants_agenda",
     "lba_planning_reps", "lba_planning_current",
+    "lba_devis_article_prix", "lba_devis_generer", "lba_devis_envoyer",
     "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
     "lba_procedure_supprimer", "lba_procedure_soumettre",
     "lba_procedure_liste", "lba_procedure_themes",
@@ -1731,6 +1732,61 @@ TOOLS = [
             "date_from": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut début du mois courant)"},
             "date_to": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut fin du mois courant)"}}},
     },
+    # ── Devis conversationnel (t_eafa2f3ea0, 2026-08-29, carte "Faire un devis")
+    # — génère les MÊMES devis (PDF/HTML/XLSX/CSV) que le panel Simulateur, via
+    # un pont Node qui exécute le VRAI code de rendu existant (plan/devis_bridge/
+    # render_devis.mjs) : jamais une réimplémentation séparée à faire dériver.
+    {
+        "name": "lba_devis_article_prix",
+        "description": ("Prix d'UN article pour UN client — GET /api/me/devis/article-prix. "
+                         "Brique de composition d'un devis : appeler UNE FOIS PAR ARTICLE ajouté "
+                         "à la conversation (jamais tout le cadencier d'un coup — un devis Calypso "
+                         "est une liste curatée choisie avec l'utilisateur). Mode standard (sans "
+                         "taux_marque_cible) : prix/remise RÉELS et négociés du client. Mode marge "
+                         "cible (taux_marque_cible fourni, ex: \"propose cet article à 25% de "
+                         "marge\") : calcule le prix de vente qui atteint cette marge à partir du "
+                         "prix de revient réel — jamais une valeur devinée, 400 si le prix de "
+                         "revient est inconnu pour cet article."),
+        "inputSchema": {"type": "object", "required": ["code_article", "client_code"], "properties": {
+            "code_article": {"type": "string", "description": "code article exact (cf lba_articles_liste/recherche pour le retrouver depuis un nom)"},
+            "client_code": {"type": "string"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "taux_marque_cible": {"type": "number", "description": "optionnel, 0-100 — si fourni, calcule le prix pour cette marge au lieu du tarif/remise standard"}}},
+    },
+    {
+        "name": "lba_devis_generer",
+        "description": ("[ÉCRITURE — génère un fichier] Assemble et rend un devis (PDF/HTML/XLSX/CSV) "
+                         "à partir d'articles DÉJÀ résolus via lba_devis_article_prix — POST "
+                         "/api/me/devis/generer. N'appelle AUCUNE nouvelle résolution de prix : "
+                         "passer exactement les objets renvoyés par lba_devis_article_prix. "
+                         "showConfidential toujours False côté backend (jamais de PA/taux de marque "
+                         "dans le document — règle non négociable, document destiné au client). "
+                         "Retourne file_base64 + filename + content_type + client_email (email de "
+                         "la fiche client/prospect, à proposer par défaut pour lba_devis_envoyer)."),
+        "inputSchema": {"type": "object", "required": ["client_code", "articles", "format"], "properties": {
+            "client_code": {"type": "string"},
+            "articles": {"type": "array", "description": "liste d'objets renvoyés par lba_devis_article_prix (code, designation, tarif2026, r1, r2, prixRevient, famille, unite_vente, unite_prix)",
+                         "items": {"type": "object"}},
+            "format": {"type": "string", "description": "'pdf' | 'html' | 'xlsx' | 'csv'"},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
+    },
+    {
+        "name": "lba_devis_envoyer",
+        "description": ("[ÉCRITURE — envoie un email] Envoie un devis déjà généré (lba_devis_generer) "
+                         "par email au nom du commercial connecté — POST /api/me/client/{code}/devis/"
+                         "envoyer (Microsoft Graph, CC backoffice@lba-boissons.fr systématique et non "
+                         "modifiable). Résoudre to_email en PRIORITÉ depuis client_email (retourné par "
+                         "lba_devis_generer) sauf si l'utilisateur dicte explicitement une autre "
+                         "adresse en conversation — TOUJOURS confirmer destinataire + contenu à "
+                         "l'utilisateur avant d'appeler ce tool, jamais d'envoi silencieux."),
+        "inputSchema": {"type": "object", "required": ["client_code", "file_base64", "filename", "format", "to_email", "message"], "properties": {
+            "client_code": {"type": "string"},
+            "file_base64": {"type": "string", "description": "tel que renvoyé par lba_devis_generer"},
+            "filename": {"type": "string"},
+            "format": {"type": "string", "description": "'pdf' | 'html' | 'xlsx' | 'csv' — doit matcher le format généré"},
+            "to_email": {"type": "string"},
+            "message": {"type": "string", "description": "corps du mail (cf lba_devis_envoyer_previsionnel pour un texte par défaut)"}}},
+    },
     # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
     # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
     # PAS de wrapper pour /queue ni /{id}/validate : réservés
@@ -2403,6 +2459,20 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/planning/current", {
             "rep_id": args.get("rep_id"), "date_from": args.get("date_from"),
             "date_to": args.get("date_to")}, headers)
+    if tool == "lba_devis_article_prix":
+        return _get("/api/me/devis/article-prix", {
+            "code_article": _req(args, "code_article"), "client_code": _req(args, "client_code"),
+            "rep_code": args.get("rep_code"), "taux_marque_cible": args.get("taux_marque_cible")}, headers)
+    if tool == "lba_devis_generer":
+        return _post("/api/me/devis/generer", {
+            "client_code": _req(args, "client_code"), "articles": _req(args, "articles"),
+            "format": _req(args, "format"), "rep_code": args.get("rep_code")}, headers)
+    if tool == "lba_devis_envoyer":
+        code = _req(args, "client_code")
+        return _post(f"/api/me/client/{quote(code, safe='')}/devis/envoyer", {
+            "file_base64": _req(args, "file_base64"), "filename": _req(args, "filename"),
+            "format": _req(args, "format"), "to_email": _req(args, "to_email"),
+            "message": _req(args, "message")}, headers)
     if tool == "lba_procedure_creer":
         return _post("/api/me/procedures", {
             "titre": _req(args, "titre"), "theme": _req(args, "theme"),
