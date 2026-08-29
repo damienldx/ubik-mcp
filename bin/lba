@@ -1719,9 +1719,15 @@ TOOLS = [
         "name": "lba_planning_current",
         "description": ("Planning déjà booké dans PRISMA, groupé par jour (YYYY-MM-DD -> liste de "
                          "RDVs avec es_id, client, horaires) — GET /api/planning/current. Sans "
-                         "date_from/date_to : mois courant. rep_id absent ou 0 = tous les reps."),
+                         "date_from/date_to : mois courant. RBAC serveur (t_eafa2f3ea0, 2026-08-29) : "
+                         "pour un COMMERCIAL, rep_id absent/0 renvoie déjà SON PROPRE planning "
+                         "(auto-résolu côté backend depuis son identité) — NE JAMAIS lui demander son "
+                         "rep_id ni tenter de le déduire, l'omettre suffit ; passer le rep_id d'un "
+                         "AUTRE commercial est refusé (403). Pour un ADMIN/BUREAU, rep_id absent/0 = "
+                         "TOUS les reps confondus, un rep_id explicite (cf lba_planning_reps) filtre "
+                         "sur un seul."),
         "inputSchema": {"type": "object", "properties": {
-            "rep_id": {"type": "integer", "description": "optionnel — 0/absent = tous les reps (cf lba_planning_reps pour les id valides)"},
+            "rep_id": {"type": "integer", "description": "optionnel — admin/bureau seulement pour filtrer un rep précis ; jamais nécessaire pour un commercial (déjà son propre planning par défaut)"},
             "date_from": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut début du mois courant)"},
             "date_to": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut fin du mois courant)"}}},
     },
