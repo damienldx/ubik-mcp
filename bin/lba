@@ -101,7 +101,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # jamais un cookie navigateur ni un champ owner_email déclaratif.
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
-    "lba_historique_rechercher",
+    "lba_historique_rechercher", "lba_historique_fil_lire",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2412,6 +2412,21 @@ TOOLS = [
             "client_code": {"type": "string", "description": "optionnel — code client Prisma exact"},
             "limit": {"type": "integer", "description": "défaut 50"}}},
     },
+    {
+        "name": "lba_historique_fil_lire",
+        "description": ("LECTURE — reconstitue UN fil précis (une conversation Teams/WhatsApp, un "
+                         "canal d'équipe) DANS L'ORDRE CHRONOLOGIQUE, du plus ancien au plus récent — "
+                         "DISTINCT de lba_historique_rechercher qui liste/classe globalement, jamais un "
+                         "fil unique en ordre. `item_id_prefix` : reprends le champ `item_id` d'un "
+                         "résultat de lba_historique_rechercher et retire le dernier segment après le "
+                         "dernier ':' (ex. item_id='chat:abc123:msg-1' -> prefix='chat:abc123:' pour "
+                         "toute la conversation ; 'canal:team1:canalA:msg-1' -> 'canal:team1:canalA:' "
+                         "pour tout le canal). GET /api/direction/knowledge/fil (ordre Damien "
+                         "2026-08-30 : \"Bacchus doit pouvoir remonter le fil conversationnel Teams\")."),
+        "inputSchema": {"type": "object", "required": ["item_id_prefix"], "properties": {
+            "item_id_prefix": {"type": "string", "description": "préfixe exact, ex. 'chat:<chat_id>:'"},
+            "limit": {"type": "integer", "description": "défaut 200"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -3146,6 +3161,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/direction/knowledge", {
             "mots_cles": args.get("mots_cles"), "canal": args.get("canal"),
             "client_code": args.get("client_code"), "limit": args.get("limit", 50)}, headers)
+    if tool == "lba_historique_fil_lire":
+        return _get("/api/direction/knowledge/fil", {
+            "item_id_prefix": _req(args, "item_id_prefix"), "limit": args.get("limit", 200)}, headers)
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 

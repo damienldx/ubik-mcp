@@ -102,6 +102,9 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # la base de connaissance unifiée FTS5 (LBA-DESKTOP/plan/
     # direction_knowledge_api.py), même mécanisme current_user.
     "lba_historique_rechercher",
+    # Ajout 2026-08-30 (même session) — reconstitue un fil précis en ordre
+    # chronologique (GET /api/direction/knowledge/fil), même mécanisme.
+    "lba_historique_fil_lire",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans

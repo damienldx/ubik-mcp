@@ -353,7 +353,11 @@ class TestCliSurface(unittest.TestCase):
         # + lba_historique_rechercher (mission "muscler la base SQL",
         # 2026-08-30 — recherche FTS5 dans la base de connaissance unifiée
         # synchronisée, cf LBA-DESKTOP/plan/direction_knowledge_api.py) = 167.
-        self.assertEqual(len(tools), 167)
+        # + lba_historique_fil_lire (2026-08-30, ordre Damien "Bacchus doit
+        # pouvoir remonter le fil conversationnel Teams" -- GET
+        # /api/direction/knowledge/fil, reconstitue un fil en ordre
+        # chronologique) = 168.
+        self.assertEqual(len(tools), 168)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
