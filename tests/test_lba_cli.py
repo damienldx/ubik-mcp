@@ -338,7 +338,19 @@ class TestCliSurface(unittest.TestCase):
         # mission — AUCUN drift. 149 + lba_devis_article_prix + lba_devis_generer
         # + lba_devis_envoyer (pont Node vers le code de rendu existant du
         # panel Simulateur, cf plan/devis_bridge/render_devis.mjs) = 152.
-        self.assertEqual(len(tools), 152)
+        # DRIFT PRÉ-EXISTANT DÉCOUVERT ICI (mission généralisation multi-seat
+        # Direction, 2026-08-30, LEAD 1to1) : `git stash` + `bin/lba --list`
+        # sur HEAD avant cette mission mesure 162, pas 152 — 10 tools ajoutés
+        # depuis sans mise à jour de ce test. Non ré-audité ligne à ligne (hors
+        # scope, seul livrable ici = les 4 tools ci-dessous), signalé plutôt
+        # que corrigé silencieusement, même doctrine que tous les drifts
+        # précédents. 162 (baseline réelle mesurée) + lba_direction_
+        # propositions_lister + lba_direction_synthese_lire +
+        # lba_connaissances_rechercher + lba_connaissances_ajouter
+        # (généralisation multi-seat de l'assistant de direction André DIRIL
+        # à tous les collaborateurs LBA — cf LBA-DESKTOP/plan/
+        # direction_connaissances_api.py, direction_propositions_api.py) = 166.
+        self.assertEqual(len(tools), 166)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

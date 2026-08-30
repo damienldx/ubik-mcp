@@ -94,6 +94,13 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
     # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
     "lba_whatsapp_envoyer",
+    # ── Généralisation multi-seat Direction (2026-08-30) — les 4 endpoints
+    # scopés par current_user (propositions/synthèse/connaissances) ont
+    # besoin du ticket-exchange pour que le backend sache QUI demande —
+    # même mécanisme que lba_mail_envoyer/lba_calendar_creer ci-dessus,
+    # jamais un cookie navigateur ni un champ owner_email déclaratif.
+    "lba_direction_propositions_lister", "lba_direction_synthese_lire",
+    "lba_connaissances_rechercher", "lba_connaissances_ajouter",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2334,6 +2341,56 @@ TOOLS = [
             "options": {"description": "optionnel — objet/liste libre (ex. plusieurs formulations, responsables candidats)"},
             "origin_link": {"type": "string", "description": "optionnel — référence texte libre vers l'objet source, ex. 'mission_requests:<id>'"}}},
     },
+    {
+        "name": "lba_direction_propositions_lister",
+        "description": ("LECTURE — liste TES propositions en attente de décision (mail à envoyer, "
+                         "délégation, action, etc.), scopées automatiquement à ton propre compte "
+                         "(current_user, jamais un autre collaborateur). GET /api/direction/propositions "
+                         "(mission généralisation multi-seat, 2026-08-30, direction_propositions_api.py). "
+                         "Utile pour répondre à 'quelles sont mes propositions en attente ?'."),
+        "inputSchema": {"type": "object", "properties": {
+            "statut": {"type": "string", "enum": ["pending", "accepted", "rejected", "modified"],
+                       "description": "optionnel — défaut : toutes, quel que soit le statut"}}},
+    },
+    {
+        "name": "lba_direction_synthese_lire",
+        "description": ("LECTURE — la dernière synthèse argumentée générée par ton propre cycle "
+                         "agentique horaire (urgences, décisions en attente, informations), scopée à "
+                         "current_user. GET /api/direction/synthese/latest (mission généralisation "
+                         "multi-seat, 2026-08-30). 404 si aucun cycle n'a encore tourné pour toi."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_connaissances_rechercher",
+        "description": ("LECTURE — recherche dans la base de connaissance métier PARTAGÉE entre "
+                         "collaborateurs (résumés de dossiers/décisions, JAMAIS le contenu brut d'un "
+                         "mail/message), scopée selon les règles d'accès de current_user "
+                         "(direction_acces_db — ex. l'équipe front office partage entre elle, la "
+                         "direction voit tout, personne ne voit la direction). GET "
+                         "/api/direction/connaissances (mission généralisation multi-seat, "
+                         "2026-08-30)."),
+        "inputSchema": {"type": "object", "properties": {
+            "mots_cles": {"type": "string", "description": "optionnel — recherche texte sur sujet+contexte"},
+            "client_ou_entite": {"type": "string", "description": "optionnel — filtre exact"},
+            "limit": {"type": "integer", "description": "défaut 50"}}},
+    },
+    {
+        "name": "lba_connaissances_ajouter",
+        "description": ("ÉCRITURE — ajoute un fait/décision métier RÉSUMÉ à la base de connaissance "
+                         "PARTAGÉE (jamais un dump du contenu source — un résumé exploitable par "
+                         "d'autres collaborateurs, ex. 'Le client X a un litige de livraison en cours, "
+                         "traité par Fanta'). Visible selon les règles d'accès (direction_acces_db), "
+                         "pas par tout le monde automatiquement. `owner_email` est TOUJOURS TON propre "
+                         "compte (résolu côté serveur via current_user, jamais un paramètre — "
+                         "impossible d'écrire au nom d'un autre collaborateur). POST "
+                         "/api/direction/connaissances (mission généralisation multi-seat, "
+                         "2026-08-30)."),
+        "inputSchema": {"type": "object", "required": ["sujet"], "properties": {
+            "sujet": {"type": "string", "description": "résumé du fait/décision — jamais un dump brut"},
+            "contexte": {"type": "string", "description": "optionnel — détail complémentaire"},
+            "client_ou_entite": {"type": "string", "description": "optionnel — nom du client/tiers concerné"},
+            "origin_link": {"type": "string", "description": "optionnel — référence vers le dossier/proposition source"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -3051,6 +3108,19 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "action_proposee": _req(args, "action_proposee"),
             "contexte": args.get("contexte"), "options": args.get("options"),
             "origin_link": args.get("origin_link")})
+    if tool == "lba_direction_propositions_lister":
+        return _get("/api/direction/propositions", {"statut": args.get("statut")}, headers)
+    if tool == "lba_direction_synthese_lire":
+        return _get("/api/direction/synthese/latest", {}, headers)
+    if tool == "lba_connaissances_rechercher":
+        return _get("/api/direction/connaissances", {
+            "mots_cles": args.get("mots_cles"), "client_ou_entite": args.get("client_ou_entite"),
+            "limit": args.get("limit", 50)}, headers)
+    if tool == "lba_connaissances_ajouter":
+        return _post("/api/direction/connaissances", {
+            "sujet": _req(args, "sujet"), "contexte": args.get("contexte"),
+            "client_ou_entite": args.get("client_ou_entite"), "origin_link": args.get("origin_link")},
+            headers)
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 

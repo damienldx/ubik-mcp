@@ -90,6 +90,14 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # /api/bacchus/whatsapp/envoyer, Depends(current_user) réel côté backend
     # (bacchus_whatsapp_envoyer.py, mission #1 LBA-DESKTOP déjà livrée).
     "lba_whatsapp_envoyer",
+    # Généralisation multi-seat Direction (2026-08-30, LEAD 1to1) — les 4
+    # endpoints propositions/synthèse/connaissances scopés par current_user
+    # (LBA-DESKTOP/plan/direction_propositions_api.py,
+    # direction_connaissances_api.py) exigent le ticket-exchange pour que le
+    # backend résolve QUI demande, même mécanisme que lba_mail_envoyer/
+    # lba_calendar_creer ci-dessus.
+    "lba_direction_propositions_lister", "lba_direction_synthese_lire",
+    "lba_connaissances_rechercher", "lba_connaissances_ajouter",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
