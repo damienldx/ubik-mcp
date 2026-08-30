@@ -350,7 +350,10 @@ class TestCliSurface(unittest.TestCase):
         # (généralisation multi-seat de l'assistant de direction André DIRIL
         # à tous les collaborateurs LBA — cf LBA-DESKTOP/plan/
         # direction_connaissances_api.py, direction_propositions_api.py) = 166.
-        self.assertEqual(len(tools), 166)
+        # + lba_historique_rechercher (mission "muscler la base SQL",
+        # 2026-08-30 — recherche FTS5 dans la base de connaissance unifiée
+        # synchronisée, cf LBA-DESKTOP/plan/direction_knowledge_api.py) = 167.
+        self.assertEqual(len(tools), 167)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

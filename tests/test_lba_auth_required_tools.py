@@ -98,6 +98,10 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # lba_calendar_creer ci-dessus.
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
+    # Mission "muscler la base SQL" (2026-08-30, LEAD 1to1) — recherche dans
+    # la base de connaissance unifiée FTS5 (LBA-DESKTOP/plan/
+    # direction_knowledge_api.py), même mécanisme current_user.
+    "lba_historique_rechercher",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans

@@ -101,6 +101,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # jamais un cookie navigateur ni un champ owner_email déclaratif.
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
+    "lba_historique_rechercher",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2391,6 +2392,26 @@ TOOLS = [
             "client_ou_entite": {"type": "string", "description": "optionnel — nom du client/tiers concerné"},
             "origin_link": {"type": "string", "description": "optionnel — référence vers le dossier/proposition source"}}},
     },
+    {
+        "name": "lba_historique_rechercher",
+        "description": ("LECTURE — recherche en texte libre dans l'historique synchronisé "
+                         "(actuellement : visites CRM avec leur compte-rendu/observations ; à "
+                         "terme mail/calendrier/Teams/WhatsApp/appels — cf direction_full_sync_cron.py "
+                         "pour le périmètre réellement synchronisé aujourd'hui), scopée selon les "
+                         "règles d'accès de current_user (direction_acces_db — même moteur de "
+                         "permission que lba_connaissances_rechercher). DISTINCT de "
+                         "lba_connaissances_rechercher : ici c'est le reflet AUTOMATIQUE des sources "
+                         "réelles (jamais écrit à la main), là-bas c'est un savoir métier RÉDIGÉ "
+                         "explicitement. GET /api/direction/knowledge (mission \"muscler la base "
+                         "SQL\", 2026-08-30)."),
+        "inputSchema": {"type": "object", "properties": {
+            "mots_cles": {"type": "string", "description": "optionnel — recherche texte libre"},
+            "canal": {"type": "string", "enum": ["mail_recu", "mail_envoye", "calendrier", "teams",
+                                                   "whatsapp", "visite", "appel_prisma"],
+                      "description": "optionnel — filtre par source"},
+            "client_code": {"type": "string", "description": "optionnel — code client Prisma exact"},
+            "limit": {"type": "integer", "description": "défaut 50"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -3121,6 +3142,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "sujet": _req(args, "sujet"), "contexte": args.get("contexte"),
             "client_ou_entite": args.get("client_ou_entite"), "origin_link": args.get("origin_link")},
             headers)
+    if tool == "lba_historique_rechercher":
+        return _get("/api/direction/knowledge", {
+            "mots_cles": args.get("mots_cles"), "canal": args.get("canal"),
+            "client_code": args.get("client_code"), "limit": args.get("limit", 50)}, headers)
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
 
 
