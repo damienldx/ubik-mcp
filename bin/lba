@@ -102,6 +102,10 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     "lba_historique_rechercher", "lba_historique_fil_lire",
+    # ── Bacchus lit les images/pièces jointes des canaux (2026-08-30) ──────
+    # Graph token requis (Depends(current_user) côté bacchus_teams_tools.py),
+    # même mécanisme que lba_teams_lire_messages/lba_teams_lire_canal_messages.
+    "lba_teams_piece_jointe_telecharger",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -1443,6 +1447,25 @@ TOOLS = [
             "limit": {"type": "integer", "description": "optionnel, défaut/max côté bridge"}}},
     },
     {
+        "name": "lba_whatsapp_piece_jointe_telecharger",
+        "description": ("Télécharge le média (image/vidéo/audio/document) d'UN message WhatsApp "
+                         "déjà lu (`hasMedia: true` via lba_whatsapp_liste/lba_whatsapp_lire) et "
+                         "l'ENREGISTRE COMME FICHIER dans le répertoire des pièces jointes chat — "
+                         "GET /api/bacchus/whatsapp/{message_id}/media, retourne `path`. DISTINCT de "
+                         "whatsapp_download_media (serveur MCP natif, même source bridge) qui renvoie "
+                         "le contenu en base64 DANS le texte de la réponse — utile pour un traitement "
+                         "programmatique, mais PAS pour la vision native. Ici : lire ensuite `path` "
+                         "avec le tool `Read` natif (vision native, même flux que les pièces jointes "
+                         "mail) — préférer CE tool quand le but est que Bacchus VOIE l'image, "
+                         "préférer whatsapp_download_media quand le but est de manipuler les octets "
+                         "(ex. relayer ailleurs sans les afficher). `message_id` = le champ "
+                         "`messageId` du message (cf lba_whatsapp_liste/lba_whatsapp_lire). 404 si le "
+                         "message est introuvable ou sans média. Mission \"Bacchus lit les images/"
+                         "pièces jointes des canaux\", 2026-08-30."),
+        "inputSchema": {"type": "object", "required": ["message_id"], "properties": {
+            "message_id": {"type": "string"}}},
+    },
+    {
         "name": "lba_calendar_liste",
         "description": "Événements calendrier de l'utilisateur connecté — GET /api/bacchus/calendar/liste.",
         "inputSchema": {"type": "object", "properties": {
@@ -1579,6 +1602,26 @@ TOOLS = [
         "description": "Détail d'une réunion Teams via son join_url (obtenu via lba_teams_lister_reunions) — GET /api/bacchus/teams/reunion-detail. Scope OnlineMeetings.Read.",
         "inputSchema": {"type": "object", "required": ["join_url"], "properties": {
             "join_url": {"type": "string"}}},
+    },
+    {
+        "name": "lba_teams_piece_jointe_telecharger",
+        "description": ("Télécharge UNE image postée inline dans un message Teams déjà lu "
+                         "(`hostedContentIds` non vide via lba_teams_lire_messages/lba_teams_lire_"
+                         "canal_messages) — GET /api/bacchus/teams/piece-jointe. Enregistre le "
+                         "fichier dans le répertoire des pièces jointes chat et retourne `path` — "
+                         "lire ensuite ce chemin avec le tool `Read` natif (vision native, même flux "
+                         "que les pièces jointes mail). SCOPE VOLONTAIREMENT LIMITÉ aux images "
+                         "inline — les vrais fichiers joints (`attachments` avec contentUrl "
+                         "SharePoint/OneDrive) ne sont PAS téléchargeables par ce tool (nécessiterait "
+                         "un nouveau scope Graph Files.Read.All/Sites.Read.All, donc un nouveau "
+                         "consentement admin tenant — écarté par arbitrage Damien 2026-08-30). "
+                         "Fournir SOIT chat_id, SOIT team_id+channel_id (jamais les deux)."),
+        "inputSchema": {"type": "object", "required": ["message_id", "hosted_content_id"], "properties": {
+            "message_id": {"type": "string"},
+            "hosted_content_id": {"type": "string", "description": "cf hostedContentIds du message"},
+            "chat_id": {"type": "string", "description": "conversation 1:1/groupe — exclusif avec team_id/channel_id"},
+            "team_id": {"type": "string", "description": "canal d'équipe — requiert channel_id, exclusif avec chat_id"},
+            "channel_id": {"type": "string", "description": "canal d'équipe — requiert team_id, exclusif avec chat_id"}}},
     },
     {
         "name": "lba_todo_lists",
@@ -2317,6 +2360,25 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
+        "name": "lba_dossier_archiver",
+        "description": ("ÉCRITURE — archive en annexe dans le Drive LBA un fichier DÉJÀ TÉLÉCHARGÉ "
+                         "sur le serveur (pièce jointe mail lue via lba_mail_piece_jointe_telecharger, "
+                         "ou pièce jointe Teams/WhatsApp téléchargée — cf lba_teams_piece_jointe_"
+                         "telecharger/lba_whatsapp_piece_jointe_telecharger) — jamais un nouvel envoi "
+                         "de fichier depuis la conversation (ce n'est pas un upload). `local_path` DOIT "
+                         "être le chemin retourné par un de ces téléchargements — refusé (403) sinon "
+                         "(garde-fou serveur, aucun chemin arbitraire du disque n'est accepté). `path` "
+                         "= dossier CIBLE existant du Drive (créer via lba_dossier_creer si besoin) — "
+                         "utile pour archiver une facture/photo reçue par mail/Teams/WhatsApp comme "
+                         "annexe consultable/recherchable dans le Drive. POST /api/lba-docs/archiver "
+                         "(mission \"Bacchus lit les images/pièces jointes des canaux\", 2026-08-30)."),
+        "inputSchema": {"type": "object", "required": ["local_path", "path"], "properties": {
+            "local_path": {"type": "string", "description": "chemin retourné par un téléchargement de pièce jointe (mail/Teams/WhatsApp)"},
+            "path": {"type": "string", "description": "dossier existant du Drive où archiver"},
+            "filename": {"type": "string", "description": "optionnel — nom d'archivage, défaut nom du fichier source"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
+    },
+    {
         "name": "lba_direction_proposition_creer",
         "description": ("ÉCRITURE — soumet une proposition d'action à André au lieu d'agir "
                          "directement (mandat lba-direction, mode PROACTIF/FOND uniquement — cf "
@@ -2479,6 +2541,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_whatsapp_lire":
         chat_id = _req(args, "chat_id")
         return _get(f"/api/bacchus/whatsapp/{_seg(chat_id)}/lire", {"limit": args.get("limit")}, headers)
+    if tool == "lba_whatsapp_piece_jointe_telecharger":
+        message_id = _req(args, "message_id")
+        return _get(f"/api/bacchus/whatsapp/{_seg(message_id)}/media", {}, headers)
     if tool == "lba_calendar_liste":
         return _get("/api/bacchus/calendar/liste", {
             "top": args.get("top", 20), "start_date_time": args.get("start_date_time"),
@@ -2532,6 +2597,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "end_date_time": args.get("end_date_time")}, headers)
     if tool == "lba_teams_reunion_detail":
         return _get("/api/bacchus/teams/reunion-detail", {"join_url": _req(args, "join_url")}, headers)
+    if tool == "lba_teams_piece_jointe_telecharger":
+        return _get("/api/bacchus/teams/piece-jointe", {
+            "message_id": _req(args, "message_id"), "hosted_content_id": _req(args, "hosted_content_id"),
+            "chat_id": args.get("chat_id"), "team_id": args.get("team_id"), "channel_id": args.get("channel_id")}, headers)
     if tool == "lba_todo_lists":
         return _get("/api/me/todo/lists", {}, headers)
     if tool == "lba_todo_tasks":
@@ -3133,6 +3202,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "query": _req(args, "query"), "limit": args.get("limit", 8), "path_prefix": args.get("path_prefix")})
     if tool == "lba_dossier_creer":
         return _post("/api/lba-docs/mkdir", {"path": _req(args, "path")})
+    if tool == "lba_dossier_archiver":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/lba-docs/archiver", {
+            "local_path": _req(args, "local_path"), "path": _req(args, "path"),
+            "filename": args.get("filename"), "agent_id": agent_id})
     if tool == "lba_dossier_note":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/lba-docs/note", {
