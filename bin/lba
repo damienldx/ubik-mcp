@@ -261,6 +261,15 @@ TOOLS = [
             "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
     },
     {
+        "name": "lba_client_contacts",
+        "description": ("Contacts de la fiche client (onglet CRM > Contacts Prisma) — nom, prénom, "
+                         "civilité, téléphones, emails, fonction — GET /api/bacchus/client/{code}/contacts. "
+                         "Ces contacts sont OBLIGATOIRES pour créer une visite CRM_Rdv côté Prisma."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"},
+            "only_active": {"type": "boolean", "description": "défaut true — uniquement les contacts actifs"}}},
+    },
+    {
         "name": "lba_client_historique_visites",
         "description": "Historique des visites traitées d'un client — GET /api/bacchus/client/{code}/historique-visites.",
         "inputSchema": {"type": "object", "required": ["code"], "properties": {
@@ -323,8 +332,13 @@ TOOLS = [
     },
     {
         "name": "lba_client_extrait_compte",
-        "description": "Extrait de compte (écritures 411, exercice courant) par tiers_id — GET /api/bacchus/client/tiers/{tiers_id}/extrait-compte.",
-        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {"tiers_id": {"type": "integer"}}},
+        "description": ("Extrait de compte (écritures 411, exercice courant) par tiers_id — "
+                         "GET /api/bacchus/client/tiers/{tiers_id}/extrait-compte. "
+                         "only_open=true (défaut) = uniquement écritures non lettrées/non soldées ; "
+                         "only_open=false = extrait complet, écritures soldées incluses."),
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
+            "tiers_id": {"type": "integer"},
+            "only_open": {"type": "boolean", "description": "défaut true"}}},
     },
     {
         "name": "lba_client_relance_preview",
@@ -473,6 +487,31 @@ TOOLS = [
                          "planning-appel."),
         "inputSchema": {"type": "object", "required": ["date"], "properties": {
             "date": {"type": "string", "description": "YYYY-MM-DD — jour du planning"}}},
+    },
+    {
+        "name": "lba_recouvrement_lire",
+        "description": ("Suivi recouvrement d'un client par tiers_id — fiche client (solde, encours "
+                         "par tranche, statut) + historique actions/commentaires — "
+                         "GET /api/bacchus/recouvrement/{tiers_id}. Bloc « Commentaire Recouvrement "
+                         "/ Précédent Commentaire / Action à faire » du panel Ventes."),
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
+            "tiers_id": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_recouvrement_ecrire",
+        "description": ("ÉCRIT un commentaire recouvrement pour un client (tiers_id) — "
+                         "POST /api/bacchus/recouvrement/{tiers_id}/commentaire. Signature "
+                         "automatique « — Bacchus, le … » ajoutée. Seul tool WRITE de ce groupe."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "commentaire"], "properties": {
+            "tiers_id": {"type": "integer"}, "commentaire": {"type": "string"}}},
+    },
+    {
+        "name": "lba_relance_blocage_eligibles",
+        "description": ("Jours de retard par client actif du portefeuille (panel Relance & "
+                         "Blocage) — GET /api/bacchus/relance-blocage/eligibles. "
+                         "Retourne [{id_tiers, jours_retard}]."),
+        "inputSchema": {"type": "object", "properties": {
+            "kind": {"type": "string", "description": "'relance' (défaut) ou 'blocage' — compat contrat uniquement"}}},
     },
     {
         "name": "lba_clients_sans_visites",
@@ -2649,6 +2688,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_client_contacts":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/contacts", {
+            "only_active": args.get("only_active", True)})
     if tool == "lba_client_historique_visites":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/historique-visites", {
@@ -2678,7 +2721,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "date_from": args.get("date_from"), "date_to": args.get("date_to")})
     if tool == "lba_client_extrait_compte":
         tiers_id = _seg(_req(args, "tiers_id"))
-        return _get(f"/api/bacchus/client/tiers/{tiers_id}/extrait-compte", {})
+        return _get(f"/api/bacchus/client/tiers/{tiers_id}/extrait-compte", {
+            "only_open": args.get("only_open", True)})
     if tool == "lba_client_relance_preview":
         tiers_id = _seg(_req(args, "tiers_id"))
         return _get(f"/api/bacchus/client/tiers/{tiers_id}/relance/preview", {
@@ -2745,6 +2789,15 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get(f"/api/bacchus/piece/{piece_id}", {})
     if tool == "lba_planning_appel":
         return _get("/api/bacchus/planning-appel", {"date": _req(args, "date")})
+    if tool == "lba_recouvrement_lire":
+        tiers_id = _seg(_req(args, "tiers_id"))
+        return _get(f"/api/bacchus/recouvrement/{tiers_id}", {})
+    if tool == "lba_recouvrement_ecrire":
+        tiers_id = _seg(_req(args, "tiers_id"))
+        return _post(f"/api/bacchus/recouvrement/{tiers_id}/commentaire", {
+            "commentaire": _req(args, "commentaire")})
+    if tool == "lba_relance_blocage_eligibles":
+        return _get("/api/bacchus/relance-blocage/eligibles", {"kind": args.get("kind", "relance")})
     if tool == "lba_clients_sans_visites":
         return _get("/api/bacchus/portefeuille/clients-sans-visites", {
             "limit": args.get("limit", 500), "marque": args.get("marque")})
