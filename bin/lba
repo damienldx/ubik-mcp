@@ -108,6 +108,11 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     "lba_historique_rechercher", "lba_historique_fil_lire",
+    # ── lba_prospect_creer (2026-08-31, mission "outil prospect/client
+    # Bacchus", session PROSPECT_FO_PIZZA) — POST /api/bacchus/prospects/
+    # creer, Depends(current_user) réel (comme lba_calendar_creer), pour
+    # tracer QUEL commercial a créé quel prospect.
+    "lba_prospect_creer",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1502,6 +1507,31 @@ TOOLS = [
             "isOnlineMeeting": {"type": "boolean", "description": "défaut false — true crée une vraie réunion Teams (joinUrl retourné)"}}},
     },
     {
+        "name": "lba_prospect_creer",
+        "description": ("[ÉCRITURE] Crée une fiche prospect PRISMA (tiers + adresses + contacts) — "
+                         "POST /api/bacchus/prospects/creer. Le commercial (id_representant) est "
+                         "affecté AUTOMATIQUEMENT par secteur géographique côté serveur (CP de la "
+                         "1re adresse) — ne JAMAIS le demander ni le deviner. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel (raison_sociale/siret/adresse doivent venir d'un "
+                         "document réel — KBIS ou équivalent — jamais inventés)."),
+        "inputSchema": {"type": "object", "required": ["raison_sociale"], "properties": {
+            "raison_sociale": {"type": "string"},
+            "nom_commercial": {"type": "string", "description": "enseigne commerciale si différente de la raison sociale"},
+            "siret": {"type": "string"},
+            "telephone": {"type": "string"},
+            "email": {"type": "string"},
+            "site_internet": {"type": "string"},
+            "commentaire": {"type": "string"},
+            "adresses": {"type": "array", "items": {"type": "object", "properties": {
+                "designation": {"type": "string"}, "adresse1": {"type": "string"},
+                "adresse2": {"type": "string"}, "adresse3": {"type": "string"},
+                "codePostal": {"type": "string"}, "ville": {"type": "string"}, "pays": {"type": "string"}}}},
+            "contacts": {"type": "array", "items": {"type": "object", "properties": {
+                "civilite": {"type": "string"}, "nom": {"type": "string"}, "prenom": {"type": "string"},
+                "telephoneMobile": {"type": "string"}, "telephoneFixe": {"type": "string"},
+                "emailProfessionnel": {"type": "string"}, "emailPersonnel": {"type": "string"}}}}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -2668,6 +2698,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "subject": _req(args, "subject"), "start": _req(args, "start"), "end": _req(args, "end"),
             "timeZone": args.get("timeZone"), "body": args.get("body"), "isHtml": args.get("isHtml", False),
             "attendees": args.get("attendees"), "isOnlineMeeting": args.get("isOnlineMeeting", False)}, headers)
+    if tool == "lba_prospect_creer":
+        return _post("/api/bacchus/prospects/creer", {
+            "raison_sociale": _req(args, "raison_sociale"), "nom_commercial": args.get("nom_commercial"),
+            "siret": args.get("siret"), "telephone": args.get("telephone"), "email": args.get("email"),
+            "site_internet": args.get("site_internet"), "commentaire": args.get("commentaire"),
+            "adresses": args.get("adresses", []), "contacts": args.get("contacts", [])}, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
