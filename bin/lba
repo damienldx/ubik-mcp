@@ -102,6 +102,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     "lba_historique_rechercher", "lba_historique_fil_lire",
+    # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
+    # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
+    # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
+    # même mécanisme ticket-exchange que les 4 tools direction/connaissances
+    # ci-dessus.
+    "lba_direction_proposition_repondre",
     # ── Bacchus lit les images/pièces jointes des canaux (2026-08-30) ──────
     # Graph token requis (Depends(current_user) côté bacchus_teams_tools.py),
     # même mécanisme que lba_teams_lire_messages/lba_teams_lire_canal_messages.
@@ -117,7 +123,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
 # qui shortcut la confirmation) — sinon _exec refuse d'appeler le backend AVANT
 # même de construire la requête HTTP. Cf test_lba_auth_required_tools.py pour
 # le verrou de régression sur cette garde.
-_CONFIRMATION_REQUIRED_TOOLS = frozenset({"lba_devis_envoyer"})
+_CONFIRMATION_REQUIRED_TOOLS = frozenset({"lba_devis_envoyer", "lba_direction_proposition_repondre"})
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
     "LBA_CLI_SESSION_SECRET_PATH", "/home/damienldx/.lba-desktop/cli-session.secret"
@@ -2422,6 +2428,33 @@ TOOLS = [
                        "description": "optionnel — défaut : toutes, quel que soit le statut"}}},
     },
     {
+        "name": "lba_direction_proposition_repondre",
+        "description": ("[ÉCRITURE] Tranche UNE de TES propositions en attente (statut pending -> "
+                         "accepted/rejected/modified) — POST /api/direction/propositions/{id}/respond "
+                         "(direction_propositions_api.py::repondre_proposition, STRICT current_user). "
+                         "Sur acceptation, EXÉCUTE RÉELLEMENT l'action sous-jacente selon le type de la "
+                         "proposition — mail_envoyer (envoie le mail), teams_repondre (répond sur Teams), "
+                         "whatsapp_envoyer (envoie le message), calendrier_creer/modifier/supprimer "
+                         "(exécute l'action Graph), delegation (notifie le responsable désigné). Garde "
+                         "anti-double-exécution côté backend : un /respond répété sur une proposition "
+                         "déjà résolue ne réexécute jamais l'action. `message_final` remplace le texte "
+                         "rédigé par Bacchus AVANT résolution — UNIQUEMENT pour accepted sur "
+                         "mail_envoyer/teams_repondre/whatsapp_envoyer, ignoré sinon. `responsable_id`/"
+                         "`canal` UNIQUEMENT significatifs pour accepted sur delegation, ignorés sinon. "
+                         "CONFIRMATION OBLIGATOIRE : confirmed_by_user doit valoir true et refléter une "
+                         "confirmation RÉELLEMENT obtenue au tour précédent — jamais dans le même tour "
+                         "qu'une proposition affichée, jamais de valeur par défaut."),
+        "inputSchema": {"type": "object", "required": ["proposition_id", "statut", "confirmed_by_user"], "properties": {
+            "proposition_id": {"type": "string", "description": "id retourné par lba_direction_propositions_lister"},
+            "statut": {"type": "string", "enum": ["accepted", "rejected", "modified"]},
+            "decision": {"type": "string", "description": "optionnel — justification/commentaire de la décision"},
+            "commentaire": {"type": "string", "description": "optionnel"},
+            "responsable_id": {"type": "string", "description": "optionnel — QCM delegation acceptée uniquement, responsable choisi si différent de la suggestion de Bacchus"},
+            "canal": {"type": "string", "description": "optionnel — canal de notification delegation acceptée uniquement"},
+            "message_final": {"type": "string", "description": "optionnel — texte édité par l'utilisateur qui remplace le brouillon de Bacchus, mail_envoyer/teams_repondre/whatsapp_envoyer acceptée uniquement"},
+            "confirmed_by_user": {"type": "boolean", "description": "DOIT être true — preuve qu'une confirmation réelle a été obtenue au tour précédent"}}},
+    },
+    {
         "name": "lba_direction_synthese_lire",
         "description": ("LECTURE — la dernière synthèse argumentée générée par ton propre cycle "
                          "agentique horaire (urgences, décisions en attente, informations), scopée à "
@@ -3226,6 +3259,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "origin_link": args.get("origin_link")})
     if tool == "lba_direction_propositions_lister":
         return _get("/api/direction/propositions", {"statut": args.get("statut")}, headers)
+    if tool == "lba_direction_proposition_repondre":
+        proposition_id = _req(args, "proposition_id")
+        return _post(f"/api/direction/propositions/{_seg(proposition_id)}/respond", {
+            "statut": _req(args, "statut"), "decision": args.get("decision"),
+            "commentaire": args.get("commentaire"), "responsable_id": args.get("responsable_id"),
+            "canal": args.get("canal"), "message_final": args.get("message_final")}, headers)
     if tool == "lba_direction_synthese_lire":
         return _get("/api/direction/synthese/latest", {}, headers)
     if tool == "lba_connaissances_rechercher":
