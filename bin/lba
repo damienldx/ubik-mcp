@@ -1407,12 +1407,18 @@ TOOLS = [
     {
         "name": "lba_mail_envoyer",
         "description": ("[ÉCRITURE] Compose et envoie un mail Outlook NEUF (pas un reply) — POST /api/bacchus/mail/envoyer. "
-                         "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend."),
+                         "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend. "
+                         "attachments (AJOUT 2026-08-31) : contenu fourni EN BASE64 par l'appelant, pas un path serveur — "
+                         "limite Graph sendMail ~3 Mo par message tous fichiers confondus."),
         "inputSchema": {"type": "object", "required": ["to", "subject", "body"], "properties": {
             "to": {"type": "string", "description": "destinataire(s), CSV d'emails"},
             "subject": {"type": "string"}, "body": {"type": "string"},
             "cc": {"type": "string", "description": "optionnel, CSV d'emails"},
-            "is_html": {"type": "boolean", "description": "défaut false"}}},
+            "is_html": {"type": "boolean", "description": "défaut false"},
+            "attachments": {"type": "array", "description": "optionnel — liste de {name, content_type, content_base64}",
+                             "items": {"type": "object", "required": ["name", "content_base64"], "properties": {
+                                 "name": {"type": "string"}, "content_type": {"type": "string"},
+                                 "content_base64": {"type": "string"}}}}}},
     },
     {
         "name": "lba_whatsapp_envoyer",
