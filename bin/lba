@@ -100,6 +100,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # même mécanisme que lba_mail_envoyer/lba_calendar_creer ci-dessus,
     # jamais un cookie navigateur ni un champ owner_email déclaratif.
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
+    # lba_direction_proposition_creer (2026-08-31, correctif LEAD, cf ledger) —
+    # migré du champ déclaratif owner_email (jamais recoupé côté serveur,
+    # silencieusement droppé par un bug de câblage CLI) vers le même
+    # ticket-exchange que ses 2 tools frères ci-dessus. owner_email n'est
+    # PLUS un paramètre de ce tool.
+    "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     "lba_historique_rechercher", "lba_historique_fil_lire",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
@@ -2459,21 +2465,24 @@ TOOLS = [
     },
     {
         "name": "lba_direction_proposition_creer",
-        "description": ("ÉCRITURE — soumet une proposition d'action à André au lieu d'agir "
-                         "directement (mandat lba-direction, mode PROACTIF/FOND uniquement — cf "
-                         "skill.md §10, ne PAS utiliser quand André demande une action précise "
-                         "dans le tour de conversation en cours : dans ce cas exécuter directement "
-                         "via lba_mail_envoyer/lba_teams_repondre/lba_whatsapp_envoyer, comme "
-                         "d'habitude). Ne DÉCLENCHE JAMAIS l'action elle-même (aucun envoi, aucune "
-                         "délégation, aucune écriture sur le dossier) — crée seulement un enregistrement "
-                         "'pending' qu'André accepte/rejette/modifie depuis le cockpit LBA-DESKTOP "
-                         "(GET/POST /api/direction/propositions/*). POST /api/direction/propositions "
-                         "(plan_service.py, LBA-DESKTOP repo, endpoint ouvert agent Bacchus, sans "
-                         "auth — mission #1 plan_7606b51f, contrat direction_propositions_api.py). "
-                         "`type` doit être l'une de : mail_envoyer, teams_repondre, whatsapp_envoyer, "
-                         "delegation, classification, action_libre — une relance suit le type de son "
-                         "canal (pas un 7e type), `origin_link` référence le dossier de suivi "
-                         "concerné (ex: 'mission_requests:<id>')."),
+        "description": ("ÉCRITURE — soumet une proposition d'action au titulaire de TON seat au "
+                         "lieu d'agir directement (mandat lba-direction, mode PROACTIF/FOND "
+                         "uniquement — cf skill.md §10, ne PAS utiliser quand le collaborateur "
+                         "demande une action précise dans le tour de conversation en cours : dans "
+                         "ce cas exécuter directement via lba_mail_envoyer/lba_teams_repondre/"
+                         "lba_whatsapp_envoyer, comme d'habitude). Ne DÉCLENCHE JAMAIS l'action "
+                         "elle-même (aucun envoi, aucune délégation, aucune écriture sur le dossier) "
+                         "— crée seulement un enregistrement 'pending' scopé à TON seat (jamais un "
+                         "champ à renseigner — dérivé automatiquement de ton identité authentifiée, "
+                         "même mécanisme que lba_direction_propositions_lister) que le collaborateur "
+                         "accepte/rejette/modifie depuis le cockpit LBA-DESKTOP (GET/POST "
+                         "/api/direction/propositions/*). POST /api/direction/propositions "
+                         "(plan_service.py, LBA-DESKTOP repo, STRICT current_user — mission #1 "
+                         "plan_7606b51f + correctif LEAD 2026-08-31, contrat "
+                         "direction_propositions_api.py). `type` doit être l'une de : mail_envoyer, "
+                         "teams_repondre, whatsapp_envoyer, delegation, classification, action_libre "
+                         "— une relance suit le type de son canal (pas un 7e type), `origin_link` "
+                         "référence le dossier de suivi concerné (ex: 'mission_requests:<id>')."),
         "inputSchema": {"type": "object", "required": ["type", "titre", "action_proposee"], "properties": {
             "type": {"type": "string", "enum": ["mail_envoyer", "teams_repondre", "whatsapp_envoyer",
                                                   "delegation", "classification", "action_libre"]},
@@ -3338,23 +3347,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "adresse": args.get("adresse"), "code_postal": args.get("code_postal"),
             "ville": args.get("ville")})
     if tool == "lba_direction_proposition_creer":
+        # owner_email n'est PLUS transmis ici (2026-08-31, correctif LEAD,
+        # cf ledger) — la route dérive désormais TOUJOURS le collaborateur
+        # depuis le JWT ticket-exchange (`headers` ci-dessus, même
+        # mécanisme que lister/respond), jamais un champ déclaratif du
+        # payload. Un champ owner_email pouvait être silencieusement
+        # droppé par un bug de câblage (comme ça a été le cas depuis la
+        # généralisation multi-seat du 30/08) SANS que rien côté serveur
+        # ne le détecte — plus de classe de bug possible désormais, la
+        # source de vérité est l'identité authentifiée, pas une valeur
+        # que le CLI doit se souvenir de transmettre.
         return _post("/api/direction/propositions", {
             "type": _req(args, "type"), "titre": _req(args, "titre"),
             "action_proposee": _req(args, "action_proposee"),
             "contexte": args.get("contexte"), "options": args.get("options"),
-            "origin_link": args.get("origin_link"),
-            # owner_email n'est PAS exposé dans inputSchema (jamais un champ
-            # que Bacchus renseigne lui-même — spoofing possible d'un autre
-            # seat). Injecté en confiance UNIQUEMENT par
-            # bacchus_agentic_bridge.py (LBA-DESKTOP) depuis
-            # LBA_AGENTIC_OWNER_EMAIL avant l'appel à _exec (appel Python
-            # direct, pas de round-trip JSON-RPC schema-validé entre les
-            # deux). Bug 2026-08-31 (incident synthèse Direction, cf ledger) :
-            # ce champ était injecté côté bridge mais jamais transmis ici —
-            # silencieusement droppé, TOUTES les propositions multi-seat
-            # atterrissaient sous DEFAULT_OWNER_EMAIL (André) depuis la
-            # généralisation multi-seat du 2026-08-30.
-            "owner_email": args.get("owner_email")})
+            "origin_link": args.get("origin_link")}, headers)
     if tool == "lba_direction_propositions_lister":
         return _get("/api/direction/propositions", {"statut": args.get("statut")}, headers)
     if tool == "lba_direction_proposition_repondre":

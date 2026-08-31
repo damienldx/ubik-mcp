@@ -383,47 +383,62 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("code", schema["required"])
 
 
-class TestDirectionPropositionCreerOwnerEmail(unittest.TestCase):
+class TestDirectionPropositionCreerAuthTicketExchange(unittest.TestCase):
     """Incident 2026-08-31 (synthèse Direction multi-seat, cf ledger) :
-    bacchus_agentic_bridge.py (LBA-DESKTOP) injecte `args["owner_email"]`
-    depuis LBA_AGENTIC_OWNER_EMAIL avant d'appeler `_exec` en direct (pas
-    de round-trip JSON-RPC schema-validé entre les deux) — mais le
-    dispatch de `lba_direction_proposition_creer` construisait le payload
-    POST champ par champ sans jamais transmettre `owner_email`, silencieusement
-    droppé. Résultat : les 8 seats provisionnés créaient tous leurs
-    propositions sous DEFAULT_OWNER_EMAIL (André) au lieu du collaborateur
-    réel du cycle. Verrouille que le payload transmet bien owner_email
-    quand fourni, et reste rétro-compatible (None) quand absent."""
+    owner_email était un champ DÉCLARATIF du payload, injecté par
+    bacchus_agentic_bridge.py mais silencieusement droppé par le dispatch
+    de lba_direction_proposition_creer (jamais transmis au POST). Fix
+    retenu : PAS juste transmettre le champ (toujours spoofable/droppable
+    sans garde serveur) — migrer ce tool vers _AUTH_REQUIRED_TOOLS, même
+    ticket-exchange que lba_direction_propositions_lister. owner_email
+    n'est PLUS un paramètre de ce tool : le serveur le dérive de l'identité
+    authentifiée (Depends(current_user)). Verrouille que _exec transmet
+    bien un header Authorization (preuve du ticket-exchange), pas un champ
+    owner_email dans le payload."""
 
     def setUp(self):
         self._orig_post = lba_cli._post
+        self._orig_mint = lba_cli._mint_cli_session_jwt
 
         def fake_post(path, payload, headers=None):
-            raise CapturedPost(path, payload)
+            raise CapturedPost(path, payload if headers is None else {**payload, "_headers": headers})
+
+        def fake_mint(agent_id):
+            return f"fake-jwt-for-{agent_id}"
 
         lba_cli._post = fake_post
+        lba_cli._mint_cli_session_jwt = fake_mint
 
     def tearDown(self):
         lba_cli._post = self._orig_post
+        lba_cli._mint_cli_session_jwt = self._orig_mint
 
-    def _captured(self, args):
+    def test_owner_email_nest_plus_un_parametre_du_payload(self):
         with self.assertRaises(CapturedPost) as ctx:
-            lba_cli._exec("lba_direction_proposition_creer", args)
-        return ctx.exception
-
-    def test_owner_email_transmis_quand_injecte_par_le_bridge(self):
-        cap = self._captured({
-            "type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer",
-            "owner_email": "backoffice@lba-boissons.fr",
-        })
+            lba_cli._exec(
+                "lba_direction_proposition_creer",
+                {"type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer"},
+                agent_id="22fcf4a5-agent-9",
+            )
+        cap = ctx.exception
         self.assertEqual(cap.path, "/api/direction/propositions")
-        self.assertEqual(cap.payload["owner_email"], "backoffice@lba-boissons.fr")
+        self.assertNotIn("owner_email", cap.payload)
 
-    def test_owner_email_none_par_defaut_comportement_historique_inchange(self):
-        cap = self._captured({
-            "type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer",
-        })
-        self.assertIsNone(cap.payload["owner_email"])
+    def test_declenche_le_ticket_exchange_authorization_header(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec(
+                "lba_direction_proposition_creer",
+                {"type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer"},
+                agent_id="22fcf4a5-agent-9",
+            )
+        cap = ctx.exception
+        self.assertEqual(
+            cap.payload["_headers"]["Authorization"],
+            "Bearer fake-jwt-for-22fcf4a5-agent-9",
+        )
+
+    def test_lba_direction_proposition_creer_dans_auth_required_tools(self):
+        self.assertIn("lba_direction_proposition_creer", lba_cli._AUTH_REQUIRED_TOOLS)
 
 
 if __name__ == "__main__":

@@ -97,6 +97,11 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # backend résolve QUI demande, même mécanisme que lba_mail_envoyer/
     # lba_calendar_creer ci-dessus.
     "lba_direction_propositions_lister", "lba_direction_synthese_lire",
+    # lba_direction_proposition_creer (2026-08-31, correctif LEAD, cf ledger) —
+    # migré du champ déclaratif owner_email (silencieusement droppé côté CLI,
+    # jamais recoupé côté serveur) vers le même ticket-exchange que ses 2
+    # tools frères ci-dessus.
+    "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     # Mission "muscler la base SQL" (2026-08-30, LEAD 1to1) — recherche dans
     # la base de connaissance unifiée FTS5 (LBA-DESKTOP/plan/
