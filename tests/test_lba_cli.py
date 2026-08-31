@@ -383,5 +383,48 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("code", schema["required"])
 
 
+class TestDirectionPropositionCreerOwnerEmail(unittest.TestCase):
+    """Incident 2026-08-31 (synthèse Direction multi-seat, cf ledger) :
+    bacchus_agentic_bridge.py (LBA-DESKTOP) injecte `args["owner_email"]`
+    depuis LBA_AGENTIC_OWNER_EMAIL avant d'appeler `_exec` en direct (pas
+    de round-trip JSON-RPC schema-validé entre les deux) — mais le
+    dispatch de `lba_direction_proposition_creer` construisait le payload
+    POST champ par champ sans jamais transmettre `owner_email`, silencieusement
+    droppé. Résultat : les 8 seats provisionnés créaient tous leurs
+    propositions sous DEFAULT_OWNER_EMAIL (André) au lieu du collaborateur
+    réel du cycle. Verrouille que le payload transmet bien owner_email
+    quand fourni, et reste rétro-compatible (None) quand absent."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    def _captured(self, args):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_direction_proposition_creer", args)
+        return ctx.exception
+
+    def test_owner_email_transmis_quand_injecte_par_le_bridge(self):
+        cap = self._captured({
+            "type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer",
+            "owner_email": "backoffice@lba-boissons.fr",
+        })
+        self.assertEqual(cap.path, "/api/direction/propositions")
+        self.assertEqual(cap.payload["owner_email"], "backoffice@lba-boissons.fr")
+
+    def test_owner_email_none_par_defaut_comportement_historique_inchange(self):
+        cap = self._captured({
+            "type": "delegation", "titre": "Relancer X", "action_proposee": "Déléguer",
+        })
+        self.assertIsNone(cap.payload["owner_email"])
+
+
 if __name__ == "__main__":
     unittest.main()

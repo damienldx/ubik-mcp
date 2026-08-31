@@ -3342,7 +3342,19 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "type": _req(args, "type"), "titre": _req(args, "titre"),
             "action_proposee": _req(args, "action_proposee"),
             "contexte": args.get("contexte"), "options": args.get("options"),
-            "origin_link": args.get("origin_link")})
+            "origin_link": args.get("origin_link"),
+            # owner_email n'est PAS exposé dans inputSchema (jamais un champ
+            # que Bacchus renseigne lui-même — spoofing possible d'un autre
+            # seat). Injecté en confiance UNIQUEMENT par
+            # bacchus_agentic_bridge.py (LBA-DESKTOP) depuis
+            # LBA_AGENTIC_OWNER_EMAIL avant l'appel à _exec (appel Python
+            # direct, pas de round-trip JSON-RPC schema-validé entre les
+            # deux). Bug 2026-08-31 (incident synthèse Direction, cf ledger) :
+            # ce champ était injecté côté bridge mais jamais transmis ici —
+            # silencieusement droppé, TOUTES les propositions multi-seat
+            # atterrissaient sous DEFAULT_OWNER_EMAIL (André) depuis la
+            # généralisation multi-seat du 2026-08-30.
+            "owner_email": args.get("owner_email")})
     if tool == "lba_direction_propositions_lister":
         return _get("/api/direction/propositions", {"statut": args.get("statut")}, headers)
     if tool == "lba_direction_proposition_repondre":
