@@ -2391,6 +2391,73 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
+        "name": "lba_investissement_snapshot",
+        "description": ("Lecture pure — agrège TOUT ce qu'il faut pour remplir la matrice de "
+                         "demande d'investissement pour UN client : identité, représentant secteur, "
+                         "période d'activité RÉELLE (première facture), CA/marge/volumes bière (HL "
+                         "fûts uniquement)/BRSA (unités bouteilles-canettes)/café (kg) sur cette "
+                         "période RÉELLE (jamais annualisée), encours moyen + DSO calculés sur "
+                         "l'historique comptable réel, mode de règlement lu dans les libellés réels "
+                         "des encaissements. AUCUN calcul de tête à refaire — tout est déjà fait "
+                         "(règles établies en session avec l'opérateur, 2026-08-31). `a_confirmer` "
+                         "liste ce qui NE PEUT PAS être déterminé automatiquement (adresse/CP/ville, "
+                         "mode de règlement ambigu, conditionnement café non reconnu) — À TOUJOURS "
+                         "DEMANDER À L'UTILISATEUR avant de générer le fichier, jamais deviner. "
+                         "Appeler ce tool AVANT lba_investissement_generer. "
+                         "GET /api/bacchus/investissement/snapshot."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string", "description": "code client PrismaSoft"}}},
+    },
+    {
+        "name": "lba_investissement_generer",
+        "description": ("[ÉCRITURE — génère un fichier] Remplit la matrice de demande "
+                         "d'investissement (template Document & Formulaire/MATRICE_DEMANDE "
+                         "D'INVESTISSEMENT.xlsx) à partir du snapshot client (lba_investissement_"
+                         "snapshot, à appeler AVANT) et des informations dictées par l'utilisateur "
+                         "sur l'investissement projeté, puis dépose le fichier généré dans "
+                         "Document & Formulaire/Demandes d'investissement/ (Drive LBA partagé, "
+                         "consultable/téléchargeable via lba_dossier_liste/lba_dossier_lire et le "
+                         "panel Dossiers). PASSÉ/PRÉSENT = données réelles brutes (jamais "
+                         "annualisées) ; FUTUR = ces données annualisées sur 12 mois théoriques PUIS "
+                         "le café est REMPLACÉ (pas additionné) par `volume_annuel_cible` au prix/"
+                         "marge par kg réellement pratiqués sur l'article le plus proche de "
+                         "`produit_specifique`. `duree_engagement` future = règle contractuelle par "
+                         "nature × état neuf/occasion (cf `durees_engagement_disponibles` du "
+                         "snapshot). Retourne `a_confirmer` : points restants à vérifier avec "
+                         "l'utilisateur (ex: adresse jamais renseignée) — TOUJOURS les relayer avant "
+                         "de considérer la demande terminée, ne jamais les passer sous silence. "
+                         "POST /api/bacchus/investissement/generer."),
+        "inputSchema": {"type": "object", "required": [
+            "code", "statut", "nature_investissement", "etat_materiel",
+            "nombre_groupes_ou_becs", "marque_industriel", "volume_annuel_cible", "financement",
+        ], "properties": {
+            "code": {"type": "string", "description": "code client PrismaSoft"},
+            "demande_faite_par": {"type": "string", "description": "défaut : représentant secteur résolu automatiquement (snapshot)"},
+            "statut": {"type": "string", "enum": ["NOUVEAU CLIENT", "CLIENT EXISTANT", "PROSPECT"]},
+            "nature_investissement": {"type": "string", "enum": [
+                "TIRAGE PRESSION COMPLET", "RAJOUT COLONNE", "GROUPE DE FROID",
+                "MACHINE A CAFÉ", "MOULIN A CAFÉ", "STORE", "ENSEIGNE", "AUTRE"]},
+            "etat_materiel": {"type": "string", "enum": ["neuf", "occasion"], "description": "détermine la durée d'engagement future (règle contractuelle)"},
+            "nombre_groupes_ou_becs": {"type": "integer", "minimum": 1, "maximum": 10},
+            "marque_industriel": {"type": "string", "enum": [
+                "ABINBEV", "METEOR", "KRONENBOURG", "HEINEKEN", "DUVEL MOORTGAT",
+                "LBA (ALEX BEER)", "GIOIA", "LAVAZZA", "KIMBO"]},
+            "produit_specifique": {"type": "string", "description": "ex: 'KIMBO CREMA SUPREMA' — pour matcher l'économie unitaire réelle du bon article café"},
+            "volume_annuel_cible": {"type": "number", "description": "kg/an (café/moulin) ou HL/an (pression/groupe de froid)"},
+            "materiel_existant_a_retirer": {"type": "boolean", "description": "défaut false"},
+            "financement": {"type": "object", "properties": {
+                "industriel_oui": {"type": "boolean"}, "industriel_pct": {"type": "number"},
+                "lba_oui": {"type": "boolean"}, "lba_pct": {"type": "number"},
+                "clients_oui": {"type": "boolean"}, "clients_pct": {"type": "number"}}},
+            "commentaire": {"type": "string", "description": "contexte libre (ex: pourquoi cet investissement, situation concurrentielle)"},
+            "date_demande": {"type": "string", "description": "YYYY-MM-DD, défaut aujourd'hui"},
+            "nom_gerant_override": {"type": "string"},
+            "telephone_override": {"type": "string"},
+            "adresse": {"type": "string", "description": "à demander à l'utilisateur — jamais disponible automatiquement"},
+            "code_postal": {"type": "string"},
+            "ville": {"type": "string"}}},
+    },
+    {
         "name": "lba_direction_proposition_creer",
         "description": ("ÉCRITURE — soumet une proposition d'action à André au lieu d'agir "
                          "directement (mandat lba-direction, mode PROACTIF/FOND uniquement — cf "
@@ -3251,6 +3318,25 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/lba-docs/note", {
             "path": _req(args, "path"), "filename": _req(args, "filename"),
             "contenu": _req(args, "contenu"), "agent_id": agent_id})
+    if tool == "lba_investissement_snapshot":
+        return _get("/api/bacchus/investissement/snapshot", {"code": _req(args, "code")})
+    if tool == "lba_investissement_generer":
+        return _post("/api/bacchus/investissement/generer", {
+            "code": _req(args, "code"), "demande_faite_par": args.get("demande_faite_par"),
+            "statut": _req(args, "statut"), "nature_investissement": _req(args, "nature_investissement"),
+            "etat_materiel": _req(args, "etat_materiel"),
+            "nombre_groupes_ou_becs": _req(args, "nombre_groupes_ou_becs"),
+            "marque_industriel": _req(args, "marque_industriel"),
+            "produit_specifique": args.get("produit_specifique"),
+            "volume_annuel_cible": _req(args, "volume_annuel_cible"),
+            "materiel_existant_a_retirer": args.get("materiel_existant_a_retirer", False),
+            "financement": _req(args, "financement"),
+            "commentaire": args.get("commentaire", ""),
+            "date_demande": args.get("date_demande"),
+            "nom_gerant_override": args.get("nom_gerant_override"),
+            "telephone_override": args.get("telephone_override"),
+            "adresse": args.get("adresse"), "code_postal": args.get("code_postal"),
+            "ville": args.get("ville")})
     if tool == "lba_direction_proposition_creer":
         return _post("/api/direction/propositions", {
             "type": _req(args, "type"), "titre": _req(args, "titre"),
