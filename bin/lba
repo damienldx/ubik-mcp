@@ -108,11 +108,11 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     "lba_historique_rechercher", "lba_historique_fil_lire",
-    # ── lba_prospect_creer (2026-08-31, mission "outil prospect/client
-    # Bacchus", session PROSPECT_FO_PIZZA) — POST /api/bacchus/prospects/
-    # creer, Depends(current_user) réel (comme lba_calendar_creer), pour
-    # tracer QUEL commercial a créé quel prospect.
-    "lba_prospect_creer",
+    # ── lba_prospect_creer / lba_prospect_passer_client (2026-08-31,
+    # mission "outil prospect/client Bacchus", session PROSPECT_FO_PIZZA) —
+    # POST /api/bacchus/prospects/{creer,passer-client}, Depends(current_user)
+    # réel (comme lba_calendar_creer), pour tracer QUEL commercial agit.
+    "lba_prospect_creer", "lba_prospect_passer_client",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1532,6 +1532,32 @@ TOOLS = [
                 "emailProfessionnel": {"type": "string"}, "emailPersonnel": {"type": "string"}}}}}},
     },
     {
+        "name": "lba_prospect_passer_client",
+        "description": ("[ÉCRITURE] Bascule un prospect PRISMA en client — POST /api/bacchus/"
+                         "prospects/passer-client. Le code client est régénéré AUTOMATIQUEMENT "
+                         "par PrismaSoft (trigger natif) — ne jamais le calculer/deviner. "
+                         "regime_tva/langue/mode_reglement sont des MENUS DÉROULANTS PRISMA "
+                         "(ids référentiels, pas du texte libre) — ne JAMAIS deviner leur "
+                         "valeur, les faire confirmer explicitement par l'utilisateur. Par "
+                         "défaut (lier_adresse_existante=true), l'unique adresse déjà "
+                         "existante du prospect est automatiquement liée aux 3 types "
+                         "correspondance/livraison/facturation — si plusieurs adresses "
+                         "existent déjà, la liaison est SKIPPÉE (gap connu, pas de choix "
+                         "automatique). Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
+            "tiers_id": {"type": "integer"},
+            "tva_intra_com": {"type": "string"},
+            "regime_tva": {"type": "integer", "description": "id PrismaGestionCo_tva_assujetti : 1=FRANCE, 2=EXO, 3=INTRACOM"},
+            "langue": {"type": "integer", "description": "id PrismaGestionCo_langue (48=Français)"},
+            "iban": {"type": "string"},
+            "bic": {"type": "string"},
+            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO"},
+            "echeance_nb_jours": {"type": "integer"},
+            "domiciliation_bancaire": {"type": "string"},
+            "rib": {"type": "string"},
+            "lier_adresse_existante": {"type": "boolean", "description": "défaut true"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -2704,6 +2730,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "siret": args.get("siret"), "telephone": args.get("telephone"), "email": args.get("email"),
             "site_internet": args.get("site_internet"), "commentaire": args.get("commentaire"),
             "adresses": args.get("adresses", []), "contacts": args.get("contacts", [])}, headers)
+    if tool == "lba_prospect_passer_client":
+        return _post("/api/bacchus/prospects/passer-client", {
+            "tiers_id": _req(args, "tiers_id"), "tva_intra_com": args.get("tva_intra_com"),
+            "regime_tva": args.get("regime_tva"), "langue": args.get("langue"),
+            "iban": args.get("iban"), "bic": args.get("bic"),
+            "mode_reglement": args.get("mode_reglement"), "echeance_nb_jours": args.get("echeance_nb_jours"),
+            "domiciliation_bancaire": args.get("domiciliation_bancaire"), "rib": args.get("rib"),
+            "lier_adresse_existante": args.get("lier_adresse_existante", True)}, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
