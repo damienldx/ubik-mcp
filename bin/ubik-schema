@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# ubik-schema — génère un schéma (diagramme) depuis du texte Mermaid, en
+# PNG/SVG/PDF, headless (Chrome via @mermaid-js/mermaid-cli), et peut le
+# déposer directement dans le Docs Drive (ubik-docs) dans un dossier au
+# choix de l'appelant. Brief commercial-client 2026-09-01
+# (msg_ref=7746c7d7e9e1, étendu msg_ref=<dernier>) : "que les agents
+# puissent dessiner les schémas à ma place, couvre tout le scope possible,
+# enregistrer et mettre dans ubik-docs dans un dossier de son choix" — tout
+# agent fleet (pas seulement le LEAD) peut appeler ce CLI.
+#
+# Scope : Mermaid supporte nativement flowchart, sequence, class, state,
+# ER, gantt, pie, mindmap, timeline, gitGraph, C4, quadrant, journey,
+# requirement, sankey, XY chart, block, architecture, packet, radar — ce
+# CLI n'impose AUCUNE restriction de type, tout syntaxe Mermaid valide
+# passe telle quelle à mermaid-cli. `--types` liste ces types avec un
+# exemple minimal chacun.
+#
+# Usage:
+#   ubik-schema <fichier.mmd|-> <sortie.png|svg|pdf> [--docs <subdir>] [options mmdc...]
+#   echo '<mermaid>' | ubik-schema - <sortie.png> [--docs <subdir>]
+#   ubik-schema --example                 # exemples de syntaxe (flowchart + sequence)
+#   ubik-schema --types                   # liste des types de diagrammes supportés
+#
+# --docs <subdir> : après génération, dépose le fichier dans le Docs Drive
+#   (ubik-docs) sous <subdir> (créé si absent, chemin à la main de
+#   l'appelant — ex: "LBA-DESKTOP/architecture", "_generated_schemas/2026-09")
+#   et l'indexe immédiatement (OCR sur image, recherche sémantique dispo
+#   dans la foulée). Le nom de fichier déposé = basename de <sortie>.
+#
+# Exemples:
+#   ubik-schema flow.mmd /tmp/flow.png
+#   ubik-schema flow.mmd /tmp/flow.pdf -t dark -b transparent
+#   echo 'flowchart TD; A-->B' | ubik-schema - /tmp/quick.png --docs "LBA-DESKTOP/architecture"
+#
+# Le format de sortie est déduit de l'extension (png/svg/pdf), comme mmdc.
+set -euo pipefail
+
+TOOL_DIR="/home/damienldx/workspace/ubik-mcp/tools/schema-cli"
+MMDC="$TOOL_DIR/node_modules/.bin/mmdc"
+UBIK_BACKEND="${UBIK_BACKEND:-http://127.0.0.1:8765}"
+
+if [[ ! -x "$MMDC" ]]; then
+    echo "ubik-schema: mermaid-cli introuvable dans $TOOL_DIR — npm install @mermaid-js/mermaid-cli" >&2
+    exit 1
+fi
+
+if [[ "${1:-}" == "--example" ]]; then
+    cat <<'EOF'
+flowchart TD
+  A[Départ] --> B{Décision}
+  B -->|oui| C[Chemin A]
+  B -->|non| D[Chemin B]
+
+sequenceDiagram
+  Damien->>Ubik: brief
+  Ubik->>Chef d'Atelier: dispatch (si fleet)
+  Chef d'Atelier-->>Ubik: synthèse
+
+Syntaxe complète : https://mermaid.js.org/intro/
+Liste des types supportés : ubik-schema --types
+EOF
+    exit 0
+fi
+
+if [[ "${1:-}" == "--types" ]]; then
+    cat <<'EOF'
+Types de diagrammes Mermaid supportés (aucune restriction côté ubik-schema
+— tout ce que mermaid.js sait rendre passe tel quel) :
+
+  flowchart      flowchart TD; A-->B
+  sequence       sequenceDiagram; A->>B: msg
+  class          classDiagram; ClassA <|-- ClassB
+  state          stateDiagram-v2; [*] --> State1
+  er             erDiagram; CUSTOMER ||--o{ ORDER : places
+  gantt          gantt; section S1; Task1 :a1, 2026-01-01, 30d
+  pie            pie title Répartition; "A" : 40; "B" : 60
+  mindmap        mindmap; root((Sujet)); A; B
+  timeline       timeline; title Histoire; 2024 : Event1
+  gitgraph       gitGraph; commit; branch dev; commit
+  c4             C4Context; Person(a, "User")
+  quadrant       quadrantChart; title Priorités
+  journey        journey; title Parcours; section S1; Task: 5: Alice
+  requirement    requirementDiagram; requirement req1 {...}
+  sankey         sankey-beta; A,B,10
+  xychart        xychart-beta; title "Ventes"; x-axis [jan, fev]
+  block          block-beta; columns 3; A B C
+  architecture   architecture-beta; service db(database)[DB]
+  packet         packet-beta; 0-15: "Source Port"
+  radar          radar-beta; axis A, B, C
+
+Doc complète par type : https://mermaid.js.org/intro/
+EOF
+    exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: ubik-schema <fichier.mmd|-> <sortie.png|svg|pdf> [--docs <subdir>] [options mmdc...]" >&2
+    echo "       ubik-schema --example" >&2
+    echo "       ubik-schema --types" >&2
+    exit 1
+fi
+
+INPUT="$1"
+OUTPUT="$2"
+shift 2
+
+# Extrait --docs <subdir> du reste des args (ordre libre) — le reliquat est
+# transmis tel quel à mmdc (thème, background, dimensions, ...).
+DOCS_SUBDIR=""
+MMDC_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --docs)
+            DOCS_SUBDIR="${2:-}"
+            shift 2
+            ;;
+        *)
+            MMDC_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ "$INPUT" == "-" ]]; then
+    TMP_MMD="$(mktemp --suffix=.mmd)"
+    trap 'rm -f "$TMP_MMD"' EXIT
+    cat > "$TMP_MMD"
+    INPUT="$TMP_MMD"
+fi
+
+mkdir -p "$(dirname "$OUTPUT")"
+"$MMDC" -i "$INPUT" -o "$OUTPUT" "${MMDC_ARGS[@]}"
+echo "ubik-schema: écrit $OUTPUT"
+
+if [[ -n "$DOCS_SUBDIR" ]]; then
+    RESPONSE="$(curl -s -m 30 -X POST "$UBIK_BACKEND/api/docs/upload" \
+        -F "file=@${OUTPUT}" \
+        -F "subdir=${DOCS_SUBDIR}")"
+    echo "ubik-schema: déposé dans ubik-docs — $RESPONSE"
+fi
