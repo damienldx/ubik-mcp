@@ -594,6 +594,20 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 50"}}},
     },
     {
+        "name": "lba_clients_par_ville",
+        "description": ("Recherche clients par ville/commune (adresse résolue, pas la raison "
+                         "sociale) — GET /api/bacchus/recherche/client_par_ville. Comble un trou "
+                         "de couverture géographique : lba_clients_filtre/lba_portefeuille_liste/"
+                         "lba_recherche_client ne filtrent que sur code/raison sociale/nom ou des "
+                         "attributs isActif/famille/tarif, jamais sur une adresse. Ville en LIKE "
+                         "(ex: 'Montreuil' matche 'MONTREUIL' et 'MONTREUIL-SOUS-BOIS'). "
+                         "is_actif=true par défaut."),
+        "inputSchema": {"type": "object", "required": ["ville"], "properties": {
+            "ville": {"type": "string", "description": "min 2 caractères, ex: Montreuil"},
+            "is_actif": {"type": "boolean", "description": "défaut true"},
+            "limit": {"type": "integer", "description": "défaut 200, max 1000"}}},
+    },
+    {
         "name": "lba_analytics_explorer",
         "description": ("Explorateur analytique multi-KPI DuckDB — GET /api/bacchus/analytics/explorer. "
                          "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend."),
@@ -3192,6 +3206,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_recherche_client":
         return _get("/api/bacchus/recherche/client", {
             "q": _req(args, "q"), "limit": args.get("limit", 20)})
+    if tool == "lba_clients_par_ville":
+        return _get("/api/bacchus/recherche/client_par_ville", {
+            "ville": _req(args, "ville"), "is_actif": args.get("is_actif", True),
+            "limit": args.get("limit", 200)})
     if tool == "lba_analytics_explorer":
         return _get("/api/bacchus/analytics/explorer", {
             "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
