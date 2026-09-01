@@ -2631,11 +2631,14 @@ TOOLS = [
     },
     {
         "name": "lba_equipe_synthese_periode",
-        "description": ("LECTURE — \"billet d'actualité équipe\" : retourne les faits/décisions "
-                         "métier de la base de connaissance PARTAGÉE (lba_connaissances_*) créés "
-                         "entre date_debut et date_fin, scopés selon les règles d'accès de "
-                         "current_user (direction_acces_db, même moteur que "
-                         "lba_connaissances_rechercher — Niveau 1/2/3). Utilise ce tool quand un "
+        "description": ("LECTURE — \"billet d'actualité équipe\" : fusionne DEUX sources sur la "
+                         "période demandée — la base de connaissance PARTAGÉE (résumés écrits "
+                         "explicitement, lba_connaissances_*) ET la base de connaissance UNIFIÉE "
+                         "(reflet automatique des vrais canaux mail/Teams/WhatsApp/calendrier/"
+                         "visites/appels, lba_historique_*) — un item de résultat porte "
+                         "source='connaissances'|'historique' pour savoir d'où il vient. Scopés "
+                         "selon les mêmes règles d'accès de current_user sur les deux sources "
+                         "(direction_acces_db, Niveau 1/2/3). Utilise ce tool quand un "
                          "collaborateur demande un point/résumé de l'activité de son équipe sur une "
                          "période (ex. \"fais-moi un petit point sur ce qui s'est passé\") — SI "
                          "AUCUNE PÉRIODE N'EST PRÉCISÉE, DEMANDE-LA D'ABORD (jamais de valeur par "
