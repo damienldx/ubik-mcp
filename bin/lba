@@ -107,6 +107,10 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # PLUS un paramètre de ce tool.
     "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
+    # lba_equipe_synthese_periode (2026-09-01, brief Damien t_112f3c2199
+    # Partie 2 — "billet d'actualité équipe") — GET /periode, même scoping
+    # d'accès current_user que les 2 tools connaissances ci-dessus.
+    "lba_equipe_synthese_periode",
     "lba_historique_rechercher", "lba_historique_fil_lire",
     # ── lba_prospect_creer / lba_prospect_passer_client (2026-08-31,
     # mission "outil prospect/client Bacchus", session PROSPECT_FO_PIZZA) —
@@ -2626,6 +2630,27 @@ TOOLS = [
             "origin_link": {"type": "string", "description": "optionnel — référence vers le dossier/proposition source"}}},
     },
     {
+        "name": "lba_equipe_synthese_periode",
+        "description": ("LECTURE — \"billet d'actualité équipe\" : retourne les faits/décisions "
+                         "métier de la base de connaissance PARTAGÉE (lba_connaissances_*) créés "
+                         "entre date_debut et date_fin, scopés selon les règles d'accès de "
+                         "current_user (direction_acces_db, même moteur que "
+                         "lba_connaissances_rechercher — Niveau 1/2/3). Utilise ce tool quand un "
+                         "collaborateur demande un point/résumé de l'activité de son équipe sur une "
+                         "période (ex. \"fais-moi un petit point sur ce qui s'est passé\") — SI "
+                         "AUCUNE PÉRIODE N'EST PRÉCISÉE, DEMANDE-LA D'ABORD (jamais de valeur par "
+                         "défaut, même piège déjà documenté sur lba_calendar_liste dont les bornes "
+                         "optionnelles permettaient un scan non filtré). Le résultat est une liste "
+                         "JSON brute — c'est à TOI de rédiger le billet d'actualité à partir de ces "
+                         "faits, jamais de restituer le JSON tel quel à l'utilisateur. GET "
+                         "/api/direction/connaissances/periode (brief Damien t_112f3c2199 Partie 2, "
+                         "2026-09-01)."),
+        "inputSchema": {"type": "object", "required": ["date_debut", "date_fin"], "properties": {
+            "date_debut": {"type": "string", "description": "ISO8601, borne basse incluse — obligatoire"},
+            "date_fin": {"type": "string", "description": "ISO8601, borne haute incluse — obligatoire"},
+            "limit": {"type": "integer", "description": "défaut 200"}}},
+    },
+    {
         "name": "lba_historique_rechercher",
         "description": ("LECTURE — recherche en texte libre dans l'historique synchronisé "
                          "(actuellement : visites CRM avec leur compte-rendu/observations ; à "
@@ -3451,6 +3476,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "sujet": _req(args, "sujet"), "contexte": args.get("contexte"),
             "client_ou_entite": args.get("client_ou_entite"), "origin_link": args.get("origin_link")},
             headers)
+    if tool == "lba_equipe_synthese_periode":
+        return _get("/api/direction/connaissances/periode", {
+            "date_debut": _req(args, "date_debut"), "date_fin": _req(args, "date_fin"),
+            "limit": args.get("limit", 200)}, headers)
     if tool == "lba_historique_rechercher":
         return _get("/api/direction/knowledge", {
             "mots_cles": args.get("mots_cles"), "canal": args.get("canal"),
