@@ -2606,10 +2606,20 @@ TOOLS = [
     },
     {
         "name": "lba_direction_synthese_lire",
-        "description": ("LECTURE — la dernière synthèse argumentée générée par ton propre cycle "
-                         "agentique horaire (urgences, décisions en attente, informations), scopée à "
-                         "current_user. GET /api/direction/synthese/latest (mission généralisation "
-                         "multi-seat, 2026-08-30). 404 si aucun cycle n'a encore tourné pour toi."),
+        "description": ("LECTURE — le DOCUMENT BRUT de la dernière synthèse argumentée générée par "
+                         "ton propre cycle agentique horaire (urgences, décisions en attente, "
+                         "informations), scopée à current_user. GET /api/direction/synthese/latest "
+                         "(mission généralisation multi-seat, 2026-08-30). 404 si aucun cycle n'a "
+                         "encore tourné pour toi. Réponse contient `generated_at` (dernière fois que "
+                         "le CONTENU a changé) ET `last_checked_at` (dernier cycle exécuté, changé ou "
+                         "non — 2026-09-02) : ne confonds jamais les deux, un `generated_at` ancien "
+                         "avec un `last_checked_at` récent veut dire que le cron tourne mais que rien "
+                         "n'a bougé, pas qu'il est en panne. QUAND L'UTILISATEUR DEMANDE SA SYNTHÈSE "
+                         "OU 'où j'en suis' EN LANGAGE NATUREL (pas juste ce document brut) : "
+                         "n'appelle PAS ce tool seul et ne t'arrête pas à son contenu — vérifie "
+                         "D'ABORD lba_skill_charger(nom='ma-synthese-du-moment') qui orchestre "
+                         "l'enrichissement (base de connaissance unifiée, propositions en attente, "
+                         "actions proposées) ; ce tool brut n'est que l'étape 1 de cette procédure."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
