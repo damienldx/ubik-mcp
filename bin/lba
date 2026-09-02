@@ -2614,12 +2614,18 @@ TOOLS = [
                          "le CONTENU a changé) ET `last_checked_at` (dernier cycle exécuté, changé ou "
                          "non — 2026-09-02) : ne confonds jamais les deux, un `generated_at` ancien "
                          "avec un `last_checked_at` récent veut dire que le cron tourne mais que rien "
-                         "n'a bougé, pas qu'il est en panne. QUAND L'UTILISATEUR DEMANDE SA SYNTHÈSE "
-                         "OU 'où j'en suis' EN LANGAGE NATUREL (pas juste ce document brut) : "
-                         "n'appelle PAS ce tool seul et ne t'arrête pas à son contenu — vérifie "
-                         "D'ABORD lba_skill_charger(nom='ma-synthese-du-moment') qui orchestre "
-                         "l'enrichissement (base de connaissance unifiée, propositions en attente, "
-                         "actions proposées) ; ce tool brut n'est que l'étape 1 de cette procédure."),
+                         "n'a bougé, pas qu'il est en panne. Ce tool brut n'est que l'étape 1 de la "
+                         "procédure d'enrichissement du skill ma-synthese-du-moment (base de "
+                         "connaissance unifiée, propositions en attente, actions proposées) — si ce "
+                         "skill est déjà chargé dans la conversation (carte de démarrage frontend, "
+                         "chargement invisible côté client — cf themeStarters.ts), SUIS-LE tel quel, "
+                         "n'appelle PAS lba_skill_charger toi-même dans ce cas (double-chargement "
+                         "inutile). N'appelle ce tool skill toi-même QUE si l'utilisateur pose la "
+                         "question en texte libre SANS passer par une carte (aucune instruction skill "
+                         "déjà présente dans ce tour) — et dans ce cas, ne restitue JAMAIS le contenu "
+                         "du skill lui-même dans ta réponse (ce sont TES instructions internes, pas un "
+                         "résultat à montrer) : exécute-les silencieusement, seule la synthèse finale "
+                         "doit apparaître dans ta réponse visible."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
