@@ -110,6 +110,12 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # Ajout 2026-08-30 (même session) — reconstitue un fil précis en ordre
     # chronologique (GET /api/direction/knowledge/fil), même mécanisme.
     "lba_historique_fil_lire",
+    # Panneau CLIENT — référentiels + écriture guardée (mission #5,
+    # 2026-09-02, plan_1ef5a724) — GET/PATCH /api/bacchus/referentiel/*,
+    # Depends(current_user) réel côté bacchus_prospect_tools.py:
+    # router_referentiel (mission #6), même mécanisme que lba_prospect_creer.
+    "lba_referentiel_familles_client", "lba_referentiel_tarifs",
+    "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
@@ -925,6 +931,141 @@ def test_lba_whatsapp_envoyer_has_no_confirmer_counterpart_in_tools():
     lba = _load_lba()
     all_names = {t["name"] for t in lba.TOOLS}
     assert not any("whatsapp" in n and "confirmer" in n for n in all_names)
+
+
+# ── Wiring des 4 tools panneau CLIENT référentiels (mission #5, 2026-09-02,
+# plan_1ef5a724) — GET/PATCH /api/bacchus/referentiel/*, wrapper mission #6.
+# La validation "au moins un des deux champs requis" (secteur-tournee) est
+# volontairement PAS réimplémentée côté CLI (même doctrine que le RBAC
+# anti-spoofing de lba_visite_creer ci-dessus) — 400 côté backend.
+
+def test_lba_referentiel_familles_client_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        captured["params"] = params
+        captured["headers"] = headers
+        return "[]"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_referentiel_familles_client", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/bacchus/referentiel/familles-client"
+    assert captured["params"] == {}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_referentiel_tarifs_gets_expected_path(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_get(path, params, headers=None):
+        captured["path"] = path
+        captured["headers"] = headers
+        return "[]"
+
+    monkeypatch.setattr(lba, "_get", _fake_get)
+    lba._exec("lba_referentiel_tarifs", {}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/bacchus/referentiel/tarifs"
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_referentiel_famille_affecter_patches_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_referentiel_famille_affecter", {
+        "code_client": "2590", "id_famille": 14}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/bacchus/referentiel/famille/2590"
+    assert captured["payload"] == {"id_famille": 14}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_referentiel_famille_affecter_requires_code_client_and_id_famille(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_referentiel_famille_affecter", {"id_famille": 14}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (code_client manquant)")
+    except lba.LbaCliError:
+        pass
+    try:
+        lba._exec("lba_referentiel_famille_affecter", {"code_client": "2590"}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (id_famille manquant)")
+    except lba.LbaCliError:
+        pass
+
+
+def test_lba_referentiel_famille_affecter_encodes_code_client_in_path(monkeypatch):
+    """Même garde-fou que _seg ailleurs (ex. e63bc22) — un code_client avec
+    un '/' ne doit pas casser le path PATCH."""
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_referentiel_famille_affecter", {
+        "code_client": "A/B", "id_famille": 14}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/bacchus/referentiel/famille/A%2FB"
+
+
+def test_lba_referentiel_secteur_tournee_affecter_patches_expected_path_and_payload(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_referentiel_secteur_tournee_affecter", {
+        "code_client": "2590", "id_secteur_commercial": 3, "id_tournee_fixe": 7}, "22fcf4a5-agent-1")
+    assert captured["path"] == "/api/bacchus/referentiel/secteur-tournee/2590"
+    assert captured["payload"] == {"id_secteur_commercial": 3, "id_tournee_fixe": 7}
+    assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
+
+
+def test_lba_referentiel_secteur_tournee_affecter_omits_absent_field(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    captured = {}
+
+    def _fake_patch(path, payload, headers=None):
+        captured["payload"] = payload
+        return "{}"
+
+    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    lba._exec("lba_referentiel_secteur_tournee_affecter", {
+        "code_client": "2590", "id_secteur_commercial": 3}, "22fcf4a5-agent-1")
+    assert captured["payload"] == {"id_secteur_commercial": 3, "id_tournee_fixe": None}
+
+
+def test_lba_referentiel_secteur_tournee_affecter_requires_code_client(monkeypatch):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    try:
+        lba._exec("lba_referentiel_secteur_tournee_affecter", {"id_secteur_commercial": 3}, "22fcf4a5-agent-1")
+        raise AssertionError("devait lever LbaCliError (code_client manquant)")
+    except lba.LbaCliError:
+        pass
 
 
 # ── Runner sans pytest (convention du repo — cf test_relay_no_response_repro.py) ──
