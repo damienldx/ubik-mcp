@@ -122,6 +122,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # POST /api/bacchus/prospects/{creer,passer-client}, Depends(current_user)
     # réel (comme lba_calendar_creer), pour tracer QUEL commercial agit.
     "lba_prospect_creer", "lba_prospect_passer_client",
+    # ── Panneau CLIENT — référentiels + écriture guardée (mission #5/#6,
+    # 2026-09-02, plan_1ef5a724) — GET/PATCH /api/bacchus/referentiel/*,
+    # Depends(current_user) réel côté bacchus_prospect_tools.py:
+    # router_referentiel (même rationale que lba_prospect_creer ci-dessus).
+    "lba_referentiel_familles_client", "lba_referentiel_tarifs",
+    "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1581,6 +1587,52 @@ TOOLS = [
             "lier_adresse_existante": {"type": "boolean", "description": "défaut true"}}},
     },
     {
+        "name": "lba_referentiel_familles_client",
+        "description": ("Lecture pure — référentiel des familles client PRISMA (hiérarchie "
+                         "menu1..7) — GET /api/bacchus/referentiel/familles-client. TOUJOURS "
+                         "appeler avant lba_referentiel_famille_affecter : id_famille ne se "
+                         "devine jamais, se choisit dans cette liste et se fait confirmer par "
+                         "l'utilisateur."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_referentiel_tarifs",
+        "description": ("Lecture pure — référentiel des tarifs PRISMA (id/numTarif/libelle/"
+                         "isActif/isTarifGeneral), BRUT (actifs et inactifs) — GET /api/bacchus/"
+                         "referentiel/tarifs. Présentation d'options uniquement : l'ÉCRITURE du "
+                         "tarif nommé d'un client N'EST PAS exposée par ce tool (hors scope, "
+                         "gouvernée séparément par PRISMA_FEATURE_TARIF_CLIENT_WRITE, go Damien "
+                         "requis)."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_referentiel_famille_affecter",
+        "description": ("[ÉCRITURE] Affecte une famille client à un client PRISMA existant — "
+                         "PATCH /api/bacchus/referentiel/famille/{code_client}. Idempotent "
+                         "(skip si déjà affectée côté prisma-api), n'écrase/ne retire JAMAIS une "
+                         "affectation existante (multi-affectations réelles en base). TOUJOURS "
+                         "appeler lba_referentiel_familles_client avant — ne JAMAIS deviner "
+                         "id_famille, le faire confirmer explicitement par l'utilisateur. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client", "id_famille"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "id_famille": {"type": "integer", "description": "id PrismaGestionCo_famille (cf lba_referentiel_familles_client)"}}},
+    },
+    {
+        "name": "lba_referentiel_secteur_tournee_affecter",
+        "description": ("[ÉCRITURE] Pose le secteur commercial et/ou la tournée fixe d'un client "
+                         "PRISMA existant — PATCH /api/bacchus/referentiel/secteur-tournee/"
+                         "{code_client}. Au moins un des deux champs requis (id_secteur_commercial, "
+                         "id_tournee_fixe) — refusé sinon. Chaque valeur fournie est validée contre "
+                         "son référentiel avant écriture côté prisma-api. Ne JAMAIS deviner ces "
+                         "ids : les faire confirmer explicitement par l'utilisateur. Confirmation "
+                         "utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "id_secteur_commercial": {"type": "integer", "description": "id PrismaGestionCo_secteur — au moins un des deux champs requis"},
+            "id_tournee_fixe": {"type": "integer", "description": "id PrismaGestionCo_tournee_fixe — au moins un des deux champs requis"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -2868,6 +2920,19 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "mode_reglement": args.get("mode_reglement"), "echeance_nb_jours": args.get("echeance_nb_jours"),
             "domiciliation_bancaire": args.get("domiciliation_bancaire"), "rib": args.get("rib"),
             "lier_adresse_existante": args.get("lier_adresse_existante", True)}, headers)
+    if tool == "lba_referentiel_familles_client":
+        return _get("/api/bacchus/referentiel/familles-client", {}, headers)
+    if tool == "lba_referentiel_tarifs":
+        return _get("/api/bacchus/referentiel/tarifs", {}, headers)
+    if tool == "lba_referentiel_famille_affecter":
+        code_client = _req(args, "code_client")
+        return _patch(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
+            "id_famille": _req(args, "id_famille")}, headers)
+    if tool == "lba_referentiel_secteur_tournee_affecter":
+        code_client = _req(args, "code_client")
+        return _patch(f"/api/bacchus/referentiel/secteur-tournee/{_seg(code_client)}", {
+            "id_secteur_commercial": args.get("id_secteur_commercial"),
+            "id_tournee_fixe": args.get("id_tournee_fixe")}, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
