@@ -91,6 +91,11 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
     "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
     "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
+    # ── Génération générique de documents (mission m_0d1ffa13/#3, plan_82661710) —
+    # POST /api/bacchus/document/generer_{pptx,docx,xlsx}, Depends(current_user)
+    # réel côté bacchus_document_tools.py (même store privé que les devis
+    # ci-dessus), même mécanisme ticket-exchange que lba_devis_composer/creer.
+    "lba_document_generer_pptx", "lba_document_generer_docx", "lba_document_generer_xlsx",
     # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
     # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
     "lba_whatsapp_envoyer",
@@ -2293,6 +2298,73 @@ TOOLS = [
             "filename": {"type": "string", "description": "optionnel, sinon dérivé du titre du document"},
             "confirmed_by_user": {"type": "boolean", "description": "DOIT être true — preuve qu'une confirmation explicite de l'utilisateur a été obtenue avant cet appel, cf description du tool"}}},
     },
+    # ── Génération générique de documents (mission m_0d1ffa13, plan_82661710,
+    # brief Nina msg_ref=4352fb337dfe) — 3 tools distincts de lba_devis_composer
+    # (pricing figé) : Bacchus COMPOSE le contenu lui-même (titres/texte/
+    # tableaux/feuilles), AUCUN template imposé. Backend plan/bacchus_document_
+    # tools.py (repo LBA-DESKTOP, commit dd72d6d) dépose dans le MÊME store que
+    # les devis (panel "Mes Documents", GET /api/me/documents via lba_devis_
+    # liste/lire les liste/lisent aussi — origine='agent' distingue visuellement
+    # "Généré" de "Importé" côté front). Aucun envoi externe (dépôt privé
+    # uniquement, cf bandeau backend) — pas de garde confirmed_by_user ici.
+    {
+        "name": "lba_document_generer_pptx",
+        "description": ("[ÉCRITURE] Génère une présentation PowerPoint (.pptx) à partir du contenu "
+                         "composé par Bacchus (page de garde + diapositives titre/puces, dans "
+                         "l'ordre) et la dépose dans 'Mes Documents' (origine='agent') — POST "
+                         "/api/bacchus/document/generer_pptx. Consultable ensuite via lba_devis_liste "
+                         "(type='document' par défaut, pas 'devis')/lba_devis_lire. Aucun envoi "
+                         "externe, aucun template imposé."),
+        "inputSchema": {"type": "object", "required": ["titre", "slides"], "properties": {
+            "titre": {"type": "string", "description": "titre du document (page de garde + métadonnée 'Mes Documents')"},
+            "slides": {"type": "array", "description": "diapositives de contenu, dans l'ordre (en plus de la page de garde)",
+                       "items": {"type": "object", "properties": {
+                           "titre": {"type": "string", "description": "titre de la diapositive (vide = pas de titre)"},
+                           "puces": {"type": "array", "description": "lignes de texte / puces du corps, dans l'ordre", "items": {"type": "string"}}}}},
+            "type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document')"},
+            "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
+            "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
+    },
+    {
+        "name": "lba_document_generer_docx",
+        "description": ("[ÉCRITURE] Génère un document Word (.docx) à partir de blocs composés par "
+                         "Bacchus (titre/paragraphe/liste/tableau, dans l'ordre) et le dépose dans "
+                         "'Mes Documents' (origine='agent') — POST /api/bacchus/document/generer_docx. "
+                         "Consultable ensuite via lba_devis_liste (type='document' par défaut)/lba_"
+                         "devis_lire. Aucun envoi externe, aucun template imposé."),
+        "inputSchema": {"type": "object", "required": ["titre", "blocs"], "properties": {
+            "titre": {"type": "string", "description": "titre du document (titre en tête + métadonnée 'Mes Documents')"},
+            "blocs": {"type": "array", "description": "blocs de contenu, dans l'ordre — un de type titre|paragraphe|liste|tableau",
+                      "items": {"type": "object", "required": ["type"], "properties": {
+                          "type": {"type": "string", "description": "un de : titre, paragraphe, liste, tableau"},
+                          "texte": {"type": "string", "description": "texte (type='titre' ou 'paragraphe')"},
+                          "niveau": {"type": "integer", "description": "niveau de titre (type='titre'), 1=plus visible, défaut 1"},
+                          "items": {"type": "array", "description": "puces (type='liste')", "items": {"type": "string"}},
+                          "lignes": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type='tableau')",
+                                     "items": {"type": "array", "items": {"type": "string"}}}}}},
+            "type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document')"},
+            "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
+            "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
+    },
+    {
+        "name": "lba_document_generer_xlsx",
+        "description": ("[ÉCRITURE] Génère un classeur Excel (.xlsx) à partir de feuilles composées "
+                         "par Bacchus (1ère ligne = en-tête, mise en gras automatiquement) et le "
+                         "dépose dans 'Mes Documents' (origine='agent') — POST /api/bacchus/document/"
+                         "generer_xlsx. Consultable ensuite via lba_devis_liste (type='document' par "
+                         "défaut)/lba_devis_lire. Aucun envoi externe, aucun template imposé "
+                         "(distinct de la matrice Excel figée d'investissement)."),
+        "inputSchema": {"type": "object", "required": ["titre", "feuilles"], "properties": {
+            "titre": {"type": "string", "description": "titre du document (métadonnée 'Mes Documents' uniquement — pas écrit dans le classeur)"},
+            "feuilles": {"type": "array", "description": "feuilles du classeur, dans l'ordre",
+                         "items": {"type": "object", "required": ["nom", "lignes"], "properties": {
+                             "nom": {"type": "string", "description": "nom de l'onglet (tronqué à 31 caractères, contrainte Excel)"},
+                             "lignes": {"type": "array", "description": "lignes de la feuille, 1ère ligne = en-tête",
+                                        "items": {"type": "array"}}}}},
+            "type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document')"},
+            "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
+            "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
+    },
     # ── LBA MEMORY (plan écrit 2026-08-04, demande explicite Damien) — mémoire
     # long terme CONSCIENTE (Bacchus décide quoi retenir/rappeler, jamais une
     # ingestion automatique de toute la conversation), store isolé
@@ -3089,6 +3161,24 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "filename": args.get("filename")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _post(f"/api/me/documents/{document_id}/envoyer", payload, headers)
+    if tool == "lba_document_generer_pptx":
+        raw = {"titre": _req(args, "titre"), "slides": _req(args, "slides"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "dossier_id": args.get("dossier_id")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/document/generer_pptx", payload, headers)
+    if tool == "lba_document_generer_docx":
+        raw = {"titre": _req(args, "titre"), "blocs": _req(args, "blocs"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "dossier_id": args.get("dossier_id")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/document/generer_docx", payload, headers)
+    if tool == "lba_document_generer_xlsx":
+        raw = {"titre": _req(args, "titre"), "feuilles": _req(args, "feuilles"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "dossier_id": args.get("dossier_id")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/document/generer_xlsx", payload, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
