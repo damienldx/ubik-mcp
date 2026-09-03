@@ -128,8 +128,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # Depends(current_user) réel côté bacchus_prospect_tools.py:
     # router_referentiel (même rationale que lba_prospect_creer ci-dessus).
     "lba_referentiel_familles_client", "lba_referentiel_tarifs",
+    "lba_referentiel_secteurs_tournees",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
-"lba_referentiel_representant_affecter",
+    "lba_referentiel_representant_affecter",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
