@@ -74,10 +74,14 @@ def extract_block(lines: list[str], key: str) -> list[str]:
 def generate_scope_content(manifest_path: str, role: str) -> str:
     lines = open(manifest_path).read().splitlines()
     whitelist = extract_block(lines, "tools_whitelist")
+    extra = extract_block(lines, "tools_whitelist_extra")
     blacklist = extract_block(lines, "tools_blacklist")
 
     out = [HEADER_TEMPLATE.format(manifest=manifest_path, role=role)]
     out.extend(whitelist)
+    if extra:
+        out.append("# — tools_whitelist_extra (MCP standalone, hors CLI `lba`) —")
+        out.extend(extra)
     if blacklist:
         out.append("\n[block]")
         out.append("# Explicitement exclus côté mandat (tools_blacklist du manifest) :")
@@ -115,6 +119,7 @@ def generate_append_block(manifest_path: str, role: str) -> str:
     listed by hand (with its own inline rationale comment) is not duplicated."""
     lines = open(manifest_path).read().splitlines()
     whitelist = extract_block(lines, "tools_whitelist")
+    extra = extract_block(lines, "tools_whitelist_extra")
     blacklist = extract_block(lines, "tools_blacklist")
 
     block = [
@@ -125,6 +130,9 @@ def generate_append_block(manifest_path: str, role: str) -> str:
         "[allow-synced]",
     ]
     block.extend(whitelist)
+    if extra:
+        block.append("# — tools_whitelist_extra (MCP standalone, hors CLI `lba`) —")
+        block.extend(extra)
     if blacklist:
         block.append("")
         block.append("[block-synced]")

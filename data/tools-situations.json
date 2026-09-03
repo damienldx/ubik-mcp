@@ -866,6 +866,85 @@
       "situation": "Utilisateur veut envoyer un devis sauvegardé par email au client — ÉCRITURE, POINT DE SÉCURITÉ CRITIQUE, confirmation explicite systématique obligatoire",
       "cli": "lba lba_devis_envoyer --args '{\"document_id\":\"...\",\"to_email\":\"...\",\"message\":\"...\",\"confirmed_by_user\":true}'",
       "note": "confirmed_by_user DOIT valoir true ET refléter une confirmation RÉELLEMENT obtenue de l'utilisateur juste avant cet appel (destinataire+contenu relus) — jamais posé par défaut/automatisme. Sans confirmation, NE PAS appeler ce tool du tout. Réservé aux documents type='devis' avec client_code (400 sinon). CC backoffice@lba-boissons.fr systématique et non modifiable."
+    },
+    "lba_client_adresses": {
+      "situation": "Utilisateur demande l'adresse d'un client nommé (correspondance/livraison/facturation)",
+      "cli": "lba lba_client_adresses --args '{\"code\":\"<code client>\"}'",
+      "note": "Lecture LIVE (pas DuckDB) via pont prisma-api — seule source d'adresse côté fiche client, ajouté 2026-09-03."
+    },
+    "lba_client_fiche_adv": {
+      "situation": "Utilisateur veut l'historique des appels Télévente ADV, la dernière commande app ou le PLV distribué d'un client",
+      "cli": "lba lba_client_fiche_adv --args '{\"code\":\"<code client>\"}'",
+      "note": "Complète lba_client_fiche côté ADV/relation commerciale, pas ventes/marge."
+    },
+    "lba_client_familles_non_commandees": {
+      "situation": "Utilisateur veut du cross-sell — quelles familles d'articles ce client n'a jamais commandées",
+      "cli": "lba lba_client_familles_non_commandees --args '{\"code\":\"<code client>\",\"date_from\":\"...\",\"date_to\":\"...\"}'"
+    },
+    "lba_article_remises_clients": {
+      "situation": "Utilisateur demande quels clients ont une remise dédiée sur UN article ou une sous-famille",
+      "cli": "lba lba_article_remises_clients --args '{\"code_article\":\"...\"}'",
+      "note": "Inverse de lba_client_remises_negociees (par article, pas par client)."
+    },
+    "lba_article_historique_ventes": {
+      "situation": "Utilisateur veut les dernières ventes réellement facturées d'UN article, éventuellement pour un client précis",
+      "cli": "lba lba_article_historique_ventes --args '{\"code_article\":\"...\",\"code_client\":\"<optionnel>\"}'"
+    },
+    "lba_visite_lire": {
+      "situation": "Utilisateur veut le détail d'UNE visite CRM précise (es_id connu)",
+      "cli": "lba lba_visite_lire --args '{\"es_id\":\"...\"}'",
+      "note": "Complète lba_visites_liste/lba_visite_modifier déjà présents."
+    },
+    "lba_visites_kpis": {
+      "situation": "Utilisateur veut les KPI agrégés de visites du portefeuille (taux de couverture, rythme)",
+      "cli": "lba lba_visites_kpis --args '{}'",
+      "note": "1 des 4 piliers d'une synthèse KPI de visites complète."
+    },
+    "lba_visites_qualite_ciblage": {
+      "situation": "Utilisateur veut savoir si les visites portent bien sur les clients qui pèsent le plus dans le CA",
+      "cli": "lba lba_visites_qualite_ciblage --args '{}'"
+    },
+    "lba_visites_value_key": {
+      "situation": "Utilisateur veut la valeur créée par les visites (delta CA post-visite vs N-1, taux de transformation)",
+      "cli": "lba lba_visites_value_key --args '{}'"
+    },
+    "lba_clients_sous_visites": {
+      "situation": "Utilisateur veut les clients non visités depuis N jours avec le plus gros delta CA/marge négatif",
+      "cli": "lba lba_clients_sous_visites --args '{}'",
+      "note": "Distinct de lba_clients_sans_visites (visites terrain, pas commandes)."
+    },
+    "lba_clients_inactifs": {
+      "situation": "Utilisateur veut les clients sans aucune commande sur la période",
+      "cli": "lba lba_clients_inactifs --args '{}'",
+      "note": "Distinct de lba_clients_sous_visites (commandes, pas visites terrain)."
+    },
+    "lba_clients_gagnes_perdus": {
+      "situation": "Utilisateur veut voir la conquête (clients gagnés) vs l'attrition (clients perdus) du portefeuille",
+      "cli": "lba lba_clients_gagnes_perdus --args '{}'"
+    },
+    "lba_representants_agenda": {
+      "situation": "Utilisateur veut l'agenda hebdomadaire d'un représentant, tous états inclus (détecter les trous)",
+      "cli": "lba lba_representants_agenda --args '{}'",
+      "note": "Complète lba_agenda_representants déjà présent."
+    },
+    "lba_planning_reps": {
+      "situation": "Besoin de la liste des commerciaux terrain éligibles au planning (id+label)",
+      "cli": "lba lba_planning_reps --args '{}'",
+      "note": "Prérequis pratique avant lba_planning_current."
+    },
+    "lba_planning_current": {
+      "situation": "Utilisateur veut voir le planning déjà booké dans PRISMA, groupé par jour",
+      "cli": "lba lba_planning_current --args '{}'",
+      "note": "Sans date_from/date_to : mois courant."
+    },
+    "lba_devis_article_prix": {
+      "situation": "Composer un devis — prix d'UN article pour UN client (à appeler une fois par article ajouté)",
+      "cli": "lba lba_devis_article_prix --args '{\"code_client\":\"...\",\"code_article\":\"...\"}'"
+    },
+    "lba_devis_generer": {
+      "situation": "Le devis est composé (articles déjà résolus) — l'utilisateur veut le fichier final",
+      "cli": "lba lba_devis_generer --args '{\"articles\":[...]}'",
+      "note": "ÉCRITURE bornée : n'appelle AUCUNE nouvelle résolution de prix, juste le rendu du fichier."
     }
   }
 }

@@ -300,9 +300,20 @@ def _req(args: dict, name: str):
 TOOLS = [
     {
         "name": "lba_client_fiche",
-        "description": "Fiche complète d'un client (code, période) — GET /api/bacchus/client/{code}/fiche.",
+        "description": ("Fiche complète d'un client (code, période) — GET /api/bacchus/client/{code}/fiche. "
+                         "Inclut idReglementModeLibelle (label résolu du mode de règlement PRISMA, ex. "
+                         "\"PRELEVEMENT\", en plus d'idReglementMode brut, ajouté 2026-09-03). "
+                         "N'inclut PAS l'adresse — utiliser lba_client_adresses."),
         "inputSchema": {"type": "object", "required": ["code", "date_from", "date_to"], "properties": {
             "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_adresses",
+        "description": ("Adresses d'un client (onglet Adresses de la fiche tiers Prisma, avec leurs types "
+                         "correspondance/livraison/facturation) — GET /api/bacchus/client/{code}/adresses. "
+                         "Lecture LIVE (pas DuckDB) via pont prisma-api. Ajouté 2026-09-03 (gap signalé "
+                         "sur un dossier commercial-client)."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
     },
     {
         "name": "lba_client_contacts",
@@ -3248,6 +3259,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_client_adresses":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/adresses", {})
     if tool == "lba_client_contacts":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/contacts", {
