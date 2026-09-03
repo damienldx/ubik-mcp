@@ -308,6 +308,17 @@ TOOLS = [
             "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
     },
     {
+        "name": "lba_client_evolution",
+        "description": ("Série temporelle CA HT / marge HT d'un client, période N et N-1 en une seule "
+                         "réponse — GET /api/bacchus/client/{code}/evolution. Réplique le modèle PRISMA "
+                         "Infocentre natif \"KPI EVOLUTION DES CHIFFRES CA, MARGE N/N-1\" (rapport id=148, "
+                         "sortie Tableau croisé dynamique). Buckets par JOUR/SEMAINE/MOIS/ANNEE (défaut MOIS) "
+                         "— idéal pour un tableau/graphique d'évolution, pas juste 2 totaux agrégés."),
+        "inputSchema": {"type": "object", "required": ["code", "date_from", "date_to"], "properties": {
+            "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"},
+            "granu": {"type": "string", "description": "JOUR|SEMAINE|MOIS|ANNEE — défaut MOIS"}}},
+    },
+    {
         "name": "lba_client_adresses",
         "description": ("Adresses d'un client (onglet Adresses de la fiche tiers Prisma, avec leurs types "
                          "correspondance/livraison/facturation) — GET /api/bacchus/client/{code}/adresses. "
@@ -3259,6 +3270,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_client_evolution":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/evolution", {
+            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
+            "granu": args.get("granu", "MOIS")})
     if tool == "lba_client_adresses":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/adresses", {})

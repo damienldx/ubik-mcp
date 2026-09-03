@@ -590,6 +590,10 @@
       "situation": "Utilisateur demande la fiche d'un client nommé (infos générales, période)",
       "cli": "lba lba_client_fiche --args '{\"code\":\"<code client>\",\"periode\":\"...\"}'"
     },
+    "lba_client_evolution": {
+      "situation": "Utilisateur demande l'évolution CA/marge d'un client dans le temps (N vs N-1, par mois/semaine) — équivalent rapport PRISMA Infocentre 148",
+      "cli": "lba lba_client_evolution --args '{\"code\":\"<code client>\",\"date_from\":\"YYYY-MM-DD\",\"date_to\":\"YYYY-MM-DD\"}'"
+    },
     "lba_client_historique_visites": {
       "situation": "Utilisateur veut l'historique des visites déjà traitées d'un client",
       "cli": "lba lba_client_historique_visites --args '{\"code\":\"<code client>\"}'"
