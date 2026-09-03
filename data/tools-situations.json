@@ -1040,6 +1040,11 @@
       "cli": "lba lba_referentiel_tarifs --args '{}'",
       "note": "BRUT (actifs et inactifs), lecture pure. L'écriture du tarif nommé d'un client N'EST PAS exposée par ce tool (hors scope, gouverné séparément par PRISMA_FEATURE_TARIF_CLIENT_WRITE, go Damien requis)."
     },
+    "lba_referentiel_secteurs_tournees": {
+      "situation": "Utilisateur veut poser le secteur commercial et/ou la tournée fixe d'un client — lecture pure du référentiel AVANT lba_referentiel_secteur_tournee_affecter",
+      "cli": "lba lba_referentiel_secteurs_tournees",
+      "note": "Ne pilote PAS le commercial du portefeuille (idPersonneRepresentant, séparé) — secteur/tournée = zone géographique et tournée de livraison."
+    },
     "lba_referentiel_famille_affecter": {
       "situation": "Utilisateur veut affecter une famille client à un client PRISMA existant — ÉCRITURE, confirmation obligatoire",
       "cli": "lba lba_referentiel_famille_affecter --args '{\"code_client\":\"...\",\"id_famille\":...}'",
@@ -1163,6 +1168,11 @@
       "situation": "Utilisateur veut un document Word composé par Bacchus (titre/paragraphe/liste/tableau) sans template imposé — ÉCRITURE",
       "cli": "lba lba_document_generer_docx --args '{\"titre\":\"...\",\"blocs\":[{\"type\":\"titre|paragraphe|liste|tableau\"}]}'",
       "note": "Dépose dans 'Mes Documents' (origine='agent'). Consultable via lba_devis_liste (type='document')/lba_devis_lire."
+    },
+    "lba_document_generer_pdf": {
+      "situation": "Utilisateur veut un PDF composé par Bacchus (titre/paragraphe/liste/tableau) sans template imposé — ÉCRITURE",
+      "cli": "lba lba_document_generer_pdf --args '{\"titre\":\"...\",\"blocs\":[{\"type\":\"titre|paragraphe|liste|tableau\"}]}'",
+      "note": "Dépose dans 'Mes Documents' (origine='agent'). Consultable via lba_devis_liste (type='document')/lba_devis_lire. Même modèle de blocs que generer_docx."
     },
     "lba_document_generer_xlsx": {
       "situation": "Utilisateur veut un classeur Excel composé par Bacchus (feuilles de données) sans template imposé — ÉCRITURE",

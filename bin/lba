@@ -96,6 +96,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # réel côté bacchus_document_tools.py (même store privé que les devis
     # ci-dessus), même mécanisme ticket-exchange que lba_devis_composer/creer.
     "lba_document_generer_pptx", "lba_document_generer_docx", "lba_document_generer_xlsx",
+    "lba_document_generer_pdf",
     # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
     # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
     "lba_whatsapp_envoyer",
@@ -1628,6 +1629,19 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "lba_referentiel_secteurs_tournees",
+        "description": ("Lecture pure — référentiel des secteurs commerciaux et tournées fixes "
+                         "PRISMA (id/libellé/personne rattachée/jours) — GET /api/bacchus/"
+                         "referentiel/secteurs-tournees. TOUJOURS appeler avant lba_referentiel_"
+                         "secteur_tournee_affecter : les ids ne se devinent jamais. ⚠️ Ces champs "
+                         "(idSecteurCommercial/idTourneeFixe) gouvernent la zone géographique et "
+                         "la tournée de LIVRAISON — ils NE pilotent PAS le commercial "
+                         "\"propriétaire\" du portefeuille pour le reporting (ce champ est "
+                         "idPersonneRepresentant sur tiers_client, séparé, sans tool d'écriture "
+                         "Bacchus à ce jour)."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "lba_referentiel_famille_affecter",
         "description": ("[ÉCRITURE] Affecte une famille client à un client PRISMA existant — "
                          "PATCH /api/bacchus/referentiel/famille/{code_client}. Idempotent "
@@ -2439,6 +2453,28 @@ TOOLS = [
             "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
             "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
     },
+    {
+        "name": "lba_document_generer_pdf",
+        "description": ("[ÉCRITURE] Génère un PDF (reportlab) à partir de blocs composés par Bacchus "
+                         "(titre/paragraphe/liste/tableau, dans l'ordre — même modèle que lba_document_"
+                         "generer_docx) et le dépose dans 'Mes Documents' (origine='agent') — POST "
+                         "/api/bacchus/document/generer_pdf. Consultable ensuite via lba_devis_liste "
+                         "(type='document' par défaut)/lba_devis_lire. Aucun envoi externe, aucun "
+                         "template imposé."),
+        "inputSchema": {"type": "object", "required": ["titre", "blocs"], "properties": {
+            "titre": {"type": "string", "description": "titre du document (page de garde + métadonnée 'Mes Documents')"},
+            "blocs": {"type": "array", "description": "blocs de contenu, dans l'ordre — un de type titre|paragraphe|liste|tableau",
+                      "items": {"type": "object", "required": ["type"], "properties": {
+                          "type": {"type": "string", "description": "un de : titre, paragraphe, liste, tableau"},
+                          "texte": {"type": "string", "description": "texte (type='titre' ou 'paragraphe')"},
+                          "niveau": {"type": "integer", "description": "niveau de titre (type='titre'), 1=plus visible, défaut 1"},
+                          "items": {"type": "array", "description": "puces (type='liste')", "items": {"type": "string"}},
+                          "lignes": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type='tableau')",
+                                     "items": {"type": "array", "items": {"type": "string"}}}}}},
+            "type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document')"},
+            "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
+            "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
+    },
     # ── LBA MEMORY (plan écrit 2026-08-04, demande explicite Damien) — mémoire
     # long terme CONSCIENTE (Bacchus décide quoi retenir/rappeler, jamais une
     # ingestion automatique de toute la conversation), store isolé
@@ -2946,6 +2982,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/referentiel/familles-client", {}, headers)
     if tool == "lba_referentiel_tarifs":
         return _get("/api/bacchus/referentiel/tarifs", {}, headers)
+    if tool == "lba_referentiel_secteurs_tournees":
+        return _get("/api/bacchus/referentiel/secteurs-tournees", {}, headers)
     if tool == "lba_referentiel_famille_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
@@ -3260,6 +3298,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "dossier_id": args.get("dossier_id")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _post("/api/bacchus/document/generer_docx", payload, headers)
+    if tool == "lba_document_generer_pdf":
+        raw = {"titre": _req(args, "titre"), "blocs": _req(args, "blocs"),
+               "type": args.get("type"), "client_code": args.get("client_code"),
+               "dossier_id": args.get("dossier_id")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/document/generer_pdf", payload, headers)
     if tool == "lba_document_generer_xlsx":
         raw = {"titre": _req(args, "titre"), "feuilles": _req(args, "feuilles"),
                "type": args.get("type"), "client_code": args.get("client_code"),
