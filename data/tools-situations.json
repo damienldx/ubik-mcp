@@ -938,13 +938,294 @@
       "note": "Sans date_from/date_to : mois courant."
     },
     "lba_devis_article_prix": {
-      "situation": "Composer un devis — prix d'UN article pour UN client (à appeler une fois par article ajouté)",
-      "cli": "lba lba_devis_article_prix --args '{\"code_client\":\"...\",\"code_article\":\"...\"}'"
+      "situation": "Composer un devis conversationnel article par article — appeler UNE FOIS PAR ARTICLE ajouté",
+      "cli": "lba lba_devis_article_prix --args '{\"code_article\":\"...\",\"client_code\":\"...\"}'",
+      "note": "Sans taux_marque_cible : prix/remise RÉELS négociés du client. Avec : calcule le prix pour atteindre cette marge (400 si prix de revient inconnu). Jamais tout le cadencier d'un coup."
     },
     "lba_devis_generer": {
-      "situation": "Le devis est composé (articles déjà résolus) — l'utilisateur veut le fichier final",
-      "cli": "lba lba_devis_generer --args '{\"articles\":[...]}'",
-      "note": "ÉCRITURE bornée : n'appelle AUCUNE nouvelle résolution de prix, juste le rendu du fichier."
+      "situation": "Assembler et rendre le devis conversationnel (PDF/HTML/XLSX/CSV) une fois les articles résolus — ÉCRITURE",
+      "cli": "lba lba_devis_generer --args '{\"client_code\":\"...\",\"articles\":[],\"format\":\"pdf\"}'",
+      "note": "articles = passer EXACTEMENT les objets renvoyés par lba_devis_article_prix, aucune nouvelle résolution de prix. showConfidential toujours False. client_email retourné, à proposer par défaut pour lba_devis_envoyer."
+    },
+    "lba_mail_envoyer": {
+      "situation": "Utilisateur veut composer et envoyer un mail Outlook neuf (pas une réponse) — ÉCRITURE, confirmation destinataire+sujet+contenu obligatoire",
+      "cli": "lba lba_mail_envoyer --args '{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}'",
+      "note": "Aucun flux preview/confirm backend — la confirmation doit être obtenue AVANT l'appel. attachments (optionnel) en base64 fourni par l'appelant (pas un path serveur), limite ~3 Mo/message tous fichiers confondus."
+    },
+    "lba_mail_marquer": {
+      "situation": "Utilisateur veut marquer/démarquer un mail Outlook \"à suivre\" (flag) — ÉCRITURE",
+      "cli": "lba lba_mail_marquer --args '{\"message_id\":\"...\",\"status\":\"flagged\"}'",
+      "note": "status: flagged (défaut) | complete | notFlagged. Aucun nouveau scope OAuth requis (Mail.ReadWrite déjà consenti)."
+    },
+    "lba_calendar_accepter": {
+      "situation": "Utilisateur veut accepter une invitation calendrier — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_calendar_accepter --args '{\"event_id\":\"...\"}'",
+      "note": "event_id vient de lba_calendar_liste. send_response=true par défaut (notifie l'organisateur) — jamais de réponse automatique sans confirmation utilisateur."
+    },
+    "lba_calendar_refuser": {
+      "situation": "Utilisateur veut refuser une invitation calendrier — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_calendar_refuser --args '{\"event_id\":\"...\"}'",
+      "note": "event_id vient de lba_calendar_liste. send_response=true par défaut (notifie l'organisateur) — jamais de réponse automatique sans confirmation utilisateur."
+    },
+    "lba_calendar_accepter_provisoire": {
+      "situation": "Utilisateur veut accepter provisoirement une invitation calendrier — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_calendar_accepter_provisoire --args '{\"event_id\":\"...\"}'",
+      "note": "event_id vient de lba_calendar_liste. send_response=true par défaut (notifie l'organisateur) — jamais de réponse automatique sans confirmation utilisateur."
+    },
+    "lba_calendar_modifier": {
+      "situation": "Utilisateur veut modifier/replanifier un événement calendrier existant — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_calendar_modifier --args '{\"event_id\":\"...\",\"start\":\"...\",\"end\":\"...\"}'",
+      "note": "Payload partiel, au moins un champ requis. ⚠️ attendees remplace la liste COMPLÈTE côté Graph (jamais un merge) — toujours renvoyer la liste entière."
+    },
+    "lba_calendar_disponibilite": {
+      "situation": "Utilisateur veut vérifier la disponibilité (free/busy) d'un ou plusieurs collègues sur une fenêtre donnée",
+      "cli": "lba lba_calendar_disponibilite --args '{\"emails\":\"a@lba-boissons.fr,b@lba-boissons.fr\",\"start\":\"...\",\"end\":\"...\"}'",
+      "note": "Lecture seule, aucune confirmation requise."
+    },
+    "lba_teams_lire_messages": {
+      "situation": "Utilisateur veut lire les derniers messages d'une conversation Teams",
+      "cli": "lba lba_teams_lire_messages --args '{\"chat_id\":\"...\"}'",
+      "note": "chat_id vient de lba_teams_conversations."
+    },
+    "lba_teams_demarrer": {
+      "situation": "Utilisateur veut démarrer une nouvelle conversation Teams 1:1 avec un collègue — ÉCRITURE, confirmation destinataire+message obligatoire",
+      "cli": "lba lba_teams_demarrer --args '{\"destinataire\":\"...\",\"message\":\"...\"}'",
+      "note": "destinataire = email exact ou fragment de nom (ambigu/introuvable = 400/404 explicite avec candidats). Aucun flux preview/confirm backend, confirmation à obtenir AVANT l'appel."
+    },
+    "lba_teams_nouveautes": {
+      "situation": "Utilisateur veut voir ses conversations Teams avec un message non lu (\"quoi de neuf\")",
+      "cli": "lba lba_teams_nouveautes --args '{}'"
+    },
+    "lba_teams_lister_equipes": {
+      "situation": "Utilisateur veut voir les équipes Teams dont il est membre",
+      "cli": "lba lba_teams_lister_equipes --args '{}'",
+      "note": "Peut nécessiter un consentement admin tenant (scope Team.ReadBasic.All)."
+    },
+    "lba_teams_lister_canaux": {
+      "situation": "Utilisateur veut voir les canaux d'une équipe Teams",
+      "cli": "lba lba_teams_lister_canaux --args '{\"team_id\":\"...\"}'",
+      "note": "team_id vient de lba_teams_lister_equipes. Peut nécessiter un consentement admin tenant (scope Channel.ReadBasic.All)."
+    },
+    "lba_teams_lire_canal_messages": {
+      "situation": "Utilisateur veut lire les derniers messages d'un canal d'équipe Teams",
+      "cli": "lba lba_teams_lire_canal_messages --args '{\"team_id\":\"...\",\"channel_id\":\"...\"}'",
+      "note": "team_id/channel_id via lba_teams_lister_equipes/lba_teams_lister_canaux. Nécessite quasi certainement un consentement admin tenant (scope ChannelMessage.Read.All, haut privilège)."
+    },
+    "lba_teams_presence": {
+      "situation": "Utilisateur veut voir le statut de présence Teams (le sien ou celui d'un collègue)",
+      "cli": "lba lba_teams_presence --args '{}'",
+      "note": "destinataire omis = soi-même (scope Presence.Read). destinataire fourni (email/nom, même résolution que lba_teams_demarrer) = collègue, nécessite quasi certainement un consentement admin tenant (scope Presence.Read.All)."
+    },
+    "lba_teams_lister_reunions": {
+      "situation": "Utilisateur veut voir ses vraies réunions Teams (isOnlineMeeting=true) dérivées du calendrier",
+      "cli": "lba lba_teams_lister_reunions --args '{}'",
+      "note": "Distinct du panel Réunion CRM (lba_reunion_*) — ne pas confondre."
+    },
+    "lba_teams_reunion_detail": {
+      "situation": "Utilisateur veut le détail d'une réunion Teams précise",
+      "cli": "lba lba_teams_reunion_detail --args '{\"join_url\":\"...\"}'",
+      "note": "join_url vient de lba_teams_lister_reunions. Scope OnlineMeetings.Read."
+    },
+    "lba_referentiel_familles_client": {
+      "situation": "Besoin de connaître les familles client PRISMA (hiérarchie menu1..7) avant d'en affecter une",
+      "cli": "lba lba_referentiel_familles_client --args '{}'",
+      "note": "TOUJOURS appeler avant lba_referentiel_famille_affecter — id_famille ne se devine jamais, se choisit dans cette liste et se fait confirmer par l'utilisateur."
+    },
+    "lba_referentiel_tarifs": {
+      "situation": "Besoin de connaître les tarifs PRISMA existants (id/numTarif/libelle/isActif) en présentation d'options",
+      "cli": "lba lba_referentiel_tarifs --args '{}'",
+      "note": "BRUT (actifs et inactifs), lecture pure. L'écriture du tarif nommé d'un client N'EST PAS exposée par ce tool (hors scope, gouverné séparément par PRISMA_FEATURE_TARIF_CLIENT_WRITE, go Damien requis)."
+    },
+    "lba_referentiel_famille_affecter": {
+      "situation": "Utilisateur veut affecter une famille client à un client PRISMA existant — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_famille_affecter --args '{\"code_client\":\"...\",\"id_famille\":...}'",
+      "note": "id_famille cf lba_referentiel_familles_client, ne jamais deviner. Idempotent, n'écrase/ne retire JAMAIS une affectation déjà présente (multi-affectations réelles en base)."
+    },
+    "lba_referentiel_secteur_tournee_affecter": {
+      "situation": "Utilisateur veut poser le secteur commercial et/ou la tournée fixe d'un client PRISMA existant — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_secteur_tournee_affecter --args '{\"code_client\":\"...\",\"id_secteur_commercial\":...}'",
+      "note": "Au moins un des deux champs (id_secteur_commercial, id_tournee_fixe) requis — refusé sinon. Chaque valeur validée contre son référentiel avant écriture. Ne jamais deviner ces ids, les faire confirmer explicitement par l'utilisateur."
+    },
+    "lba_memoire_save": {
+      "situation": "Utilisateur partage un fait/décision/préférence qui doit survivre au-delà de cette conversation — ÉCRITURE",
+      "cli": "lba lba_memoire_save --args '{\"fait\":\"...\",\"code_client\":\"<optionnel>\"}'",
+      "note": "Append-only, jamais destructif. Sans code_client = mémoire propre au seat ; avec code_client = visible par tous les seats reparlant de ce client."
+    },
+    "lba_memoire_recall": {
+      "situation": "Client nommé en début d'échange — vérifier si un autre seat a déjà noté un fait pertinent avant de proposer quoi que ce soit",
+      "cli": "lba lba_memoire_recall --args '{\"query\":\"...\",\"code_client\":\"<optionnel>\"}'",
+      "note": "Recherche BM25 mots-clés dans la mémoire du seat + celle du client si code_client fourni. Store isolé, distinct de la mémoire fleet."
+    },
+    "lba_skill_liste": {
+      "situation": "Opérateur mentionne un contexte métier récurrent — vérifier si un skill existe déjà avant d'en recréer un",
+      "cli": "lba lba_skill_liste --args '{}'",
+      "note": "Liste tous les skills (nom+description+maj), tous seats confondus, coût quasi nul."
+    },
+    "lba_skill_charger": {
+      "situation": "Opérateur nomme un skill explicitement (\"charge ton skill facture-meteor\") ou décrit un cas déjà traité",
+      "cli": "lba lba_skill_charger --args '{\"nom\":\"<nom exact>\"}' (ou {\"query\":\"<mots-clés>\"} si nom inconnu)",
+      "note": "nom = 404 explicite si absent. query renvoie des candidats SANS trancher — présenter à l'opérateur, jamais deviner lequel charger."
+    },
+    "lba_skill_save": {
+      "situation": "Après avoir appris à traiter un cas métier avec l'opérateur — capitaliser en skill nommé rechargeable",
+      "cli": "lba lba_skill_save --args '{\"nom\":\"<clé stable>\",\"description\":\"...\",\"contenu\":\"...\"}'",
+      "note": "Réécrit tout le skill à ce nom (jamais un append) — se corrige/s'enrichit à la même clé. Portée globale tous seats."
+    },
+    "lba_dossier_liste": {
+      "situation": "Utilisateur veut voir le contenu d'un dossier du Drive LBA (sous-dossiers/fichiers)",
+      "cli": "lba lba_dossier_liste --args '{\"path\":\"<optionnel>\"}'",
+      "note": "Sans path, liste la racine (dossiers partagés créés par les utilisateurs)."
+    },
+    "lba_dossier_arbre": {
+      "situation": "Besoin d'une vue d'ensemble de l'arborescence du Drive avant de plonger dans un dossier précis",
+      "cli": "lba lba_dossier_arbre --args '{\"path\":\"<optionnel>\",\"max_depth\":3}'"
+    },
+    "lba_dossier_lire": {
+      "situation": "Utilisateur veut le contenu texte d'un fichier déjà indexé du Drive (PDF/docx/xlsx/OCR)",
+      "cli": "lba lba_dossier_lire --args '{\"path\":\"<chemin exact>\"}'",
+      "note": "path = chemin relatif exact obtenu via lba_dossier_liste/arbre/rechercher. 404 explicite si absent."
+    },
+    "lba_dossier_rechercher": {
+      "situation": "Opérateur ne nomme pas le dossier/fichier exact (\"trouve le dossier qui parle de la facture Meteor\")",
+      "cli": "lba lba_dossier_rechercher --args '{\"query\":\"...\",\"path_prefix\":\"<optionnel>\"}'",
+      "note": "Recherche sémantique (pas mots-clés exacts) à travers tous les fichiers indexés du Drive."
+    },
+    "lba_dossier_creer": {
+      "situation": "Demande EXPLICITE de l'opérateur d'organiser un sous-dossier pendant une mission — ÉCRITURE",
+      "cli": "lba lba_dossier_creer --args '{\"path\":\"...\"}'",
+      "note": "La création de dossier reste principalement une action utilisateur via le panel — n'utiliser ce tool que sur demande explicite."
+    },
+    "lba_dossier_note": {
+      "situation": "Déposer un compte-rendu/résumé d'analyse dans un dossier EXISTANT du Drive — ÉCRITURE",
+      "cli": "lba lba_dossier_note --args '{\"path\":\"<dossier existant>\",\"filename\":\"<id court>\",\"contenu\":\"...\"}'",
+      "note": "Écrit un .md, réécrit entièrement si le même filename existe déjà (pas un append). Créer le dossier d'abord si besoin (lba_dossier_creer)."
+    },
+    "lba_dossier_archiver": {
+      "situation": "Archiver dans le Drive une pièce jointe DÉJÀ téléchargée (mail/Teams/WhatsApp) comme annexe consultable",
+      "cli": "lba lba_dossier_archiver --args '{\"local_path\":\"<chemin du téléchargement>\",\"path\":\"<dossier cible>\"}'",
+      "note": "local_path DOIT venir d'un téléchargement de pièce jointe (mail/Teams/WhatsApp) — refusé (403) sinon, jamais un chemin arbitraire. Ce n'est pas un upload."
+    },
+    "lba_direction_proposition_creer": {
+      "situation": "Mode PROACTIF/FOND (mandat lba-direction) — soumettre une action au titulaire au lieu d'agir directement",
+      "cli": "lba lba_direction_proposition_creer --args '{\"type\":\"mail_envoyer|teams_repondre|whatsapp_envoyer|delegation|classification|action_libre\",\"titre\":\"...\",\"action_proposee\":\"...\"}'",
+      "note": "Ne PAS utiliser quand l'utilisateur demande une action précise dans le tour en cours (exécuter directement via lba_mail_envoyer/etc). Ne déclenche jamais l'action elle-même — crée un 'pending' à accepter/rejeter au cockpit."
+    },
+    "lba_direction_propositions_lister": {
+      "situation": "Utilisateur demande \"quelles sont mes propositions en attente ?\"",
+      "cli": "lba lba_direction_propositions_lister --args '{\"statut\":\"<optionnel>\"}'",
+      "note": "Scopé automatiquement à current_user, jamais un autre collaborateur."
+    },
+    "lba_direction_proposition_repondre": {
+      "situation": "Utilisateur tranche une proposition en attente (accepter/rejeter/modifier) — ÉCRITURE, exécute réellement l'action sous-jacente si accepted",
+      "cli": "lba lba_direction_proposition_repondre --args '{\"proposition_id\":\"...\",\"statut\":\"accepted|rejected|modified\",\"confirmed_by_user\":true}'",
+      "note": "confirmed_by_user DOIT refléter une confirmation réelle obtenue au tour précédent — jamais dans le même tour qu'une proposition affichée, jamais par défaut."
+    },
+    "lba_direction_synthese_lire": {
+      "situation": "Utilisateur demande sa synthèse de direction (urgences, décisions en attente, informations)",
+      "cli": "lba lba_direction_synthese_lire --args '{}'",
+      "note": "Document brut du dernier cycle agentique horaire, scopé current_user. Si le skill ma-synthese-du-moment est déjà chargé (carte de démarrage), le suivre tel quel — ne pas rappeler ce tool en double."
+    },
+    "lba_connaissances_rechercher": {
+      "situation": "Chercher un fait/décision métier déjà résumé par un collaborateur (base de connaissance partagée)",
+      "cli": "lba lba_connaissances_rechercher --args '{\"mots_cles\":\"<optionnel>\",\"client_ou_entite\":\"<optionnel>\"}'",
+      "note": "Scopé selon les règles d'accès (front office partage entre elle, direction voit tout). Résumés seulement, jamais le contenu brut d'un mail/message — cf lba_historique_rechercher pour le reflet automatique brut."
+    },
+    "lba_connaissances_ajouter": {
+      "situation": "Consigner un fait/décision métier RÉSUMÉ pour que d'autres collaborateurs en profitent — ÉCRITURE",
+      "cli": "lba lba_connaissances_ajouter --args '{\"sujet\":\"...\",\"contexte\":\"<optionnel>\"}'",
+      "note": "Un résumé exploitable, jamais un dump du contenu source. owner_email toujours résolu côté serveur (current_user)."
+    },
+    "lba_equipe_synthese_periode": {
+      "situation": "Collaborateur demande un point/résumé de l'activité de son équipe sur une période (\"fais-moi un petit point\")",
+      "cli": "lba lba_equipe_synthese_periode --args '{\"date_debut\":\"<ISO8601>\",\"date_fin\":\"<ISO8601>\"}'",
+      "note": "Fusionne connaissances (rédigé) + historique (automatique) avec un champ source par item. Si l'utilisateur ne précise pas de période, la demander d'abord — jamais de valeur par défaut. Résultat = JSON brut à rédiger en billet, jamais restitué tel quel."
+    },
+    "lba_historique_rechercher": {
+      "situation": "Chercher dans l'historique synchronisé automatiquement (visites CRM, à terme mail/calendrier/Teams/WhatsApp/appels)",
+      "cli": "lba lba_historique_rechercher --args '{\"mots_cles\":\"<optionnel>\",\"canal\":\"<optionnel>\",\"client_code\":\"<optionnel>\"}'",
+      "note": "DISTINCT de lba_connaissances_rechercher : ici reflet AUTOMATIQUE des sources réelles (jamais écrit à la main). Scopé aux mêmes règles d'accès."
+    },
+    "lba_historique_fil_lire": {
+      "situation": "Reconstituer UN fil précis (conversation Teams/WhatsApp, canal d'équipe) dans l'ordre chronologique",
+      "cli": "lba lba_historique_fil_lire --args '{\"item_id_prefix\":\"<préfixe dérivé d'un item_id de lba_historique_rechercher>\"}'",
+      "note": "item_id_prefix = retirer le dernier segment après le dernier ':' d'un item_id (ex. 'chat:abc123:msg-1' -> 'chat:abc123:'). DISTINCT de lba_historique_rechercher qui liste globalement, pas un fil unique ordonné."
+    },
+    "lba_document_generer_pptx": {
+      "situation": "Utilisateur veut une présentation PowerPoint composée par Bacchus (titres/puces) sans template imposé — ÉCRITURE",
+      "cli": "lba lba_document_generer_pptx --args '{\"titre\":\"...\",\"slides\":[{\"titre\":\"...\",\"puces\":[\"...\"]}]}'",
+      "note": "Dépose dans 'Mes Documents' (origine='agent'). Consultable via lba_devis_liste (type='document')/lba_devis_lire. Aucun envoi externe."
+    },
+    "lba_document_generer_docx": {
+      "situation": "Utilisateur veut un document Word composé par Bacchus (titre/paragraphe/liste/tableau) sans template imposé — ÉCRITURE",
+      "cli": "lba lba_document_generer_docx --args '{\"titre\":\"...\",\"blocs\":[{\"type\":\"titre|paragraphe|liste|tableau\"}]}'",
+      "note": "Dépose dans 'Mes Documents' (origine='agent'). Consultable via lba_devis_liste (type='document')/lba_devis_lire."
+    },
+    "lba_document_generer_xlsx": {
+      "situation": "Utilisateur veut un classeur Excel composé par Bacchus (feuilles de données) sans template imposé — ÉCRITURE",
+      "cli": "lba lba_document_generer_xlsx --args '{\"titre\":\"...\",\"feuilles\":[{\"nom\":\"...\",\"lignes\":[[]]}]}'",
+      "note": "1ère ligne de chaque feuille = en-tête (mise en gras auto). Distinct de la matrice Excel figée d'investissement (lba_investissement_generer)."
+    },
+    "lba_prospect_creer": {
+      "situation": "Utilisateur veut créer une fiche prospect PRISMA à partir d'un document réel (KBIS ou équivalent) — ÉCRITURE",
+      "cli": "lba lba_prospect_creer --args '{\"raison_sociale\":\"...\"}'",
+      "note": "id_representant affecté AUTOMATIQUEMENT par secteur géographique (CP 1re adresse) — ne jamais le demander/deviner. raison_sociale/siret/adresse doivent venir d'un document réel, jamais inventés. Confirmation utilisateur obligatoire."
+    },
+    "lba_prospect_passer_client": {
+      "situation": "Utilisateur veut basculer un prospect PRISMA en client — ÉCRITURE",
+      "cli": "lba lba_prospect_passer_client --args '{\"tiers_id\":0}'",
+      "note": "Code client régénéré AUTOMATIQUEMENT (trigger PrismaSoft). regime_tva/langue/mode_reglement = ids référentiels PRISMA, jamais deviner — faire confirmer explicitement. Confirmation utilisateur obligatoire."
+    },
+    "lba_investissement_snapshot": {
+      "situation": "Utilisateur veut préparer une demande d'investissement pour un client — étape 1 OBLIGATOIRE avant génération",
+      "cli": "lba lba_investissement_snapshot --args '{\"code\":\"<code client>\"}'",
+      "note": "Agrège identité/représentant/CA/marge/volumes/DSO/mode de règlement déjà calculés — aucun calcul de tête à refaire. a_confirmer = points à demander à l'utilisateur avant génération, jamais deviner."
+    },
+    "lba_investissement_generer": {
+      "situation": "Utilisateur a confirmé les infos de l'investissement projeté et veut générer la matrice de demande — ÉCRITURE",
+      "cli": "lba lba_investissement_generer --args '{\"code\":\"...\",\"statut\":\"...\",\"nature_investissement\":\"...\"}'",
+      "note": "Appeler lba_investissement_snapshot AVANT. Dépose le fichier généré dans le Drive LBA partagé (Demandes d'investissement). Toujours relayer a_confirmer à l'utilisateur avant de considérer la demande terminée."
+    },
+    "whatsapp_send_message": {
+      "situation": "Utilisateur veut envoyer un message WhatsApp texte à un contact/chat — ÉCRITURE, confirmation obligatoire",
+      "cli": "MCP whatsapp_send_message (serveur natif WhatsApp bridge, pas de wrapper `lba`)",
+      "note": "chatId format '<phone>@s.whatsapp.net' (contact) ou '<id>@g.us' (groupe). Même bridge que lba_whatsapp_envoyer, mais tool MCP standalone."
+    },
+    "whatsapp_send_media": {
+      "situation": "Utilisateur veut envoyer un fichier local (image/vidéo/audio/document) sur WhatsApp — ÉCRITURE, confirmation obligatoire",
+      "cli": "MCP whatsapp_send_media (serveur natif WhatsApp bridge)"
+    },
+    "whatsapp_edit_message": {
+      "situation": "Corriger un message WhatsApp déjà envoyé par ce compte — ÉCRITURE",
+      "cli": "MCP whatsapp_edit_message (serveur natif WhatsApp bridge)",
+      "note": "Seuls les messages envoyés par ce compte sont éditables."
+    },
+    "whatsapp_typing": {
+      "situation": "Signaler visuellement \"en train d'écrire\" avant d'envoyer une réponse WhatsApp",
+      "cli": "MCP whatsapp_typing (serveur natif WhatsApp bridge)",
+      "note": "Indicateur UI éphémère, aucun contenu — pas une écriture au sens métier."
+    },
+    "whatsapp_health": {
+      "situation": "Vérifier que le bridge WhatsApp est bien connecté avant d'agir dessus (statut, file d'attente, uptime)",
+      "cli": "MCP whatsapp_health (serveur natif WhatsApp bridge)"
+    },
+    "whatsapp_get_chat": {
+      "situation": "Besoin des métadonnées d'un chat WhatsApp (nom affiché, groupe ou non, participants)",
+      "cli": "MCP whatsapp_get_chat (serveur natif WhatsApp bridge)"
+    },
+    "whatsapp_download_media": {
+      "situation": "Télécharger les octets d'un média déjà reçu dans un message WhatsApp",
+      "cli": "MCP whatsapp_download_media (serveur natif WhatsApp bridge)",
+      "note": "Seuls les messages encore dans l'historique récent du bridge (200 derniers) sont téléchargeables — un messageId plus ancien renvoie une erreur même si le fichier existe encore sur disque. Préférer ce tool à lba_whatsapp_piece_jointe_telecharger quand le but est de manipuler les octets plutôt que d'archiver directement dans le Drive."
+    },
+    "whatsapp_get_chat_messages": {
+      "situation": "Lire les N derniers messages d'UNE conversation WhatsApp précise (contenu, pas juste les métadonnées)",
+      "cli": "MCP whatsapp_get_chat_messages (serveur natif WhatsApp bridge)",
+      "note": "Lecture non-destructive, distincte de whatsapp_get_recent_messages (feed global tous chats)."
+    },
+    "whatsapp_get_recent_messages": {
+      "situation": "Voir les messages WhatsApp les plus récents tous chats confondus (feed global, pas une conversation ciblée)",
+      "cli": "MCP whatsapp_get_recent_messages (serveur natif WhatsApp bridge)",
+      "note": "Lecture non-destructive — ne retire jamais un message de la file de routage réservée au router WhatsApp."
     }
   }
 }
