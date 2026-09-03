@@ -1053,7 +1053,12 @@
     "lba_referentiel_secteur_tournee_affecter": {
       "situation": "Utilisateur veut poser le secteur commercial et/ou la tournée fixe d'un client PRISMA existant — ÉCRITURE, confirmation obligatoire",
       "cli": "lba lba_referentiel_secteur_tournee_affecter --args '{\"code_client\":\"...\",\"id_secteur_commercial\":...}'",
-      "note": "Au moins un des deux champs (id_secteur_commercial, id_tournee_fixe) requis — refusé sinon. Chaque valeur validée contre son référentiel avant écriture. Ne jamais deviner ces ids, les faire confirmer explicitement par l'utilisateur."
+      "note": "Au moins un des deux champs (id_secteur_commercial, id_tournee_fixe) requis — refusé sinon. Chaque valeur validée contre son référentiel avant écriture. Ne jamais deviner ces ids, les faire confirmer explicitement par l'utilisateur. Ne change PAS le commercial du portefeuille — cf lba_referentiel_representant_affecter."
+    },
+    "lba_referentiel_representant_affecter": {
+      "situation": "Utilisateur veut réaffecter le commercial (propriétaire du portefeuille) d'un client PRISMA — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_representant_affecter --args '{\"code_client\":\"...\",\"id_personne_representant\":...}'",
+      "note": "Résoudre id_personne_representant via lba_rep_codes (rep_code -> id_prisma), jamais deviner. Distinct de lba_referentiel_secteur_tournee_affecter (zone géo/livraison, ne change pas le commercial)."
     },
     "lba_memoire_save": {
       "situation": "Utilisateur partage un fait/décision/préférence qui doit survivre au-delà de cette conversation — ÉCRITURE",

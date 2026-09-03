@@ -129,6 +129,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # router_referentiel (même rationale que lba_prospect_creer ci-dessus).
     "lba_referentiel_familles_client", "lba_referentiel_tarifs",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
+"lba_referentiel_representant_affecter",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1669,6 +1670,20 @@ TOOLS = [
             "id_tournee_fixe": {"type": "integer", "description": "id PrismaGestionCo_tournee_fixe — au moins un des deux champs requis"}}},
     },
     {
+        "name": "lba_referentiel_representant_affecter",
+        "description": ("[ÉCRITURE] Pose le commercial \"propriétaire\" du portefeuille d'un "
+                         "client PRISMA existant — PATCH /api/bacchus/referentiel/representant/"
+                         "{code_client}. C'est CE champ (idPersonneRepresentant) qui détermine le "
+                         "rep dans tout le reporting — DISTINCT de lba_referentiel_secteur_tournee_"
+                         "affecter (zone géo/tournée de livraison, un concept différent, ne "
+                         "change PAS le commercial). Résoudre id_personne_representant via "
+                         "lba_rep_codes (rep_code -> id_prisma) — ne JAMAIS le deviner. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client", "id_personne_representant"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "id_personne_representant": {"type": "integer", "description": "id PrismaGestionCo_personne (cf lba_rep_codes)"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -2984,6 +2999,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/referentiel/tarifs", {}, headers)
     if tool == "lba_referentiel_secteurs_tournees":
         return _get("/api/bacchus/referentiel/secteurs-tournees", {}, headers)
+    if tool == "lba_referentiel_representant_affecter":
+        code_client = _req(args, "code_client")
+        return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
+            "id_personne_representant": _req(args, "id_personne_representant")}, headers)
     if tool == "lba_referentiel_famille_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
