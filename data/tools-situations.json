@@ -1055,6 +1055,16 @@
       "cli": "lba lba_referentiel_secteur_tournee_affecter --args '{\"code_client\":\"...\",\"id_secteur_commercial\":...}'",
       "note": "Au moins un des deux champs (id_secteur_commercial, id_tournee_fixe) requis — refusé sinon. Chaque valeur validée contre son référentiel avant écriture. Ne jamais deviner ces ids, les faire confirmer explicitement par l'utilisateur. Ne change PAS le commercial du portefeuille — cf lba_referentiel_representant_affecter."
     },
+    "lba_referentiel_infos_entreprise": {
+      "situation": "Utilisateur veut connaître les options valides de statut juridique/homme clé/indicateur financier — lecture pure AVANT infos_entreprise_affecter",
+      "cli": "lba lba_referentiel_infos_entreprise",
+      "note": "3 petites listes fixes (codes PersoField_Ressources). Les autres champs (dates, code APE, capital, classification) sont du texte/numérique libre, pas de lookup nécessaire."
+    },
+    "lba_referentiel_infos_entreprise_affecter": {
+      "situation": "Utilisateur veut compléter la fiche entreprise d'un client (date création société/LBA, code APE, capital, classification, statut juridique, homme clé, indicateur financier) — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_infos_entreprise_affecter --args '{\"code_client\":\"...\",\"code_ape\":\"...\"}'",
+      "note": "Au moins un champ requis. id_statut_juridique/id_homme_cle/id_indicateur_financier résolus via lba_referentiel_infos_entreprise, jamais devinés."
+    },
     "lba_referentiel_representant_affecter": {
       "situation": "Utilisateur veut réaffecter le commercial (propriétaire du portefeuille) d'un client PRISMA — ÉCRITURE, confirmation obligatoire",
       "cli": "lba lba_referentiel_representant_affecter --args '{\"code_client\":\"...\",\"id_personne_representant\":...}'",

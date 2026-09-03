@@ -128,9 +128,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # Depends(current_user) réel côté bacchus_prospect_tools.py:
     # router_referentiel (même rationale que lba_prospect_creer ci-dessus).
     "lba_referentiel_familles_client", "lba_referentiel_tarifs",
-    "lba_referentiel_secteurs_tournees",
+    "lba_referentiel_secteurs_tournees", "lba_referentiel_infos_entreprise",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
-    "lba_referentiel_representant_affecter",
+    "lba_referentiel_representant_affecter", "lba_referentiel_infos_entreprise_affecter",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1685,6 +1685,36 @@ TOOLS = [
             "id_personne_representant": {"type": "integer", "description": "id PrismaGestionCo_personne (cf lba_rep_codes)"}}},
     },
     {
+        "name": "lba_referentiel_infos_entreprise",
+        "description": ("Lecture pure — options valides pour statut juridique / homme clé / "
+                         "indicateur financier (codes PersoField_Ressources) — GET /api/bacchus/"
+                         "referentiel/infos-entreprise. TOUJOURS appeler avant lba_referentiel_"
+                         "infos_entreprise_affecter pour ces 3 champs : les ids ne se devinent "
+                         "jamais."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_referentiel_infos_entreprise_affecter",
+        "description": ("[ÉCRITURE] Pose les champs d'identité entreprise d'un client PRISMA "
+                         "existant — PATCH /api/bacchus/referentiel/infos-entreprise/"
+                         "{code_client}. Au moins un champ requis. date_creation_societe/"
+                         "date_creation_chez_lba/code_ape/capital_social/classification sont du "
+                         "texte/numérique libre ; id_statut_juridique/id_homme_cle/"
+                         "id_indicateur_financier sont des CODES — toujours appeler lba_"
+                         "referentiel_infos_entreprise avant, ne jamais les deviner. Confirmation "
+                         "utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "date_creation_societe": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_creation_chez_lba": {"type": "string", "description": "YYYY-MM-DD"},
+            "code_ape": {"type": "string"},
+            "capital_social": {"type": "number"},
+            "classification": {"type": "string", "description": "texte libre, ex 'A'/'B'/'C'"},
+            "id_statut_juridique": {"type": "integer", "description": "cf lba_referentiel_infos_entreprise"},
+            "id_homme_cle": {"type": "integer", "description": "cf lba_referentiel_infos_entreprise"},
+            "id_indicateur_financier": {"type": "integer", "description": "cf lba_referentiel_infos_entreprise"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -3000,6 +3030,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/referentiel/tarifs", {}, headers)
     if tool == "lba_referentiel_secteurs_tournees":
         return _get("/api/bacchus/referentiel/secteurs-tournees", {}, headers)
+    if tool == "lba_referentiel_infos_entreprise":
+        return _get("/api/bacchus/referentiel/infos-entreprise", {}, headers)
+    if tool == "lba_referentiel_infos_entreprise_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "date_creation_societe": args.get("date_creation_societe"),
+            "date_creation_chez_lba": args.get("date_creation_chez_lba"),
+            "code_ape": args.get("code_ape"),
+            "capital_social": args.get("capital_social"),
+            "classification": args.get("classification"),
+            "id_statut_juridique": args.get("id_statut_juridique"),
+            "id_homme_cle": args.get("id_homme_cle"),
+            "id_indicateur_financier": args.get("id_indicateur_financier"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/infos-entreprise/{_seg(code_client)}", payload, headers)
     if tool == "lba_referentiel_representant_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
