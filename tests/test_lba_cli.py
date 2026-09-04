@@ -111,6 +111,43 @@ class TestRechercheEntreprises(unittest.TestCase):
         self.assertEqual(cap.params["per_page"], 25)
 
 
+class TestDropcontactEnrichir(unittest.TestCase):
+    """lba_dropcontact_enrichir/lba_dropcontact_resultat (Phase 1 prospection,
+    2026-09-04) — verrouille le path POST et le passthrough des contacts,
+    et l'encodage du request_id sur le GET résultat."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+        self._orig_get = lba_cli._get
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        def fake_get(path, params):
+            raise CapturedGet(path, params)
+
+        lba_cli._post = fake_post
+        lba_cli._get = fake_get
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+        lba_cli._get = self._orig_get
+
+    def test_enrichir_post_path_et_contacts_passthrough(self):
+        contacts = [{"first_name": "Jean", "last_name": "Dupont", "company": "Bar Le Central"}]
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_dropcontact_enrichir", {"contacts": contacts})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/dropcontact/enrichir")
+        self.assertEqual(cap.payload["contacts"], contacts)
+
+    def test_resultat_encodes_request_id(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_dropcontact_resultat", {"request_id": "abc/123"})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/dropcontact/resultat/abc%2F123")
+
+
 class CapturedPatch(Exception):
     """Utilisé pour court-circuiter _patch et récupérer (path, payload) sans HTTP."""
 
@@ -397,7 +434,9 @@ class TestCliSurface(unittest.TestCase):
         # entreprises) — décompte réel constaté à 192 AVANT cet ajout (dérive
         # préexistante de ce gate, non liée à ce chantier — signalé, pas
         # corrigé rétroactivement ici au-delà de resynchroniser la valeur) = 193.
-        self.assertEqual(len(tools), 193)
+        # + lba_dropcontact_enrichir + lba_dropcontact_resultat (Phase 1
+        # prospection, abonnement Starter, arbitrage Damien 2026-09-04) = 195.
+        self.assertEqual(len(tools), 195)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

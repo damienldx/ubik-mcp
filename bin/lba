@@ -664,6 +664,34 @@ TOOLS = [
             "per_page": {"type": "integer", "description": "défaut 25, max 25 (plafond API source)"}}},
     },
     {
+        "name": "lba_dropcontact_enrichir",
+        "description": ("Enrichissement prospection -- soumet des contacts (issus typiquement de "
+                         "lba_recherche_entreprises) a Dropcontact pour retrouver leur email pro "
+                         "verifie -- POST /api/bacchus/dropcontact/enrichir. Phase 1 (abonnement "
+                         "Starter, arbitrage Damien 2026-09-04). Attend un resultat rapide (petit lot) "
+                         "puis renvoie soit le resultat, soit un requestId a repasser a "
+                         "lba_dropcontact_resultat plus tard. Chaque contact doit fournir au moins "
+                         "prenom+nom+societe, un LinkedIn, ou un email -- ne JAMAIS deviner un champ "
+                         "manquant."),
+        "inputSchema": {"type": "object", "required": ["contacts"], "properties": {
+            "contacts": {"type": "array", "maxItems": 250, "items": {"type": "object", "properties": {
+                "first_name": {"type": "string"}, "last_name": {"type": "string"},
+                "company": {"type": "string"}, "email": {"type": "string"},
+                "phone": {"type": "string"}, "linkedin": {"type": "string"},
+                "website": {"type": "string"}, "num_siren": {"type": "string"},
+                "siret": {"type": "string"}}}}}},
+    },
+    {
+        "name": "lba_dropcontact_resultat",
+        "description": ("Recupere le resultat d une soumission Dropcontact deja lancee (requestId "
+                         "renvoye par lba_dropcontact_enrichir en status pending) -- GET "
+                         "/api/bacchus/dropcontact/resultat/{request_id}. Renvoie {status:pending} si "
+                         "pas encore pret (etat normal, pas une erreur), {status:done, resultats:[...]} "
+                         "sinon."),
+        "inputSchema": {"type": "object", "required": ["request_id"], "properties": {
+            "request_id": {"type": "string"}}},
+    },
+    {
         "name": "lba_analytics_explorer",
         "description": ("Explorateur analytique multi-KPI DuckDB — GET /api/bacchus/analytics/explorer. "
                          "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend."),
@@ -3547,6 +3575,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "tranche_effectif_salarie": args.get("tranche_effectif_salarie"),
             "etat_administratif": args.get("etat_administratif", "A"),
             "page": args.get("page", 1), "per_page": args.get("per_page", 25)})
+    if tool == "lba_dropcontact_enrichir":
+        return _post("/api/bacchus/dropcontact/enrichir", {"contacts": _req(args, "contacts")})
+    if tool == "lba_dropcontact_resultat":
+        return _get(f"/api/bacchus/dropcontact/resultat/{_seg(_req(args, 'request_id'))}", {})
     if tool == "lba_analytics_explorer":
         return _get("/api/bacchus/analytics/explorer", {
             "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
