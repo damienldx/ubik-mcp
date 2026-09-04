@@ -76,6 +76,41 @@ class TestUrlEncoding(unittest.TestCase):
         self.assertEqual(path, "/api/bacchus/client/P213/recouvrement-statut")
 
 
+class TestRechercheEntreprises(unittest.TestCase):
+    """lba_recherche_entreprises (sourcing prospection, Phase 0 coût zéro,
+    2026-09-04) — verrouille le path et le passthrough des query params vers
+    /api/bacchus/recherche/entreprises."""
+
+    def setUp(self):
+        self._orig_get = lba_cli._get
+
+        def fake_get(path, params):
+            raise CapturedGet(path, params)
+
+        lba_cli._get = fake_get
+
+    def tearDown(self):
+        lba_cli._get = self._orig_get
+
+    def test_dispatch_path_and_params_passthrough(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_recherche_entreprises", {
+                "activite_principale": "56.10A", "departement": "69", "per_page": 10})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/recherche/entreprises")
+        self.assertEqual(cap.params["activite_principale"], "56.10A")
+        self.assertEqual(cap.params["departement"], "69")
+        self.assertEqual(cap.params["per_page"], 10)
+
+    def test_defaults_etat_administratif_actif_et_pagination(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_recherche_entreprises", {})
+        cap = ctx.exception
+        self.assertEqual(cap.params["etat_administratif"], "A")
+        self.assertEqual(cap.params["page"], 1)
+        self.assertEqual(cap.params["per_page"], 25)
+
+
 class CapturedPatch(Exception):
     """Utilisé pour court-circuiter _patch et récupérer (path, payload) sans HTTP."""
 
@@ -357,7 +392,12 @@ class TestCliSurface(unittest.TestCase):
         # pouvoir remonter le fil conversationnel Teams" -- GET
         # /api/direction/knowledge/fil, reconstitue un fil en ordre
         # chronologique) = 168.
-        self.assertEqual(len(tools), 168)
+        # + lba_recherche_entreprises (sourcing prospection Phase 0 coût
+        # zéro, arbitrage Damien 2026-09-04, GET /api/bacchus/recherche/
+        # entreprises) — décompte réel constaté à 192 AVANT cet ajout (dérive
+        # préexistante de ce gate, non liée à ce chantier — signalé, pas
+        # corrigé rétroactivement ici au-delà de resynchroniser la valeur) = 193.
+        self.assertEqual(len(tools), 193)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

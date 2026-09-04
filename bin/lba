@@ -644,6 +644,26 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 200, max 1000"}}},
     },
     {
+        "name": "lba_recherche_entreprises",
+        "description": ("Sourcing prospection — recherche d'entreprises françaises (Sirene) par "
+                         "secteur (code NAF)/zone/effectif via l'API publique gratuite "
+                         "recherche-entreprises.api.gouv.fr — GET /api/bacchus/recherche/entreprises. "
+                         "Phase 0 'coût zéro' du chantier prospection (arbitrage Damien 2026-09-04). "
+                         "Chaque résultat inclut déjà le(s) dirigeant(s) personne physique "
+                         "(nom/prénoms/qualité) — suffisant pour alimenter lba_prospect_creer sans "
+                         "Pappers/Dropcontact (Phase 1, payant, hors scope). Ne lève jamais côté "
+                         "backend, renvoie une liste vide sur tout échec de l'API source."),
+        "inputSchema": {"type": "object", "properties": {
+            "q": {"type": "string", "description": "Texte libre (enseigne, raison sociale approximative)"},
+            "activite_principale": {"type": "string", "description": "Code NAF/APE, ex: 56.10A (restauration traditionnelle)"},
+            "departement": {"type": "string", "description": "Code département, ex: 69"},
+            "code_postal": {"type": "string", "description": "Code postal exact"},
+            "tranche_effectif_salarie": {"type": "string", "description": "Code tranche effectif Sirene, ex: 11"},
+            "etat_administratif": {"type": "string", "description": "A=actif (défaut), F=fermé"},
+            "page": {"type": "integer", "description": "défaut 1"},
+            "per_page": {"type": "integer", "description": "défaut 25, max 25 (plafond API source)"}}},
+    },
+    {
         "name": "lba_analytics_explorer",
         "description": ("Explorateur analytique multi-KPI DuckDB — GET /api/bacchus/analytics/explorer. "
                          "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend."),
@@ -3520,6 +3540,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/recherche/client_par_ville", {
             "ville": _req(args, "ville"), "is_actif": args.get("is_actif", True),
             "limit": args.get("limit", 200)})
+    if tool == "lba_recherche_entreprises":
+        return _get("/api/bacchus/recherche/entreprises", {
+            "q": args.get("q"), "activite_principale": args.get("activite_principale"),
+            "departement": args.get("departement"), "code_postal": args.get("code_postal"),
+            "tranche_effectif_salarie": args.get("tranche_effectif_salarie"),
+            "etat_administratif": args.get("etat_administratif", "A"),
+            "page": args.get("page", 1), "per_page": args.get("per_page", 25)})
     if tool == "lba_analytics_explorer":
         return _get("/api/bacchus/analytics/explorer", {
             "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
