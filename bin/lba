@@ -1631,7 +1631,11 @@ TOOLS = [
             "contacts": {"type": "array", "items": {"type": "object", "properties": {
                 "civilite": {"type": "string"}, "nom": {"type": "string"}, "prenom": {"type": "string"},
                 "telephoneMobile": {"type": "string"}, "telephoneFixe": {"type": "string"},
-                "emailProfessionnel": {"type": "string"}, "emailPersonnel": {"type": "string"}}}}}},
+                "emailProfessionnel": {"type": "string"}, "emailPersonnel": {"type": "string"}}}},
+            "origine_pipeline_ia": {"type": "boolean", "description": "true si ce prospect vient du "
+                "pipeline sourcing/enrichissement automatise (lba_recherche_entreprises + "
+                "lba_dropcontact_enrichir) -- tague le commentaire, n'affecte JAMAIS le "
+                "representant commercial (defaut false)"}}},
     },
     {
         "name": "lba_prospect_passer_client",
@@ -3063,7 +3067,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "raison_sociale": _req(args, "raison_sociale"), "nom_commercial": args.get("nom_commercial"),
             "siret": args.get("siret"), "telephone": args.get("telephone"), "email": args.get("email"),
             "site_internet": args.get("site_internet"), "commentaire": args.get("commentaire"),
-            "adresses": args.get("adresses", []), "contacts": args.get("contacts", [])}, headers)
+            "adresses": args.get("adresses", []), "contacts": args.get("contacts", []),
+            "origine_pipeline_ia": args.get("origine_pipeline_ia", False)}, headers)
     if tool == "lba_prospect_passer_client":
         return _post("/api/bacchus/prospects/passer-client", {
             "tiers_id": _req(args, "tiers_id"), "tva_intra_com": args.get("tva_intra_com"),
