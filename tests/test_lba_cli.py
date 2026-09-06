@@ -436,7 +436,11 @@ class TestCliSurface(unittest.TestCase):
         # corrigé rétroactivement ici au-delà de resynchroniser la valeur) = 193.
         # + lba_dropcontact_enrichir + lba_dropcontact_resultat (Phase 1
         # prospection, abonnement Starter, arbitrage Damien 2026-09-04) = 195.
-        self.assertEqual(len(tools), 195)
+        # + lba_direction_classifier_priorite/responsables/canaux/
+        # envois_attente (2026-09-06, carte t_d34e744fe6, gap remonté 2x
+        # avant ce sprint — bacchus_direction_tools.py exposait déjà ces
+        # 4 endpoints backend, zéro enregistrement CLI) = 199.
+        self.assertEqual(len(tools), 199)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -518,6 +522,115 @@ class TestDirectionPropositionCreerAuthTicketExchange(unittest.TestCase):
 
     def test_lba_direction_proposition_creer_dans_auth_required_tools(self):
         self.assertIn("lba_direction_proposition_creer", lba_cli._AUTH_REQUIRED_TOOLS)
+
+
+class TestDirectionClassifierResponsablesCanauxEnvoisAttente(unittest.TestCase):
+    """Câblage lba_direction_classifier_priorite/responsables/canaux/
+    envois_attente (2026-09-06, carte t_d34e744fe6, gap remonté 2x avant ce
+    sprint — bacchus_direction_tools.py exposait déjà ces 4 endpoints
+    backend, zéro enregistrement CLI). classifier_priorite/responsables/
+    canaux n'ont AUCUN Depends(current_user) côté backend (endpoints sans
+    état personnel) — contrairement à envois_attente, seul des 4 dans
+    _AUTH_REQUIRED_TOOLS (ticket-exchange, Authorization header)."""
+
+    def setUp(self):
+        self._orig_get = lba_cli._get
+        self._orig_post = lba_cli._post
+        self._orig_mint = lba_cli._mint_cli_session_jwt
+
+        def fake_get(path, params, headers=None):
+            raise CapturedGet(path, params if headers is None else {**params, "_headers": headers})
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload if headers is None else {**payload, "_headers": headers})
+
+        def fake_mint(agent_id):
+            return f"fake-jwt-for-{agent_id}"
+
+        lba_cli._get = fake_get
+        lba_cli._post = fake_post
+        lba_cli._mint_cli_session_jwt = fake_mint
+
+    def tearDown(self):
+        lba_cli._get = self._orig_get
+        lba_cli._post = self._orig_post
+        lba_cli._mint_cli_session_jwt = self._orig_mint
+
+    def test_classifier_priorite_posts_expected_path_and_payload(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_direction_classifier_priorite", {
+                "priorite": "URGENT",
+                "sujet": "Client X menace de résilier son contrat suite à 3 retards de livraison consécutifs",
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/direction/classifier")
+        self.assertEqual(cap.payload["priorite"], "URGENT")
+        self.assertIsNone(cap.payload["mission_id"])
+        self.assertNotIn("_headers", cap.payload)  # pas de ticket-exchange pour ce tool
+
+    def test_classifier_priorite_transmits_mission_id_when_present(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_direction_classifier_priorite", {
+                "priorite": "A_TRAITER", "sujet": "x" * 45, "mission_id": "mr_abc123",
+            })
+        self.assertEqual(ctx.exception.payload["mission_id"], "mr_abc123")
+
+    def test_classifier_priorite_requires_priorite_and_sujet(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_direction_classifier_priorite", {"sujet": "x" * 45})
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_direction_classifier_priorite", {"priorite": "URGENT"})
+
+    def test_classifier_priorite_not_in_auth_required_tools(self):
+        self.assertNotIn("lba_direction_classifier_priorite", lba_cli._AUTH_REQUIRED_TOOLS)
+
+    def test_responsables_gets_expected_path_without_texte(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_direction_responsables", {})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/direction/responsables")
+        self.assertIsNone(cap.params["texte"])
+        self.assertNotIn("_headers", cap.params)
+
+    def test_responsables_transmits_texte_when_present(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_direction_responsables", {"texte": "retard livraison chauffeur"})
+        self.assertEqual(ctx.exception.params["texte"], "retard livraison chauffeur")
+
+    def test_responsables_not_in_auth_required_tools(self):
+        self.assertNotIn("lba_direction_responsables", lba_cli._AUTH_REQUIRED_TOOLS)
+
+    def test_canaux_gets_expected_path_and_params(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_direction_canaux", {"responsable_id": "sav", "priorite": "URGENT"})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/direction/canaux")
+        self.assertEqual(cap.params["responsable_id"], "sav")
+        self.assertEqual(cap.params["priorite"], "URGENT")
+        self.assertNotIn("_headers", cap.params)
+
+    def test_canaux_requires_responsable_id(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_direction_canaux", {"priorite": "URGENT"})
+
+    def test_canaux_not_in_auth_required_tools(self):
+        self.assertNotIn("lba_direction_canaux", lba_cli._AUTH_REQUIRED_TOOLS)
+
+    def test_envois_attente_gets_expected_path_with_auth_header(self):
+        with self.assertRaises(CapturedGet) as ctx:
+            lba_cli._exec("lba_direction_envois_attente", {}, agent_id="22fcf4a5-agent-9")
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/direction/envois-attente")
+        self.assertEqual(cap.params["_headers"]["Authorization"], "Bearer fake-jwt-for-22fcf4a5-agent-9")
+
+    def test_envois_attente_dans_auth_required_tools(self):
+        self.assertIn("lba_direction_envois_attente", lba_cli._AUTH_REQUIRED_TOOLS)
+
+    def test_all_4_tools_registered_in_tools_list(self):
+        names = {t["name"] for t in lba_cli.TOOLS}
+        for name in ("lba_direction_classifier_priorite", "lba_direction_responsables",
+                     "lba_direction_canaux", "lba_direction_envois_attente"):
+            self.assertIn(name, names)
 
 
 if __name__ == "__main__":

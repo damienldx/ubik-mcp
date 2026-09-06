@@ -102,6 +102,14 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # jamais recoupé côté serveur) vers le même ticket-exchange que ses 2
     # tools frères ci-dessus.
     "lba_direction_proposition_creer",
+    # lba_direction_envois_attente (2026-09-06, carte t_d34e744fe6, gap
+    # remonté 2x avant ce sprint) — bacchus_direction_envois_attente a
+    # Depends(current_user) réel (scope niveau ORANGE personnel), même
+    # mécanisme ticket-exchange que ses tools direction frères ci-dessus.
+    # classifier_priorite/responsables/canaux du même lot n'ont AUCUN
+    # Depends(current_user) côté backend — jamais dans cette whitelist,
+    # cf _EXPECTED_DATA_TOOLS_NEVER_AUTH ci-dessous.
+    "lba_direction_envois_attente",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
     # Mission "muscler la base SQL" (2026-08-30, LEAD 1to1) — recherche dans
     # la base de connaissance unifiée FTS5 (LBA-DESKTOP/plan/
@@ -165,6 +173,14 @@ _EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
     # prisma-api ni cote wrapper Bacchus) — meme posture que les tools
     # lba_achats_bl_* ci-dessus, pas un tool Graph/Todo.
     "lba_achats_bl_lire_entete",
+    # plan_62b0cc3b/wave1 (2026-09-06, carte t_d34e744fe6) : lba_direction_
+    # classifier_priorite/responsables/canaux — bacchus_direction_tools.py,
+    # AUCUN Depends(current_user) côté backend (endpoints sans état
+    # personnel, cf docstring module) — contrairement à leur frère
+    # lba_direction_envois_attente (Depends(current_user) réel), classé
+    # dans _EXPECTED_AUTH_REQUIRED ci-dessus.
+    "lba_direction_classifier_priorite", "lba_direction_responsables",
+    "lba_direction_canaux",
 })
 
 
