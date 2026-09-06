@@ -817,18 +817,25 @@ TOOLS = [
     {
         "name": "lba_recherche_entreprises",
         "description": ("Sourcing prospection — recherche d'entreprises françaises (Sirene) par "
-                         "secteur (code NAF)/zone/effectif via l'API publique gratuite "
+                         "secteur (code NAF)/zone/effectif/rayon via l'API publique gratuite "
                          "recherche-entreprises.api.gouv.fr — GET /api/bacchus/recherche/entreprises. "
                          "Phase 0 'coût zéro' du chantier prospection (arbitrage Damien 2026-09-04). "
                          "Chaque résultat inclut déjà le(s) dirigeant(s) personne physique "
                          "(nom/prénoms/qualité) — suffisant pour alimenter lba_prospect_creer sans "
-                         "Pappers/Dropcontact (Phase 1, payant, hors scope). Ne lève jamais côté "
-                         "backend, renvoie une liste vide sur tout échec de l'API source."),
+                         "Pappers/Dropcontact (Phase 1, payant, hors scope). Recherche par rayon "
+                         "(ville ou code_postal + rayon_km) : géocode la commune de référence, filtre "
+                         "les entreprises par distance Haversine réelle (pas juste le département) -- "
+                         "chaque résultat expose alors distanceKm/estSiege (établissement réellement "
+                         "localisé dans la zone, pas forcément le siège social). rayon_km sans ville ni "
+                         "code_postal est ignoré (log warning côté backend, pas une erreur). Ne lève "
+                         "jamais côté backend, renvoie une liste vide sur tout échec de l'API source."),
         "inputSchema": {"type": "object", "properties": {
             "q": {"type": "string", "description": "Texte libre (enseigne, raison sociale approximative)"},
             "activite_principale": {"type": "string", "description": "Code NAF/APE, ex: 56.10A (restauration traditionnelle)"},
             "departement": {"type": "string", "description": "Code département, ex: 69"},
-            "code_postal": {"type": "string", "description": "Code postal exact"},
+            "code_postal": {"type": "string", "description": "Code postal exact -- sert aussi de centre de rayon si rayon_km est fourni"},
+            "ville": {"type": "string", "description": "Nom de commune de référence pour une recherche par rayon (avec rayon_km), ex: Goussainville -- géocodée via geo.api.gouv.fr"},
+            "rayon_km": {"type": "number", "exclusiveMinimum": 0, "description": "Rayon en km autour de ville/code_postal -- recherche par distance réelle plutôt que departement/code_postal exact. Ignoré si ni ville ni code_postal n'est fourni."},
             "tranche_effectif_salarie": {"type": "string", "description": "Code tranche effectif Sirene, ex: 11"},
             "etat_administratif": {"type": "string", "description": "A=actif (défaut), F=fermé"},
             "page": {"type": "integer", "description": "défaut 1"},
@@ -4107,6 +4114,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/recherche/entreprises", {
             "q": args.get("q"), "activite_principale": args.get("activite_principale"),
             "departement": args.get("departement"), "code_postal": args.get("code_postal"),
+            "ville": args.get("ville"), "rayon_km": args.get("rayon_km"),
             "tranche_effectif_salarie": args.get("tranche_effectif_salarie"),
             "etat_administratif": args.get("etat_administratif", "A"),
             "page": args.get("page", 1), "per_page": args.get("per_page", 25)})
