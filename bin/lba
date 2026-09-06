@@ -163,6 +163,13 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # correspondants n'ont PAS Depends(current_user) côté backend, donc pas
     # listés ici.
     "lba_client_aide_marche_creer", "lba_client_investissement_creer",
+    # ── Câblage lba_direction_* restants (2026-09-06, carte t_d34e744fe6,
+    # gap remonté 2x avant ce sprint) — SEUL des 4 tools de ce lot à exiger
+    # le ticket-exchange : bacchus_direction_envois_attente a
+    # Depends(current_user) réel (scope niveau ORANGE personnel), contrairement
+    # à classifier/responsables/canaux (bacchus_direction_tools.py, aucun état
+    # personnel, jamais dans cette whitelist).
+    "lba_direction_envois_attente",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -3149,6 +3156,62 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "lba_direction_classifier_priorite",
+        "description": ("VALIDATION — vérifie que `priorite` est l'une des 5 valeurs canon du §5 "
+                         "cahier des charges (JAMAIS une 6e inventée) et retourne le libellé/emoji "
+                         "normalisés. POST /api/bacchus/direction/classifier "
+                         "(bacchus_direction_tools.py, aucun Depends(current_user) — endpoint sans "
+                         "état personnel). `sujet` (≥40 caractères substantiels, ce que tu as "
+                         "RÉELLEMENT lu — expéditeur/objet/point clé, jamais une paraphrase de la "
+                         "priorité) devient le contexte réel de la proposition 'classification' créée "
+                         "en best-effort (jamais bloquant si ça échoue). Si `mission_id` est fourni, "
+                         "applique aussi la classification au dossier de suivi §13 existant "
+                         "(404 si le dossier n'existe pas) — sans `mission_id`, classification pure "
+                         "sans écriture sur un dossier (ex: un message INFORMATION qui ne deviendra "
+                         "jamais un dossier suivi)."),
+        "inputSchema": {"type": "object", "required": ["priorite", "sujet"], "properties": {
+            "priorite": {"type": "string", "enum": ["URGENT", "DECISION_ANDRE", "A_TRAITER", "A_SUIVRE", "INFORMATION"]},
+            "sujet": {"type": "string", "description": "ce que tu as réellement lu (expéditeur/objet/point clé), ≥40 caractères substantiels — jamais une paraphrase de la priorité"},
+            "mission_id": {"type": "string", "description": "optionnel — id d'un dossier de suivi §13 existant à classifier réellement (sinon classification pure, sans écriture)"}}},
+    },
+    {
+        "name": "lba_direction_responsables",
+        "description": ("LECTURE — référence canon des 6 interlocuteurs internes §6 (développement, "
+                         "logistique, comptable, recouvrement, ADV, SAV). GET "
+                         "/api/bacchus/direction/responsables (bacchus_direction_tools.py, aucun "
+                         "Depends(current_user)). `texte` optionnel déclenche une suggestion PAR "
+                         "MOTS-CLÉS (déterministe, transparente, jamais un jugement métier), triée par "
+                         "score décroissant. NE DÉLÈGUE RIEN — ce tool n'exécute AUCUNE délégation, "
+                         "c'est à Bacchus/André de décider s'il faut réellement transmettre."),
+        "inputSchema": {"type": "object", "properties": {
+            "texte": {"type": "string", "description": "optionnel — texte du message à faire scorer contre les 6 interlocuteurs, pour suggestion de destinataire"}}},
+    },
+    {
+        "name": "lba_direction_canaux",
+        "description": ("LECTURE — disponibilité + recommandation de canal de notification (teams/"
+                         "whatsapp/email/invitation) pour un responsable donné §6. GET "
+                         "/api/bacchus/direction/canaux (bacchus_direction_tools.py, aucun "
+                         "Depends(current_user)). Alimente le pré-sélectionné du QCM delegation — "
+                         "jamais une liste neutre, une vraie recommandation. `priorite` optionnel "
+                         "(une des 5 valeurs canon §5) affine l'heuristique urgence. 400 si "
+                         "`responsable_id` n'est pas l'un des 6 interlocuteurs canon "
+                         "(cf lba_direction_responsables)."),
+        "inputSchema": {"type": "object", "required": ["responsable_id"], "properties": {
+            "responsable_id": {"type": "string", "description": "id d'un des 6 interlocuteurs canon (cf lba_direction_responsables), ex: developpement/logistique/comptable/recouvrement/adv/sav"},
+            "priorite": {"type": "string", "enum": ["URGENT", "DECISION_ANDRE", "A_TRAITER", "A_SUIVRE", "INFORMATION"], "description": "optionnel — affine l'heuristique de canal recommandé selon l'urgence"}}},
+    },
+    {
+        "name": "lba_direction_envois_attente",
+        "description": ("LECTURE — liste TES envois niveau ORANGE en attente de validation (mail_"
+                         "envoyer/mail_repondre/teams_repondre/whatsapp_envoyer confondus), scopée à "
+                         "current_user réel. GET /api/bacchus/direction/envois-attente "
+                         "(bacchus_direction_tools.py, Depends(current_user) — ticket-exchange requis, "
+                         "contrairement aux 3 tools lba_direction_classifier_priorite/responsables/"
+                         "canaux ci-dessus qui n'ont aucun état personnel). Utile pour peupler le QCM "
+                         "matinal du rituel brief → QCM."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "lba_connaissances_rechercher",
         "description": ("LECTURE — recherche dans la base de connaissance métier PARTAGÉE entre "
                          "collaborateurs (résumés de dossiers/décisions, JAMAIS le contenu brut d'un "
@@ -4204,6 +4267,22 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "canal": args.get("canal"), "message_final": args.get("message_final")}, headers)
     if tool == "lba_direction_synthese_lire":
         return _get("/api/direction/synthese/latest", {}, headers)
+    if tool == "lba_direction_classifier_priorite":
+        # Aucun header d'auth — bacchus_direction_classifier n'a pas de
+        # Depends(current_user) (endpoint sans état personnel, cf schéma).
+        return _post("/api/bacchus/direction/classifier", {
+            "priorite": _req(args, "priorite"), "sujet": _req(args, "sujet"),
+            "mission_id": args.get("mission_id")})
+    if tool == "lba_direction_responsables":
+        return _get("/api/bacchus/direction/responsables", {"texte": args.get("texte")})
+    if tool == "lba_direction_canaux":
+        return _get("/api/bacchus/direction/canaux", {
+            "responsable_id": _req(args, "responsable_id"), "priorite": args.get("priorite")})
+    if tool == "lba_direction_envois_attente":
+        # SEUL des 4 tools de ce lot à exiger le ticket-exchange (`headers`) —
+        # bacchus_direction_envois_attente a Depends(current_user) réel,
+        # contrairement aux 3 tools ci-dessus.
+        return _get("/api/bacchus/direction/envois-attente", {}, headers)
     if tool == "lba_connaissances_rechercher":
         return _get("/api/direction/connaissances", {
             "mots_cles": args.get("mots_cles"), "client_ou_entite": args.get("client_ou_entite"),
