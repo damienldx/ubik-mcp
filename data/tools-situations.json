@@ -1070,6 +1070,31 @@
       "cli": "lba lba_referentiel_representant_affecter --args '{\"code_client\":\"...\",\"id_personne_representant\":...}'",
       "note": "Résoudre id_personne_representant via lba_rep_codes (rep_code -> id_prisma), jamais deviner. Distinct de lba_referentiel_secteur_tournee_affecter (zone géo/livraison, ne change pas le commercial)."
     },
+    "lba_referentiel_risque_affecter": {
+      "situation": "Utilisateur veut poser plafond d'encours / montant assuré / prolongation d'échéance d'un client PRISMA — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_risque_affecter --args '{\"code_client\":\"...\",\"risque_plafond\":...}'",
+      "note": "Au moins un champ requis. risqueEncours (solde réel) volontairement PAS écrivable — recalculé en continu par PrismaSoft, lecture seule via lba_client_fiche."
+    },
+    "lba_referentiel_relance_affecter": {
+      "situation": "Utilisateur veut activer/désactiver la relance auto d'un client, poser ses seuils en jours, ou l'exclure définitivement des relances — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_relance_affecter --args '{\"code_client\":\"...\",\"is_relance_auto\":true}'",
+      "note": "Au moins un champ requis. ne_pas_relancer = exclusion définitive, distinct de is_relance_auto (simple activation)."
+    },
+    "lba_referentiel_logistique_documents_affecter": {
+      "situation": "Utilisateur veut poser les paramètres logistique/documents d'un client (traçabilité BL, valorisation, document de livraison, gestion des reliquats, fréquences de relevé) — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_logistique_documents_affecter --args '{\"code_client\":\"...\",\"is_bl_valorise\":true}'",
+      "note": "Au moins un champ requis. document_livraison_client/gestion_reliquat sont du texte à valeurs réelles limitées (gestion_reliquat n'a QUE 4 valeurs observées) — ne jamais en inventer, faire confirmer par l'utilisateur."
+    },
+    "lba_referentiel_etablissement_affecter": {
+      "situation": "Utilisateur veut compléter les infos établissement d'un client (horaire, nombre de becs, restauration, sanitation, clé, altares, mandat de prélèvement) — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_etablissement_affecter --args '{\"code_client\":\"...\",\"nombre_de_bec\":...}'",
+      "note": "Au moins un champ requis. restauration est un booléen simple, PAS de typologie à reconstruire."
+    },
+    "lba_referentiel_commercial_divers_affecter": {
+      "situation": "Utilisateur veut poser l'autorisation promo et/ou un commentaire télévente sur un client — ÉCRITURE, confirmation obligatoire",
+      "cli": "lba lba_referentiel_commercial_divers_affecter --args '{\"code_client\":\"...\",\"is_autorise_promo\":true}'",
+      "note": "Au moins un champ requis. commentaire_televente = champ unique sur la fiche, distinct de l'historique d'appels ADV (lba_client_fiche_adv)."
+    },
     "lba_memoire_save": {
       "situation": "Utilisateur partage un fait/décision/préférence qui doit survivre au-delà de cette conversation — ÉCRITURE",
       "cli": "lba lba_memoire_save --args '{\"fait\":\"...\",\"code_client\":\"<optionnel>\"}'",
