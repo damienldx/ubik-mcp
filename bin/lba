@@ -3366,16 +3366,24 @@ TOOLS = [
     },
     {
         "name": "lba_historique_rechercher",
-        "description": ("LECTURE — recherche en texte libre dans l'historique synchronisé "
-                         "(actuellement : visites CRM avec leur compte-rendu/observations ; à "
-                         "terme mail/calendrier/Teams/WhatsApp/appels — cf direction_full_sync_cron.py "
-                         "pour le périmètre réellement synchronisé aujourd'hui), scopée selon les "
-                         "règles d'accès de current_user (direction_acces_db — même moteur de "
-                         "permission que lba_connaissances_rechercher). DISTINCT de "
-                         "lba_connaissances_rechercher : ici c'est le reflet AUTOMATIQUE des sources "
-                         "réelles (jamais écrit à la main), là-bas c'est un savoir métier RÉDIGÉ "
-                         "explicitement. GET /api/direction/knowledge (mission \"muscler la base "
-                         "SQL\", 2026-08-30)."),
+        "description": ("LECTURE — recherche en texte libre dans l'historique synchronisé : "
+                         "MAILS reçus ET envoyés (corps intégral), TOUS les canaux/conversations "
+                         "TEAMS, WHATSAPP (ligne partagée entreprise), agenda Outlook complet, "
+                         "journaux d'appel Télévente Prisma, ET visites CRM avec compte-rendu — "
+                         "CORRIGÉ 2026-09-06 (mise à jour Damien, ces 6 canaux étaient déjà "
+                         "synchronisés depuis le 2026-09-01, cette description l'ignorait à tort "
+                         "et sous-vendait la couverture réelle ; cf direction_full_sync_cron.py "
+                         "pour le détail par canal), scopée selon les règles d'accès de "
+                         "current_user (direction_acces_db — même moteur de permission que "
+                         "lba_connaissances_rechercher). RÉFLEXE : utilise CE tool (pas "
+                         "lba_mail_liste/lba_teams_lire_messages/lba_whatsapp_liste un par un) dès "
+                         "qu'on te demande de retrouver quelque chose \"dans les échanges\", \"dans "
+                         "les mails\", \"sur Teams\" ou \"sur WhatsApp\" sans référence précise déjà "
+                         "en main — une recherche transverse ici est plus rapide et plus complète "
+                         "qu'un scan manuel canal par canal. DISTINCT de lba_connaissances_rechercher "
+                         ": ici c'est le reflet AUTOMATIQUE des sources réelles (jamais écrit à la "
+                         "main), là-bas c'est un savoir métier RÉDIGÉ explicitement. GET "
+                         "/api/direction/knowledge (mission \"muscler la base SQL\", 2026-08-30)."),
         "inputSchema": {"type": "object", "properties": {
             "mots_cles": {"type": "string", "description": "optionnel — recherche texte libre"},
             "canal": {"type": "string", "enum": ["mail_recu", "mail_envoye", "calendrier", "teams",
