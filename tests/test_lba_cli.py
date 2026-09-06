@@ -436,7 +436,12 @@ class TestCliSurface(unittest.TestCase):
         # corrigé rétroactivement ici au-delà de resynchroniser la valeur) = 193.
         # + lba_dropcontact_enrichir + lba_dropcontact_resultat (Phase 1
         # prospection, abonnement Starter, arbitrage Damien 2026-09-04) = 195.
-        self.assertEqual(len(tools), 195)
+        # + lba_client_blocage + lba_prospect_corriger_infos +
+        # lba_prospect_activation (cluster COMPTE, mission #7 plan
+        # Execution Bacchus/LBA — backend déjà existant, LBA-DESKTOP/plan/
+        # bacchus_prospect_tools.py : POST /api/bacchus/prospects/{blocage,
+        # corriger-infos,activation}) = 198.
+        self.assertEqual(len(tools), 198)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
