@@ -514,7 +514,11 @@ class TestCliSurface(unittest.TestCase):
         # + lba_capacites_rechercher (2026-09-06, ordre Damien -- auto-connaissance
         # de l'arsenal, recherche lexicale locale zéro réseau dans TOOLS, réflexe
         # anti-"non je ne peux pas" depuis la mémoire du modèle) = 219.
-        self.assertEqual(len(tools), 219)
+        # + lba_dropcontact_credits (2026-09-06, plan_da103867 Carence 1 --
+        # quota/solde Dropcontact en lecture seule, commit 2056a07) = 220.
+        # (rayon_km/ville sur lba_recherche_entreprises, commit 3f272f6, est un
+        # paramètre ajouté à un tool existant, pas un nouveau tool -- ne compte pas ici.)
+        self.assertEqual(len(tools), 220)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
