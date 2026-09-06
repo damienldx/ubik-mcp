@@ -116,6 +116,14 @@ _EXPECTED_AUTH_REQUIRED = frozenset({
     # router_referentiel (mission #6), même mécanisme que lba_prospect_creer.
     "lba_referentiel_familles_client", "lba_referentiel_tarifs",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
+    # Cluster COMPTE — blocage/déblocage, correction identité, activation
+    # (mission #7 plan Execution Bacchus/LBA, wave1, 2026-09-06) — POST
+    # /api/bacchus/prospects/{blocage,corriger-infos,activation}, même
+    # Depends(current_user) réel côté bacchus_prospect_tools.py que les
+    # tools référentiel ci-dessus. Ajouté ici pour ne pas creuser davantage
+    # la dérive préexistante déjà trackée par la carte t_450f559d5d (pas
+    # résolue par cette mission, hors scope).
+    "lba_client_blocage", "lba_prospect_corriger_infos", "lba_prospect_activation",
 })
 
 # Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans

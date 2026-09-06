@@ -131,6 +131,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_referentiel_secteurs_tournees", "lba_referentiel_infos_entreprise",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
     "lba_referentiel_representant_affecter", "lba_referentiel_infos_entreprise_affecter",
+    # ── Cluster COMPTE — blocage/déblocage, correction identité, activation
+    # (missions #8/gap plan_8f1cba08/2026-09-06) — POST /api/bacchus/
+    # prospects/{blocage,corriger-infos,activation}, Depends(current_user)
+    # réel côté bacchus_prospect_tools.py (même rationale que
+    # lba_prospect_creer ci-dessus — tracer QUEL commercial agit).
+    "lba_client_blocage", "lba_prospect_corriger_infos", "lba_prospect_activation",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1767,6 +1773,59 @@ TOOLS = [
             "id_indicateur_financier": {"type": "integer", "description": "cf lba_referentiel_infos_entreprise"}}},
     },
     {
+        "name": "lba_client_blocage",
+        "description": ("[ÉCRITURE] Bloque ou débloque un compte client PRISMA (isBlocage sur "
+                         "PrismaGestionCo_tiers_client) — POST /api/bacchus/prospects/blocage. "
+                         "Impact métier DIRECT et immédiat : un client bloqué ne peut plus passer "
+                         "commande dans PrismaSoft tant qu'il n'est pas redébloqué. Aucune lecture "
+                         "de l'état isBlocage actuel n'est exposée côté Bacchus (gap connu) — "
+                         "confirmer l'état courant via PrismaSoft natif ou l'utilisateur avant "
+                         "d'agir, ne jamais le déduire. Confirmation utilisateur OBLIGATOIRE avant "
+                         "appel — a fortiori ici où l'effet est immédiat et visible du client "
+                         "final."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "is_blocage"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers du client"},
+            "is_blocage": {"type": "boolean", "description": "true = bloque le compte, false = débloque"},
+            "blocage_automatique": {"type": "string", "description": "commentaire libre associé au blocage/déblocage (raison, contexte) — optionnel"}}},
+    },
+    {
+        "name": "lba_prospect_corriger_infos",
+        "description": ("[ÉCRITURE] Corrige les champs identité/coordonnées d'une fiche tiers DÉJÀ "
+                         "CRÉÉE (prospect OU client indifféremment, cf est_client) — POST /api/"
+                         "bacchus/prospects/corriger-infos. Ne corrige PAS le contenu d'une adresse "
+                         "ou d'un contact déjà existant (hors scope, prisma-api n'expose que la "
+                         "création de nouvelles adresses/contacts). Ne JAMAIS deviner une valeur "
+                         "corrigée — la faire confirmer explicitement (KBIS, dire de "
+                         "l'utilisateur, etc.). Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "est_client"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"},
+            "est_client": {"type": "boolean", "description": "true si la fiche est déjà un client (isClient=1), false si encore un prospect — détermine l'endpoint prisma-api appelé, fait de contexte connu de l'appelant, pas une valeur à deviner"},
+            "raison_sociale": {"type": "string"},
+            "nom_commercial": {"type": "string"},
+            "siret": {"type": "string"},
+            "telephone": {"type": "string"},
+            "email": {"type": "string"},
+            "site_internet": {"type": "string"},
+            "fax": {"type": "string"},
+            "commentaire": {"type": "string"},
+            "tva_intra_com": {"type": "string"}}},
+    },
+    {
+        "name": "lba_prospect_activation",
+        "description": ("[ÉCRITURE] Active ou désactive un tiers (isActif), prospect OU client "
+                         "indifféremment (cf est_client) — POST /api/bacchus/prospects/activation. "
+                         "Fonctionne sur un tiers déjà actif OU inactif sans distinction — la "
+                         "résolution des autres tools de la fiche ne filtre jamais sur isActif "
+                         "(seulement isClient/isProspect). Confirmation utilisateur OBLIGATOIRE "
+                         "avant appel — désactiver un client a un impact opérationnel réel (ex. "
+                         "peut affecter sa visibilité dans certains écrans/rapports natifs filtrés "
+                         "sur isActif=1)."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "est_client", "is_actif"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"},
+            "est_client": {"type": "boolean", "description": "true si la fiche est un client, false si prospect"},
+            "is_actif": {"type": "boolean", "description": "true = active, false = désactive"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -3098,6 +3157,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "id_indicateur_financier": args.get("id_indicateur_financier"),
         }.items() if v is not None}
         return _patch(f"/api/bacchus/referentiel/infos-entreprise/{_seg(code_client)}", payload, headers)
+    if tool == "lba_client_blocage":
+        return _post("/api/bacchus/prospects/blocage", {
+            "tiers_id": _req(args, "tiers_id"), "is_blocage": _req(args, "is_blocage"),
+            "blocage_automatique": args.get("blocage_automatique")}, headers)
+    if tool == "lba_prospect_corriger_infos":
+        return _post("/api/bacchus/prospects/corriger-infos", {
+            "tiers_id": _req(args, "tiers_id"), "est_client": _req(args, "est_client"),
+            "raison_sociale": args.get("raison_sociale"), "nom_commercial": args.get("nom_commercial"),
+            "siret": args.get("siret"), "telephone": args.get("telephone"), "email": args.get("email"),
+            "site_internet": args.get("site_internet"), "fax": args.get("fax"),
+            "commentaire": args.get("commentaire"), "tva_intra_com": args.get("tva_intra_com")}, headers)
+    if tool == "lba_prospect_activation":
+        return _post("/api/bacchus/prospects/activation", {
+            "tiers_id": _req(args, "tiers_id"), "est_client": _req(args, "est_client"),
+            "is_actif": _req(args, "is_actif")}, headers)
     if tool == "lba_referentiel_representant_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
