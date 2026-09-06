@@ -141,6 +141,14 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # Graph token requis (Depends(current_user) côté bacchus_teams_tools.py),
     # même mécanisme que lba_teams_lire_messages/lba_teams_lire_canal_messages.
     "lba_teams_piece_jointe_telecharger",
+    # ── Aide de marché / investissement matériel client (2026-09-06,
+    # mission #9 plan_62b0cc3b) — POST /{code}/aide-marche et
+    # POST /{code}/investissements, Depends(current_user) réel côté
+    # bacchus_client_tools.py (actor=user["email"] tracé côté backend) —
+    # même mécanisme ticket-exchange que lba_prospect_creer. Les GET/simuler
+    # correspondants n'ont PAS Depends(current_user) côté backend, donc pas
+    # listés ici.
+    "lba_client_aide_marche_creer", "lba_client_investissement_creer",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -417,6 +425,85 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
             "tiers_id": {"type": "integer"},
             "kind": {"type": "string", "description": "'relance' (défaut) ou 'blocage'"}}},
+    },
+    {
+        "name": "lba_client_aide_marche",
+        "description": ("Lecture LIVE (prisma-api → SQL Server direct) des aides de marché d'un "
+                         "client — contrepartie négociée par un fournisseur/brasseur, par article "
+                         "(écran natif PRISMA CLIENTS > MISE A DISPOSITION/AIDE DE MARCHE) — GET "
+                         "/api/bacchus/client/{code}/aide-marche."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_aide_marche_simuler",
+        "description": ("Lecture pure — résout fournisseur (par nom, LIKE) et article (par code) SANS "
+                         "RIEN écrire, + montre les aides déjà existantes pour cette combinaison exacte "
+                         "— GET /api/bacchus/client/{code}/aide-marche/simuler. TOUJOURS appeler AVANT "
+                         "lba_client_aide_marche_creer (ne jamais deviner id_fournisseur/id_article)."),
+        "inputSchema": {"type": "object", "required": ["code", "fournisseur", "code_article"], "properties": {
+            "code": {"type": "string"}, "fournisseur": {"type": "string"}, "code_article": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_aide_marche_creer",
+        "description": ("ÉCRITURE — ajoute une ligne d'aide de marché pour un client PRISMA existant, "
+                         "sur fournisseur/article DÉJÀ RÉSOLUS (cf lba_client_aide_marche_simuler). Au "
+                         "moins un champ de prix requis. Écriture simple (des doublons "
+                         "client+fournisseur+article existent réellement en base, PrismaSoft n'impose "
+                         "pas d'unicité) — le simulateur les montre pour décider en connaissance de "
+                         "cause, mais n'empêche pas d'en ajouter un de plus si légitime. Confirmation "
+                         "utilisateur OBLIGATOIRE avant appel. POST /api/bacchus/client/{code}/aide-marche."),
+        "inputSchema": {"type": "object", "required": ["code", "id_fournisseur", "id_article"], "properties": {
+            "code": {"type": "string"},
+            "id_fournisseur": {"type": "integer", "description": "résolu via lba_client_aide_marche_simuler — jamais deviné"},
+            "id_article": {"type": "integer", "description": "résolu via lba_client_aide_marche_simuler — jamais deviné"},
+            "prix_brasseur": {"type": "number"}, "prix_client": {"type": "number"},
+            "prix_brasseur_direct": {"type": "number"}, "prix_societe_direct": {"type": "number"}}},
+    },
+    {
+        "name": "lba_client_investissements",
+        "description": ("Lecture LIVE (prisma-api → SQL Server direct) des contrats d'investissement "
+                         "matériel (mise à disposition — colonne à bière, groupe de froid, machine à "
+                         "café, store/enseigne...) d'un client, avec leurs lignes de matériel — GET "
+                         "/api/bacchus/client/{code}/investissements. Écran natif PRISMA CLIENTS > MISE "
+                         "A DISPOSITION/AIDE DE MARCHE, même famille que lba_client_aide_marche."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_investissement_article_simuler",
+        "description": ("Lecture pure — résout un article de matériel (par code) SANS RIEN écrire — GET "
+                         "/api/bacchus/client/investissements/article-simuler. TOUJOURS appeler pour "
+                         "CHAQUE ligne AVANT lba_client_investissement_creer (ne jamais deviner "
+                         "id_article). Résolution SANS filtre isActif : du matériel déjà installé peut "
+                         "référencer un modèle aujourd'hui remplacé/inactif."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"}}},
+    },
+    {
+        "name": "lba_client_investissement_creer",
+        "description": ("ÉCRITURE — crée un contrat d'investissement matériel + ses lignes pour un "
+                         "client PRISMA existant, en une seule transaction atomique (soit tout est "
+                         "écrit, soit rien). Chaque id_article DÉJÀ RÉSOLU (cf "
+                         "lba_client_investissement_article_simuler). numero_contrat : texte libre — "
+                         "CONVENTION RÉELLE observée côté SAV : une DATE (ex '2026-09-03'), jamais un "
+                         "numéro incrémental — reprendre cette même convention, ne pas inventer un "
+                         "format différent. Confirmation utilisateur OBLIGATOIRE avant appel — ne jamais "
+                         "deviner dates/quantités/valeurs, les faire confirmer explicitement (contrat "
+                         "réel, engagement chiffré). POST /api/bacchus/client/{code}/investissements."),
+        "inputSchema": {"type": "object", "required": ["code", "numero_contrat", "lignes"], "properties": {
+            "code": {"type": "string"},
+            "numero_contrat": {"type": "string", "description": "texte libre, convention réelle = une date ex '2026-09-03'"},
+            "contrepartie": {"type": "string", "description": "engagement de volume négocié, ex '400 HLS'"},
+            "representant": {"type": "string"},
+            "lignes": {"type": "array", "description": "1 ligne par pièce de matériel, min 1", "items": {
+                "type": "object", "required": ["id_article"], "properties": {
+                    "id_article": {"type": "integer", "description": "résolu via lba_client_investissement_article_simuler"},
+                    "date_mise_dispo": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_fin_prevu": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_retour": {"type": "string"},
+                    "quantite": {"type": "integer"}, "valeur": {"type": "number"},
+                    "pourcentage_engagement_societe": {"type": "integer", "description": "ex 100 = engagement à 100% côté société"},
+                    "numero_serie": {"type": "string"}, "is_rendu": {"type": "boolean"}}}},
+        }},
     },
     {
         "name": "lba_rentabilite_produits",
@@ -3479,6 +3566,43 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         tiers_id = _seg(_req(args, "tiers_id"))
         return _get(f"/api/bacchus/client/tiers/{tiers_id}/relance/preview", {
             "kind": args.get("kind", "relance")})
+    if tool == "lba_client_aide_marche":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/aide-marche", {})
+    if tool == "lba_client_aide_marche_simuler":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/aide-marche/simuler", {
+            "fournisseur": _req(args, "fournisseur"), "code_article": _req(args, "code_article")})
+    if tool == "lba_client_aide_marche_creer":
+        code = _seg(_req(args, "code"))
+        prix_fields = ("prix_brasseur", "prix_client", "prix_brasseur_direct", "prix_societe_direct")
+        if all(args.get(k) is None for k in prix_fields):
+            raise LbaCliError("au moins un champ de prix est requis (prix_brasseur/prix_client/prix_brasseur_direct/prix_societe_direct)")
+        payload = {
+            "id_fournisseur": _req(args, "id_fournisseur"), "id_article": _req(args, "id_article"),
+            "prix_brasseur": args.get("prix_brasseur"), "prix_client": args.get("prix_client"),
+            "prix_brasseur_direct": args.get("prix_brasseur_direct"), "prix_societe_direct": args.get("prix_societe_direct")}
+        return _post(f"/api/bacchus/client/{code}/aide-marche", payload, headers)
+    if tool == "lba_client_investissements":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/investissements", {})
+    if tool == "lba_client_investissement_article_simuler":
+        return _get("/api/bacchus/client/investissements/article-simuler", {
+            "code_article": _req(args, "code_article")})
+    if tool == "lba_client_investissement_creer":
+        code = _seg(_req(args, "code"))
+        lignes = _req(args, "lignes")
+        payload = {
+            "numero_contrat": _req(args, "numero_contrat"), "contrepartie": args.get("contrepartie"),
+            "representant": args.get("representant"),
+            "lignes": [{
+                "id_article": _req(l, "id_article"), "date_mise_dispo": l.get("date_mise_dispo"),
+                "date_fin_prevu": l.get("date_fin_prevu"), "date_retour": l.get("date_retour"),
+                "quantite": l.get("quantite"), "valeur": l.get("valeur"),
+                "pourcentage_engagement_societe": l.get("pourcentage_engagement_societe"),
+                "numero_serie": l.get("numero_serie"), "is_rendu": l.get("is_rendu"),
+            } for l in lignes]}
+        return _post(f"/api/bacchus/client/{code}/investissements", payload, headers)
     if tool == "lba_rentabilite_produits":
         return _get("/api/bacchus/rentabilite/produits", {
             "annee": _req(args, "annee"), "representant": args.get("representant"),
