@@ -76,6 +76,56 @@ class TestUrlEncoding(unittest.TestCase):
         self.assertEqual(path, "/api/bacchus/client/P213/recouvrement-statut")
 
 
+class TestAnalyticsExplorerConfirmGate(unittest.TestCase):
+    """Finding bloquant Orion (gate mission #10, plan_62b0cc3b, commit 6dd97c3) :
+    le RBAC backend LBA-DESKTOP (ca8ee3c) qui rejette confirm absent/false n'est
+    PAS ENCORE déployé — jusque-là ce gate CLI est la SEULE protection réelle
+    contre un appel confirm=false exploitable en direct (curl confirm=false a
+    été vérifié renvoyer 200 avec des données CA/marge/cashflow réelles sur le
+    serveur live actuel). `bool(_req(args, "confirm"))` ne rejetait QUE
+    l'absence du champ, jamais confirm=false explicite — corrigé en un rejet
+    explicite `args.get("confirm") is not True`, avant tout appel réseau, même
+    position/pattern que le check générique _CONFIRMATION_REQUIRED_TOOLS."""
+
+    def setUp(self):
+        self._orig_get = lba_cli._get
+
+        def _boom(path, params, headers=None, timeout=30):
+            raise AssertionError("_get ne doit JAMAIS être appelé sans confirm=True strict")
+
+        lba_cli._get = _boom
+
+    def tearDown(self):
+        lba_cli._get = self._orig_get
+
+    def test_confirm_false_explicit_is_rejected_before_network_call(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_analytics_explorer", {"agent_id": "test-agent", "confirm": False})
+
+    def test_confirm_absent_is_rejected_before_network_call(self):
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_analytics_explorer", {"agent_id": "test-agent"})
+
+    def test_confirm_string_true_is_rejected_not_a_shortcut(self):
+        # "true" (string) ne doit jamais être accepté comme équivalent du bool True.
+        with self.assertRaises(lba_cli.LbaCliError):
+            lba_cli._exec("lba_analytics_explorer", {"agent_id": "test-agent", "confirm": "true"})
+
+    def test_confirm_true_proceeds_and_forwards_confirm_true(self):
+        captured = {}
+
+        def fake_get(path, params, headers=None, timeout=30):
+            captured["path"] = path
+            captured["params"] = params
+            return "{}"
+
+        lba_cli._get = fake_get
+        lba_cli._exec("lba_analytics_explorer", {"agent_id": "test-agent", "confirm": True})
+        self.assertEqual(captured["path"], "/api/bacchus/analytics/explorer")
+        self.assertIs(captured["params"]["confirm"], True)
+        self.assertEqual(captured["params"]["agent_id"], "test-agent")
+
+
 class TestRechercheEntreprises(unittest.TestCase):
     """lba_recherche_entreprises (sourcing prospection, Phase 0 coût zéro,
     2026-09-04) — verrouille le path et le passthrough des query params vers
@@ -456,7 +506,12 @@ class TestCliSurface(unittest.TestCase):
         # envois_attente (2026-09-06, carte t_d34e744fe6, gap remonté 2x
         # avant ce sprint — bacchus_direction_tools.py exposait déjà ces
         # 4 endpoints backend, zéro enregistrement CLI) = 213.
-        self.assertEqual(len(tools), 213)
+        # + lba_litige_motifs + lba_client_litiges + lba_litige_simuler +
+        # lba_litige_creer (mission #10, plan_62b0cc3b, backend
+        # bacchus_client_tools.py déjà en prod) = 217.
+        # + lba_prospection_portefeuille (même mission, backend
+        # bacchus_prospection_tools.py déjà en prod) = 218.
+        self.assertEqual(len(tools), 218)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

@@ -170,6 +170,13 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # à classifier/responsables/canaux (bacchus_direction_tools.py, aucun état
     # personnel, jamais dans cette whitelist).
     "lba_direction_envois_attente",
+    # ── lba_litige_creer (mission #10, plan_62b0cc3b, 2026-09-06) — POST
+    # /api/bacchus/client/litiges, Depends(current_user) réel côté
+    # bacchus_client_tools.py (trace QUEL commercial ouvre le litige), même
+    # mécanisme que lba_prospect_creer. Les 3 GET litiges (motifs/{code}/
+    # simuler) ne portent PAS Depends(current_user) côté backend — pas dans
+    # cette whitelist, DATA tools ordinaires.
+    "lba_litige_creer",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -446,6 +453,60 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
             "tiers_id": {"type": "integer"},
             "kind": {"type": "string", "description": "'relance' (défaut) ou 'blocage'"}}},
+    },
+    # ── Litiges (mission #10, plan_62b0cc3b) — équivalent conversationnel de
+    # l'ouverture d'un litige depuis une pièce de vente (clic droit sur un
+    # article dans PrismaSoft natif), backend bacchus_client_tools.py.
+    # SCOPE : ouverture uniquement, jamais le traitement/clôture (rôle
+    # différent, arbitrage Damien 2026-09-06). Toujours motifs->simuler->creer,
+    # jamais deviner id_motif_litige/id_client_commande_ligne.
+    {
+        "name": "lba_litige_motifs",
+        "description": ("Lecture pure — référentiel des motifs de litige (origine/demande/"
+                         "retour) — GET /api/bacchus/client/litiges/motifs. Résoudre "
+                         "id_motif_litige/demande_traitement_id_motif ICI AVANT tout appel à "
+                         "lba_litige_creer (jamais deviné)."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_client_litiges",
+        "description": ("Litiges d'un client, avec l'article/la pièce de vente concernés et "
+                         "les motifs déjà résolus en libellés — GET /api/bacchus/client/{code}/"
+                         "litiges. Lecture LIVE (prisma-api → SQL Server direct)."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"}}},
+    },
+    {
+        "name": "lba_litige_simuler",
+        "description": ("Lecture pure — résout une pièce de vente (facture/BL/commande) + un "
+                         "article SANS RIEN écrire, retourne la ligne de commande candidate "
+                         "(id_client_commande_ligne) + si un litige existe déjà dessus — GET "
+                         "/api/bacchus/client/litiges/simuler. TOUJOURS appeler AVANT "
+                         "lba_litige_creer, ne jamais deviner quelle ligne."),
+        "inputSchema": {"type": "object", "required": ["numero_piece", "code_article"], "properties": {
+            "numero_piece": {"type": "string"}, "code_article": {"type": "string"},
+            "type_piece": {"type": "string", "description": (
+                "'facture'/'bl'/'commande' — recommandé : ces 3 séries de numérotation "
+                "PrismaSoft peuvent se chevaucher (collision réelle constatée)")}}},
+    },
+    {
+        "name": "lba_litige_creer",
+        "description": ("[ÉCRITURE] Ouvre un litige sur une ligne de commande DÉJÀ RÉSOLUE "
+                         "(cf lba_litige_simuler) — même geste qu'un clic droit sur un article "
+                         "d'une pièce de vente dans PrismaSoft natif. UN SEUL litige possible "
+                         "par ligne de commande (refuse si un litige existe déjà). SCOPE : "
+                         "ouverture uniquement — le traitement/clôture du litige est hors "
+                         "périmètre de ce tool. POST /api/bacchus/client/litiges. Confirmation "
+                         "utilisateur OBLIGATOIRE avant appel — ne jamais deviner motif/"
+                         "quantité, les faire confirmer."),
+        "inputSchema": {"type": "object", "required": ["id_client_commande_ligne", "id_commande", "id_motif_litige"], "properties": {
+            "id_client_commande_ligne": {"type": "integer", "description": "résolu via lba_litige_simuler"},
+            "id_commande": {"type": "integer", "description": "résolu via lba_litige_simuler"},
+            "id_motif_litige": {"type": "integer", "description": "motif de type ORIGINE, résolu via lba_litige_motifs"},
+            "quantite_litige": {"type": "number"},
+            "commentaire": {"type": "string"},
+            "demande_traitement_id_motif": {"type": "integer", "description": "motif de type DEMANDE (ce que demande le client), résolu via lba_litige_motifs — optionnel"},
+            "origine_demande": {"type": "string", "description": "texte libre, ex 'appel téléphonique', 'email'"}}},
     },
     {
         "name": "lba_client_aide_marche",
@@ -800,10 +861,28 @@ TOOLS = [
             "request_id": {"type": "string"}}},
     },
     {
+        "name": "lba_prospection_portefeuille",
+        "description": ("Lecture pure — portefeuille de prospects généré par Bacchus (sourcing "
+                         "lba_recherche_entreprises + enrichissement lba_dropcontact_enrichir + "
+                         "éventuelle création lba_prospect_creer) — GET /api/bacchus/prospection/"
+                         "portefeuille. Statut non reconnu renvoie une liste vide, pas une erreur."),
+        "inputSchema": {"type": "object", "properties": {
+            "statut": {"type": "string", "description": "optionnel : source|enrichi|prospect_cree|client"}}},
+    },
+    {
         "name": "lba_analytics_explorer",
         "description": ("Explorateur analytique multi-KPI DuckDB — GET /api/bacchus/analytics/explorer. "
-                         "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend."),
-        "inputSchema": {"type": "object", "properties": {
+                         "Préférer rep_code (texte) à rep (id numérique) — gotcha mapping documenté côté backend. "
+                         "⚠️ RBAC (2026-09-06) — vue transverse tous-représentants (CA/marge/cashflow de "
+                         "toute l'entreprise), restreinte à 3 personnes nommées (André Diril, Ivan Diril, "
+                         "Damien — Damien pas encore résolu côté whitelist serveur à ce jour, signale un 403 "
+                         "explicite si son seat est utilisé). agent_id ET confirm=true sont REQUIS — jamais "
+                         "un simple filtre côté prompt, un gate serveur explicite (403 si agent_id hors "
+                         "whitelist, 400 si confirm absent/false). confirm=true est TOUJOURS un choix "
+                         "explicite de l'appelant, ne jamais le mettre par défaut ni le déduire."),
+        "inputSchema": {"type": "object", "required": ["agent_id", "confirm"], "properties": {
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID si absent — doit être whitelisté côté serveur (403 sinon)"},
+            "confirm": {"type": "boolean", "description": "doit valoir explicitement true — 400 sinon"},
             "kpis": {"type": "string", "description": "défaut ca,marge,ca_ttc,commandes,pct_app,pct_gte10art,cashflow"},
             "rep": {"type": "integer", "description": "idPersonneRepresentant PRISMA — préférer rep_code"},
             "rep_code": {"type": "string"}, "famille": {"type": "string"}, "article": {"type": "string"},
@@ -3884,6 +3963,23 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                 "numero_serie": l.get("numero_serie"), "is_rendu": l.get("is_rendu"),
             } for l in lignes]}
         return _post(f"/api/bacchus/client/{code}/investissements", payload, headers)
+    if tool == "lba_litige_motifs":
+        return _get("/api/bacchus/client/litiges/motifs", {})
+    if tool == "lba_client_litiges":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/litiges", {})
+    if tool == "lba_litige_simuler":
+        return _get("/api/bacchus/client/litiges/simuler", {
+            "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
+            "type_piece": args.get("type_piece")})
+    if tool == "lba_litige_creer":
+        return _post("/api/bacchus/client/litiges", {
+            "id_client_commande_ligne": _req(args, "id_client_commande_ligne"),
+            "id_commande": _req(args, "id_commande"),
+            "id_motif_litige": _req(args, "id_motif_litige"),
+            "quantite_litige": args.get("quantite_litige"), "commentaire": args.get("commentaire"),
+            "demande_traitement_id_motif": args.get("demande_traitement_id_motif"),
+            "origine_demande": args.get("origine_demande")}, headers)
     if tool == "lba_rentabilite_produits":
         return _get("/api/bacchus/rentabilite/produits", {
             "annee": _req(args, "annee"), "representant": args.get("representant"),
@@ -3989,8 +4085,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/dropcontact/enrichir", {"contacts": _req(args, "contacts")})
     if tool == "lba_dropcontact_resultat":
         return _get(f"/api/bacchus/dropcontact/resultat/{_seg(_req(args, 'request_id'))}", {})
+    if tool == "lba_prospection_portefeuille":
+        return _get("/api/bacchus/prospection/portefeuille", {"statut": args.get("statut")})
     if tool == "lba_analytics_explorer":
+        if args.get("confirm") is not True:
+            raise LbaCliError(
+                "lba_analytics_explorer refusé : confirm doit valoir true, et doit "
+                "refléter une confirmation RÉELLEMENT obtenue de l'utilisateur juste "
+                "avant cet appel — pas de valeur par défaut, pas d'automatisme. Aucune "
+                "requête HTTP émise (refus AVANT l'appel réseau, zéro effet de bord — "
+                "gate 400 côté serveur pas encore déployé, cf ledger l_edab868f9b, "
+                "donc CE gate CLI est la SEULE protection active aujourd'hui)."
+            )
+        agent_id = _resolve_agent_id(args.get("agent_id"))
         return _get("/api/bacchus/analytics/explorer", {
+            "agent_id": agent_id, "confirm": True,
             "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
             "famille": args.get("famille"), "article": args.get("article"),
             "granularite": args.get("granularite", "MOIS"), "n_points": args.get("n_points", 12)})
