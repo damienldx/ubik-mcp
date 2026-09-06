@@ -3683,9 +3683,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_prospection_portefeuille":
         return _get("/api/bacchus/prospection/portefeuille", {"statut": args.get("statut")})
     if tool == "lba_analytics_explorer":
+        if args.get("confirm") is not True:
+            raise LbaCliError(
+                "lba_analytics_explorer refusé : confirm doit valoir true, et doit "
+                "refléter une confirmation RÉELLEMENT obtenue de l'utilisateur juste "
+                "avant cet appel — pas de valeur par défaut, pas d'automatisme. Aucune "
+                "requête HTTP émise (refus AVANT l'appel réseau, zéro effet de bord — "
+                "gate 400 côté serveur pas encore déployé, cf ledger l_edab868f9b, "
+                "donc CE gate CLI est la SEULE protection active aujourd'hui)."
+            )
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _get("/api/bacchus/analytics/explorer", {
-            "agent_id": agent_id, "confirm": bool(_req(args, "confirm")),
+            "agent_id": agent_id, "confirm": True,
             "kpis": args.get("kpis"), "rep": args.get("rep"), "rep_code": args.get("rep_code"),
             "famille": args.get("famille"), "article": args.get("article"),
             "granularite": args.get("granularite", "MOIS"), "n_points": args.get("n_points", 12)})
