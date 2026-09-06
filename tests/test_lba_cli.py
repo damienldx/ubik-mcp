@@ -447,7 +447,12 @@ class TestCliSurface(unittest.TestCase):
         # lba_referentiel_commercial_divers_affecter (cluster REFERENTIEL,
         # mission #8 plan_62b0cc3b — backend déjà existant, LBA-DESKTOP/plan/
         # bacchus_prospect_tools.py:router_referentiel) = 203.
-        self.assertEqual(len(tools), 203)
+        # + lba_client_aide_marche + lba_client_aide_marche_simuler +
+        # lba_client_aide_marche_creer + lba_client_investissements +
+        # lba_client_investissements_article_simuler +
+        # lba_client_investissements_article_creer (cluster MARCHE/
+        # INVESTISSEMENT, mission #9 plan_62b0cc3b) = 209.
+        self.assertEqual(len(tools), 209)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
