@@ -511,7 +511,10 @@ class TestCliSurface(unittest.TestCase):
         # bacchus_client_tools.py déjà en prod) = 217.
         # + lba_prospection_portefeuille (même mission, backend
         # bacchus_prospection_tools.py déjà en prod) = 218.
-        self.assertEqual(len(tools), 218)
+        # + lba_capacites_rechercher (2026-09-06, ordre Damien -- auto-connaissance
+        # de l'arsenal, recherche lexicale locale zéro réseau dans TOOLS, réflexe
+        # anti-"non je ne peux pas" depuis la mémoire du modèle) = 219.
+        self.assertEqual(len(tools), 219)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -702,6 +705,52 @@ class TestDirectionClassifierResponsablesCanauxEnvoisAttente(unittest.TestCase):
         for name in ("lba_direction_classifier_priorite", "lba_direction_responsables",
                      "lba_direction_canaux", "lba_direction_envois_attente"):
             self.assertIn(name, names)
+
+
+class TestCapacitesRechercher(unittest.TestCase):
+    """lba_capacites_rechercher (2026-09-06, ordre Damien) — auto-connaissance
+    de l'arsenal, réflexe anti-"non je ne peux pas" répondu depuis la mémoire
+    du modèle plutôt que depuis le catalogue réel. Zéro réseau : appelle _exec
+    directement, aucun mock HTTP requis."""
+
+    def test_returns_json_with_expected_shape(self):
+        raw = lba_cli._exec("lba_capacites_rechercher", {"query": "envoyer un devis"})
+        data = json.loads(raw)
+        self.assertIn("matches", data)
+        self.assertIn("total_tools_disponibles", data)
+        self.assertGreater(data["total_tools_disponibles"], 0)
+
+    def test_finds_devis_envoyer_for_devis_query(self):
+        raw = lba_cli._exec("lba_capacites_rechercher", {"query": "envoyer un devis par mail"})
+        names = {m["name"] for m in json.loads(raw)["matches"]}
+        self.assertIn("lba_devis_envoyer", names)
+
+    def test_negation_prefix_bridges_activation_desactivation(self):
+        # "désactiver" doit matcher un tool dont la description parle
+        # d'"activer"/"désactive" (isActif) — cf _stems, antonyme par préfixe.
+        raw = lba_cli._exec("lba_capacites_rechercher", {"query": "desactiver un client", "limit": 10})
+        names = {m["name"] for m in json.loads(raw)["matches"]}
+        self.assertIn("lba_prospect_activation", names)
+
+    def test_excludes_itself_from_results(self):
+        raw = lba_cli._exec("lba_capacites_rechercher", {"query": "rechercher un tool capacite"})
+        names = {m["name"] for m in json.loads(raw)["matches"]}
+        self.assertNotIn("lba_capacites_rechercher", names)
+
+    def test_empty_query_token_returns_empty_matches_not_crash(self):
+        raw = lba_cli._exec("lba_capacites_rechercher", {"query": "ok"})
+        data = json.loads(raw)
+        self.assertEqual(data["matches"], [])
+
+    def test_no_confirmation_or_auth_required(self):
+        # Tool de lecture pure locale — ni _CONFIRMATION_REQUIRED_TOOLS ni
+        # _AUTH_REQUIRED_TOOLS, sinon Bacchus hésiterait a l'appeler par reflexe.
+        self.assertNotIn("lba_capacites_rechercher", lba_cli._CONFIRMATION_REQUIRED_TOOLS)
+        self.assertNotIn("lba_capacites_rechercher", lba_cli._AUTH_REQUIRED_TOOLS)
+
+    def test_registered_in_tools_list(self):
+        names = {t["name"] for t in lba_cli.TOOLS}
+        self.assertIn("lba_capacites_rechercher", names)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,8 @@ import os
 import sys
 import time
 import urllib.error
+import math
+import unicodedata
 import urllib.request
 from hashlib import sha256
 from urllib.parse import quote, urlencode
@@ -3380,6 +3382,23 @@ TOOLS = [
             "item_id_prefix": {"type": "string", "description": "préfixe exact, ex. 'chat:<chat_id>:'"},
             "limit": {"type": "integer", "description": "défaut 200"}}},
     },
+    {
+        "name": "lba_capacites_rechercher",
+        "description": ("[AUTO-CONNAISSANCE] Recherche dans TON PROPRE arsenal de tools (nom + "
+                         "description) ce qui correspond à une capacité demandée. AUCUN appel réseau, "
+                         "AUCUNE écriture, latence quasi nulle — pas d'excuse pour ne pas l'appeler. "
+                         "RÉFLEXE OBLIGATOIRE avant de dire à un utilisateur que tu NE PEUX PAS faire "
+                         "quelque chose : ta mémoire/intuition sur ton propre périmètre n'est PAS "
+                         "fiable (le catalogue de tools évolue et compte plusieurs centaines "
+                         "d'entrées) — vérifier ici AVANT de répondre par la négative, jamais après "
+                         "coup sur relance de l'utilisateur. Retourne les tools dont le nom ou la "
+                         "description matchent les mots de la requête, triés par pertinence — matching "
+                         "lexical simple (pas sémantique) : PARCOURS TOUTE LA LISTE renvoyée, le bon "
+                         "tool n'est pas toujours en première position."),
+        "inputSchema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string", "description": "ce que l'utilisateur veut faire, en langage naturel — ex. 'passer un client inactif', 'envoyer un devis par mail', 'voir qui n'a pas commandé depuis 30 jours'"},
+            "limit": {"type": "integer", "description": "nombre max de résultats, défaut 10"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -4412,7 +4431,71 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_historique_fil_lire":
         return _get("/api/direction/knowledge/fil", {
             "item_id_prefix": _req(args, "item_id_prefix"), "limit": args.get("limit", 200)}, headers)
+    if tool == "lba_capacites_rechercher":
+        return _capacites_rechercher(_req(args, "query"), args.get("limit", 10))
     raise LbaCliError(f"tool inconnu: {tool} (voir `lba --list`)")
+
+
+def _fold(s: str) -> str:
+    """Minuscule + retire les accents, pour un matching insensible à la casse/accents."""
+    s = unicodedata.normalize("NFKD", s.lower())
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+_NEG_PREFIXES = ("des", "de", "in", "non")
+
+
+def _stems(tok: str) -> set[str]:
+    """Variantes tolérantes d'un mot-clé pour absorber conjugaison ET antonymes
+    par préfixe de négation (français) : 'inactif' doit matcher 'actif'/'isActif',
+    'désactiver' doit matcher 'active'/'désactive'. Un simple substring exact
+    rate ces deux cas — d'où la troncature (conjugaison) + le préfixe négatif
+    (antonyme) combinés."""
+    cands = {tok[:6] if len(tok) > 6 else tok}
+    for pref in _NEG_PREFIXES:
+        if tok.startswith(pref) and len(tok) - len(pref) >= 3:
+            stripped = tok[len(pref):]
+            cands.add(stripped[:6] if len(stripped) > 6 else stripped)
+    return cands
+
+
+def _capacites_rechercher(query: str, limit: int) -> str:
+    """Recherche locale (zéro réseau) dans TOOLS — auto-connaissance de l'arsenal
+    Bacchus. Score pondéré type IDF : un mot-clé present dans QUASIMENT TOUS les
+    tools (ex. 'client', 'actif' — omniprésents via isActif) compte pour peu,
+    un mot-clé RARE (ex. 'aide-marché', 'litige') compte beaucoup — sinon les
+    mots génériques noient le signal et le bon tool ne sort jamais en tête.
+    Matching via _stems (racines + antonymes par préfixe négatif)."""
+    q_folded = _fold(query)
+    q_tokens = [t for t in q_folded.split() if len(t) > 2]
+    if not q_tokens:
+        return json.dumps({"query": query, "total_tools_disponibles": len(TOOLS), "matches": [],
+                            "note": "requête vide ou trop courte pour chercher."}, ensure_ascii=False)
+    haystacks = [(t, _fold(t["name"] + " " + t.get("description", "")))
+                 for t in TOOLS if t["name"] != "lba_capacites_rechercher"]
+    n = len(haystacks)
+    tok_stems = {tok: _stems(tok) for tok in q_tokens}
+    doc_freq = {tok: sum(1 for _, hay in haystacks if any(s in hay for s in tok_stems[tok]))
+                for tok in q_tokens}
+    # +1 partout (lissage) ; log(n/df) => mot dans TOUS les docs pèse ~0, mot dans 1 seul pèse fort.
+    weight = {tok: math.log((n + 1) / (doc_freq[tok] + 1)) + 0.15 for tok in q_tokens}
+    scored = []
+    for t, hay in haystacks:
+        score = sum(weight[tok] for tok in q_tokens if any(s in hay for s in tok_stems[tok]))
+        if q_folded and q_folded in hay:
+            score += 3
+        if score > 0:
+            scored.append((score, t))
+    scored.sort(key=lambda x: -x[0])
+    top = scored[:max(1, limit)]
+    return json.dumps({
+        "query": query,
+        "total_tools_disponibles": len(TOOLS),
+        "matches": [{"name": t["name"], "description": t["description"]} for _, t in top],
+        "note": ("Si un tool pertinent apparait ci-dessus, utilise-le — ne dis JAMAIS 'je ne peux "
+                 "pas' pour une capacité listée ici. Si AUCUN match pertinent : la capacité "
+                 "n'existe probablement pas dans ton arsenal, tu peux le dire honnêtement."),
+    }, ensure_ascii=False)
 
 
 def main():
