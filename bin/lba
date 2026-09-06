@@ -863,6 +863,16 @@ TOOLS = [
             "request_id": {"type": "string"}}},
     },
     {
+        "name": "lba_dropcontact_credits",
+        "description": ("Lecture seule -- solde de credits restant sur l'abonnement Dropcontact "
+                         "(Starter) -- GET /api/bacchus/dropcontact/credits. Aucun endpoint dedie "
+                         "cote Dropcontact (verifie doc officielle) : la lecture repose sur un POST "
+                         "d un contact vide qui NE CONSOMME AUCUN CREDIT. A appeler AVANT "
+                         "lba_dropcontact_enrichir pour arbitrer la taille d un lot (ex: ne pas "
+                         "soumettre 250 contacts s il n en reste que 10)."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "lba_prospection_portefeuille",
         "description": ("Lecture pure — portefeuille de prospects généré par Bacchus (sourcing "
                          "lba_recherche_entreprises + enrichissement lba_dropcontact_enrichir + "
@@ -4104,6 +4114,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/dropcontact/enrichir", {"contacts": _req(args, "contacts")})
     if tool == "lba_dropcontact_resultat":
         return _get(f"/api/bacchus/dropcontact/resultat/{_seg(_req(args, 'request_id'))}", {})
+    if tool == "lba_dropcontact_credits":
+        return _get("/api/bacchus/dropcontact/credits", {})
     if tool == "lba_prospection_portefeuille":
         return _get("/api/bacchus/prospection/portefeuille", {"statut": args.get("statut")})
     if tool == "lba_analytics_explorer":
