@@ -441,7 +441,13 @@ class TestCliSurface(unittest.TestCase):
         # Execution Bacchus/LBA — backend déjà existant, LBA-DESKTOP/plan/
         # bacchus_prospect_tools.py : POST /api/bacchus/prospects/{blocage,
         # corriger-infos,activation}) = 198.
-        self.assertEqual(len(tools), 198)
+        # + lba_referentiel_risque_affecter + lba_referentiel_relance_affecter +
+        # lba_referentiel_logistique_documents_affecter +
+        # lba_referentiel_etablissement_affecter +
+        # lba_referentiel_commercial_divers_affecter (cluster REFERENTIEL,
+        # mission #8 plan_62b0cc3b — backend déjà existant, LBA-DESKTOP/plan/
+        # bacchus_prospect_tools.py:router_referentiel) = 203.
+        self.assertEqual(len(tools), 203)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

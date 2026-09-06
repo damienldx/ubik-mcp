@@ -137,6 +137,14 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # réel côté bacchus_prospect_tools.py (même rationale que
     # lba_prospect_creer ci-dessus — tracer QUEL commercial agit).
     "lba_client_blocage", "lba_prospect_corriger_infos", "lba_prospect_activation",
+    # ── Panneau CLIENT suite — cluster REFERENTIEL risque/relance/logistique-
+    # documents/etablissement/commercial-divers (mission #8, 2026-09-06,
+    # plan_62b0cc3b) — mêmes PATCH /api/bacchus/referentiel/*, Depends(current_user)
+    # réel côté bacchus_prospect_tools.py:router_referentiel (même rationale
+    # que les affecter ci-dessus).
+    "lba_referentiel_risque_affecter", "lba_referentiel_relance_affecter",
+    "lba_referentiel_logistique_documents_affecter", "lba_referentiel_etablissement_affecter",
+    "lba_referentiel_commercial_divers_affecter",
     # ── lba_direction_proposition_repondre (2026-08-31, chantier cartes-prompt
     # PORTAL LBA, carte "Mes propositions en attente", ordre Damien via LEAD) —
     # POST /{id}/respond, STRICT current_user (repondre_proposition docstring),
@@ -1826,6 +1834,92 @@ TOOLS = [
             "is_actif": {"type": "boolean", "description": "true = active, false = désactive"}}},
     },
     {
+        "name": "lba_referentiel_risque_affecter",
+        "description": ("[ÉCRITURE] Pose les paramètres de risque crédit d'un client PRISMA "
+                         "existant — PATCH /api/bacchus/referentiel/risque/{code_client} : "
+                         "plafond d'encours autorisé, montant assuré par l'assurance-crédit, "
+                         "jours de prolongation avant qu'un retard soit compté. Au moins un "
+                         "champ requis. Hors périmètre — volontairement PAS écrivable : "
+                         "l'encours réel (recalculé en continu par PrismaSoft, jamais un "
+                         "paramètre — consultable en lecture seule via lba_client_fiche). "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "risque_plafond": {"type": "number", "description": "plafond d'encours autorisé"},
+            "risque_assurance": {"type": "number", "description": "montant assuré par l'assurance-crédit"},
+            "risque_prolongation_en_jours_echeance": {"type": "integer", "description": "jours de prolongation ajoutés à l'échéance normale avant qu'un retard soit compté"}}},
+    },
+    {
+        "name": "lba_referentiel_relance_affecter",
+        "description": ("[ÉCRITURE] Pose les paramètres de relance d'un client PRISMA existant "
+                         "— PATCH /api/bacchus/referentiel/relance/{code_client} : activation "
+                         "relance auto, seuils en jours pour les 3 paliers, flag \"ne pas "
+                         "relancer\" (ne_pas_relancer — exclusion définitive, distinct de "
+                         "is_relance_auto). Au moins un champ requis. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "is_relance_auto": {"type": "boolean", "description": "active/désactive la relance automatique pour ce client"},
+            "relance_auto_nb_jours_echeance1": {"type": "integer", "description": "seuil en jours après échéance, palier 1"},
+            "relance_auto_nb_jours_echeance2": {"type": "integer", "description": "seuil en jours après échéance, palier 2"},
+            "relance_auto_nb_jours_echeance3": {"type": "integer", "description": "seuil en jours après échéance, palier 3"},
+            "ne_pas_relancer": {"type": "boolean", "description": "exclut définitivement ce client des relances automatiques"}}},
+    },
+    {
+        "name": "lba_referentiel_logistique_documents_affecter",
+        "description": ("[ÉCRITURE] Pose les paramètres logistique/documents d'un client "
+                         "PRISMA existant — PATCH /api/bacchus/referentiel/"
+                         "logistique-documents/{code_client}. document_livraison_client et "
+                         "gestion_reliquat sont du texte à valeurs réelles limitées — "
+                         "gestion_reliquat n'a QUE 4 valeurs réelles observées : 'Afficher les "
+                         "articles non livrés', 'Masquer les articles non livrés', 'Afficher et "
+                         "transférer sur une nouvelle commande', 'Masquer et transférer sur une "
+                         "nouvelle commande' — ne jamais en inventer une 5e, faire confirmer par "
+                         "l'utilisateur. Au moins un champ requis. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "is_tracabilite_sur_bl": {"type": "boolean"},
+            "is_bl_valorise": {"type": "boolean"},
+            "document_livraison_client": {"type": "string", "description": "ex: 'Bon de livraison', 'Bon de livraison + Facture' — confirmer avec l'utilisateur"},
+            "gestion_reliquat": {"type": "string", "description": "une des 4 valeurs réelles : 'Afficher les articles non livrés', 'Masquer les articles non livrés', 'Afficher et transférer sur une nouvelle commande', 'Masquer et transférer sur une nouvelle commande'"},
+            "id_frequence_releve1": {"type": "integer"},
+            "id_frequence_releve2": {"type": "integer"},
+            "is_releve_bl": {"type": "boolean"}}},
+    },
+    {
+        "name": "lba_referentiel_etablissement_affecter",
+        "description": ("[ÉCRITURE] Pose les infos établissement d'un client PRISMA existant "
+                         "— PATCH /api/bacchus/referentiel/etablissement/{code_client} : "
+                         "horaire d'ouverture, nombre de becs, restauration (booléen simple, "
+                         "PAS de typologie), sanitation, clé établissement, altares, mandat de "
+                         "prélèvement + sa date. Au moins un champ requis. Confirmation "
+                         "utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "heure_ouverture": {"type": "string", "description": "ex: '07H00'"},
+            "nombre_de_bec": {"type": "integer"},
+            "restauration": {"type": "boolean"},
+            "sanitation": {"type": "boolean"},
+            "cle": {"type": "boolean", "description": "clé établissement (PersoField_Cle)"},
+            "altares": {"type": "boolean"},
+            "mandat": {"type": "string", "description": "référence du mandat de prélèvement"},
+            "date_mandat": {"type": "string", "description": "YYYY-MM-DD"}}},
+    },
+    {
+        "name": "lba_referentiel_commercial_divers_affecter",
+        "description": ("[ÉCRITURE] Pose isAutorisePromo et/ou commentaireTelevente d'un "
+                         "client PRISMA existant — PATCH /api/bacchus/referentiel/"
+                         "commercial-divers/{code_client}. commentaire_televente est une note "
+                         "libre distincte de l'historique d'appels ADV (lba_client_fiche_adv) — "
+                         "un champ unique sur la fiche, pas un historique. Au moins un champ "
+                         "requis. Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "is_autorise_promo": {"type": "boolean"},
+            "commentaire_televente": {"type": "string", "description": "note libre distincte de l'historique d'appels ADV"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -3185,6 +3279,56 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _patch(f"/api/bacchus/referentiel/secteur-tournee/{_seg(code_client)}", {
             "id_secteur_commercial": args.get("id_secteur_commercial"),
             "id_tournee_fixe": args.get("id_tournee_fixe")}, headers)
+    if tool == "lba_referentiel_risque_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "risque_plafond": args.get("risque_plafond"),
+            "risque_assurance": args.get("risque_assurance"),
+            "risque_prolongation_en_jours_echeance": args.get("risque_prolongation_en_jours_echeance"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/risque/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_relance_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "is_relance_auto": args.get("is_relance_auto"),
+            "relance_auto_nb_jours_echeance1": args.get("relance_auto_nb_jours_echeance1"),
+            "relance_auto_nb_jours_echeance2": args.get("relance_auto_nb_jours_echeance2"),
+            "relance_auto_nb_jours_echeance3": args.get("relance_auto_nb_jours_echeance3"),
+            "ne_pas_relancer": args.get("ne_pas_relancer"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/relance/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_logistique_documents_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "is_tracabilite_sur_bl": args.get("is_tracabilite_sur_bl"),
+            "is_bl_valorise": args.get("is_bl_valorise"),
+            "document_livraison_client": args.get("document_livraison_client"),
+            "gestion_reliquat": args.get("gestion_reliquat"),
+            "id_frequence_releve1": args.get("id_frequence_releve1"),
+            "id_frequence_releve2": args.get("id_frequence_releve2"),
+            "is_releve_bl": args.get("is_releve_bl"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/logistique-documents/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_etablissement_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "heure_ouverture": args.get("heure_ouverture"),
+            "nombre_de_bec": args.get("nombre_de_bec"),
+            "restauration": args.get("restauration"),
+            "sanitation": args.get("sanitation"),
+            "cle": args.get("cle"),
+            "altares": args.get("altares"),
+            "mandat": args.get("mandat"),
+            "date_mandat": args.get("date_mandat"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/etablissement/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_commercial_divers_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "is_autorise_promo": args.get("is_autorise_promo"),
+            "commentaire_televente": args.get("commentaire_televente"),
+        }.items() if v is not None}
+        return _patch(f"/api/bacchus/referentiel/commercial-divers/{_seg(code_client)}", payload, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
