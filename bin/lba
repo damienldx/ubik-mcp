@@ -201,6 +201,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # aucune forme avant ce fix (ces champs n'étaient posables qu'une
     # seule fois, à la conversion prospect->client).
     "lba_client_reglement_corriger",
+    # ── lba_referentiel_envoi_facture_mail_affecter (2026-09-08, gap
+    # signalé par Bacchus en conversation réelle) — PATCH /api/bacchus/
+    # referentiel/envoi-facture-mail/{code_client}, Depends(current_user)
+    # réel côté bacchus_prospect_tools.py:router_referentiel, même
+    # mécanisme que les autres referentiel_*_affecter.
+    "lba_referentiel_envoi_facture_mail_affecter",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2030,6 +2036,18 @@ TOOLS = [
             "id_personne_representant": {"type": "integer", "description": "id PrismaGestionCo_personne (cf lba_rep_codes)"}}},
     },
     {
+        "name": "lba_referentiel_envoi_facture_mail_affecter",
+        "description": ("[ÉCRITURE] Active/désactive l'envoi de facture par email pour un client PRISMA "
+                         "existant (tiers_client.isEnvoiFactureMail) — PATCH /api/bacchus/referentiel/"
+                         "envoi-facture-mail/{code_client}. GAP COMBLÉ 2026-09-08 (signalé par Bacchus en "
+                         "conversation réelle) : ce flag vit sur tiers_client, comme isBlocage — aucun tool "
+                         "générique (lba_prospect_corriger_infos, lba_client_reglement_corriger) ne pouvait "
+                         "l'atteindre. Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client", "is_envoi_facture_mail"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "is_envoi_facture_mail": {"type": "boolean"}}},
+    },
+    {
         "name": "lba_referentiel_infos_entreprise",
         "description": ("Lecture pure — options valides pour statut juridique / homme clé / "
                          "indicateur financier (codes PersoField_Ressources) — GET /api/bacchus/"
@@ -3669,6 +3687,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
             "id_personne_representant": _req(args, "id_personne_representant")}, headers)
+    if tool == "lba_referentiel_envoi_facture_mail_affecter":
+        code_client = _req(args, "code_client")
+        return _patch(f"/api/bacchus/referentiel/envoi-facture-mail/{_seg(code_client)}", {
+            "is_envoi_facture_mail": _req(args, "is_envoi_facture_mail")}, headers)
     if tool == "lba_referentiel_famille_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
