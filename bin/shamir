@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""shamir — CLI sibling pour les tools agent-tool Shamir (noyau Tryton
+dédié, azoth), zéro MCP.
+
+Mappe les tools shamir_* vers l'API dédiée SHAMIR/backend/main.py (:8768,
+service systemd shamir-backend-tryton.service) — même politique "CLI tools
+first" que `lba`/`ubik`/`ubik-activity`/`ubik-peek`, implanté comme sibling
+autonome (bin/shamir, symlinké ~/.local/bin/shamir) plutôt qu'un namespace
+de plus dans bin/ubik : domaine Shamir/Tryton distinct du tronc UBIK fleet,
+même schéma de câblage que bin/lba.
+
+Différence délibérée avec bin/lba : PAS de ticket-exchange / identité
+per-utilisateur. Les tools party/articles parlent à Tryton en admin ORM
+PARTAGÉ (azoth) — il n'y a pas (encore) de délégation Microsoft Graph par
+personne côté Shamir, contrairement à LBA Desktop/Bacchus. Si un futur
+besoin per-utilisateur apparaît, s'inspirer de bin/lba::_auth_headers/
+_mint_cli_session_jwt à ce moment-là, pas avant (anti-fabrication).
+
+Doctrine de croissance (2026-09-08, architecture "ubik-like" demandée par
+Damien, modèle lba-seat) : chaque nouvelle brique Shamir (après party/
+articles) ajoute UNE entrée à TOOLS + UN cas dans _exec ci-dessous, puis une
+ligne dans tools_whitelist de autopipes/mandats/shamir-agent.yaml + une
+entrée dans ubik-mcp/data/tools-situations.json. Jamais de nouveau
+mécanisme — mêmes 3 endroits, à chaque brique, sur le modèle des 32
+versions de lba-seat.yaml.
+
+Usage:
+    shamir <tool> --args '<json-object>'   # invoque un tool, retourne le JSON
+    shamir --list                          # liste les tools (nom + description)
+    shamir <tool> --schema                 # imprime le schéma JSON d'un tool
+
+Env: SHAMIR_TRYTON_BASE (défaut http://127.0.0.1:8768).
+"""
+from __future__ import annotations
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.request
+from urllib.parse import urlencode
+
+BASE = __import__("os").environ.get("SHAMIR_TRYTON_BASE", "http://127.0.0.1:8768")
+
+
+class ShamirCliError(Exception):
+    pass
+
+
+def _get(path: str, params: dict, timeout: int = 30) -> str:
+    q = {k: v for k, v in params.items() if v is not None}
+    url = f"{BASE}{path}"
+    if q:
+        url += "?" + urlencode(q)
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode(errors="replace")[:500]
+        except Exception:
+            pass
+        raise ShamirCliError(f"GET {url} — HTTP {e.code} {e.reason}" + (f": {body}" if body else "")) from e
+    except urllib.error.URLError as e:
+        raise ShamirCliError(f"GET {url} — injoignable ({e.reason})") from e
+
+
+def _post(path: str, payload: dict, timeout: int = 30) -> str:
+    url = f"{BASE}{path}"
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body_txt = ""
+        try:
+            body_txt = e.read().decode(errors="replace")[:500]
+        except Exception:
+            pass
+        raise ShamirCliError(f"POST {url} — HTTP {e.code} {e.reason}" + (f": {body_txt}" if body_txt else "")) from e
+    except urllib.error.URLError as e:
+        raise ShamirCliError(f"POST {url} — injoignable ({e.reason})") from e
+
+
+def _req(args: dict, name: str):
+    """Paramètre requis — erreur explicite plutôt qu'un KeyError opaque."""
+    if name not in args or args[name] in (None, ""):
+        raise ShamirCliError(f"paramètre requis manquant: {name}")
+    return args[name]
+
+
+TOOLS = [
+    {
+        "name": "shamir_party_recherche",
+        "description": ("Recherche un tiers (party.party Tryton) par nom ou code — GET /api/parties. "
+                         "Casse-insensible, substring. Code stable PRISMA-<id> = provenance LBA/PrismaSoft "
+                         "(client test, 2148 tiers importés)."),
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {
+            "q": {"type": "string", "description": "terme de recherche (nom ou code)"},
+            "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
+    },
+    {
+        "name": "shamir_party_detail",
+        "description": "Détail d'un tiers par id Tryton — GET /api/parties/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {
+            "id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_party_creer",
+        "description": ("Crée un tiers (party.party) — POST /api/parties. siret validé (format + clé de "
+                         "contrôle Tryton) si fourni."),
+        "inputSchema": {"type": "object", "required": ["name"], "properties": {
+            "name": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"},
+            "siret": {"type": "string"}, "code": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_article_recherche",
+        "description": ("Recherche un article (product.template Tryton) par désignation ou code — "
+                         "GET /api/articles. Casse-insensible, substring. Code stable PRISMA-ART-<id> = "
+                         "provenance LBA/PrismaSoft (client test, 832 articles importés). Pas de prix "
+                         "(list_price/cost_price) tant qu'aucune company n'est configurée dans azoth."),
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {
+            "q": {"type": "string", "description": "terme de recherche (désignation ou code)"},
+            "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
+    },
+    {
+        "name": "shamir_article_detail",
+        "description": "Détail d'un article par id Tryton — GET /api/articles/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {
+            "id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_article_creer",
+        "description": "Crée un article (product.template, type='goods') — POST /api/articles.",
+        "inputSchema": {"type": "object", "required": ["name"], "properties": {
+            "name": {"type": "string"}, "code": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_commande_recherche",
+        "description": ("Recherche de commandes/BL/factures — GET /api/commandes. LECTURE SEULE "
+                         "directe snapshot DuckDB LBA (pas Tryton) — cycle de vie complet "
+                         "Devis/Commande/Préparation/Livraison/Facture/Avoir."),
+        "inputSchema": {"type": "object", "properties": {
+            "client_code": {"type": "string", "description": "code PRISMA-<id> (party) ou code PrismaSoft brut"},
+            "etat": {"type": "string", "description": "Devis|Commande|Préparation|Livraison|Facture|Avoir"},
+            "date_from": {"type": "string"}, "date_to": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_commande_detail",
+        "description": "Détail d'une commande/BL/facture avec ses lignes article — GET /api/commandes/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_client_historique_ventes",
+        "description": ("CA/nombre de commandes d'un client agrégé par état sur une période — "
+                         "GET /api/clients/{code}/historique-ventes. Réponse directe à 'combien "
+                         "ce client a commandé/acheté' sans recalcul manuel côté agent."),
+        "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
+            "client_code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_tournee_recherche",
+        "description": "Tournées de livraison planifiées sur une période — GET /api/tournees.",
+        "inputSchema": {"type": "object", "properties": {
+            "date_from": {"type": "string"}, "date_to": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_tournee_fixe_liste",
+        "description": "Référentiel des tournées fixes (circuits récurrents, jours desservis) — GET /api/tournees-fixes.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "shamir_livraison_directe_recherche",
+        "description": ("Livraisons directes / mises à disposition (hors tournée classique) — "
+                         "GET /api/livraisons-directes."),
+        "inputSchema": {"type": "object", "properties": {
+            "client_code": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+]
+
+_TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
+
+
+def _exec(tool: str, args: dict):
+    if tool == "shamir_party_recherche":
+        return _get("/api/parties", {"q": _req(args, "q"), "limit": args.get("limit", 20)})
+    if tool == "shamir_party_detail":
+        return _get(f"/api/parties/{_req(args, 'id')}", {})
+    if tool == "shamir_party_creer":
+        return _post("/api/parties", {
+            "name": _req(args, "name"), "email": args.get("email"), "phone": args.get("phone"),
+            "siret": args.get("siret"), "code": args.get("code")})
+    if tool == "shamir_article_recherche":
+        return _get("/api/articles", {"q": _req(args, "q"), "limit": args.get("limit", 20)})
+    if tool == "shamir_article_detail":
+        return _get(f"/api/articles/{_req(args, 'id')}", {})
+    if tool == "shamir_article_creer":
+        return _post("/api/articles", {"name": _req(args, "name"), "code": args.get("code")})
+    if tool == "shamir_commande_recherche":
+        return _get("/api/commandes", {
+            "client_code": args.get("client_code"), "etat": args.get("etat"),
+            "date_from": args.get("date_from"), "date_to": args.get("date_to"),
+            "limit": args.get("limit", 20)})
+    if tool == "shamir_commande_detail":
+        return _get(f"/api/commandes/{_req(args, 'id')}", {})
+    if tool == "shamir_client_historique_ventes":
+        code = _req(args, "client_code")
+        return _get(f"/api/clients/{code}/historique-ventes", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to")})
+    if tool == "shamir_tournee_recherche":
+        return _get("/api/tournees", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to"),
+            "limit": args.get("limit", 20)})
+    if tool == "shamir_tournee_fixe_liste":
+        return _get("/api/tournees-fixes", {})
+    if tool == "shamir_livraison_directe_recherche":
+        return _get("/api/livraisons-directes", {
+            "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    raise ShamirCliError(f"tool inconnu (pas dispatché): {tool!r}")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="shamir", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("tool", nargs="?", help="nom du tool shamir_* (ex: shamir_party_recherche)")
+    p.add_argument("--args", help="arguments JSON du tool, ex: '{\"q\":\"lba\"}'")
+    p.add_argument("--list", action="store_true", help="liste les tools (nom + description)")
+    p.add_argument("--schema", action="store_true", help="imprime le schéma JSON du tool donné")
+    a = p.parse_args()
+
+    if a.list or not a.tool:
+        print(json.dumps([{"name": t["name"], "description": t["description"]} for t in TOOLS],
+                          indent=2, ensure_ascii=False))
+        return
+
+    if a.tool not in _TOOLS_BY_NAME:
+        print(f"shamir: tool inconnu: {a.tool!r} — voir `shamir --list`", file=sys.stderr)
+        sys.exit(2)
+
+    if a.schema:
+        print(json.dumps(_TOOLS_BY_NAME[a.tool]["inputSchema"], indent=2, ensure_ascii=False))
+        return
+
+    try:
+        args = json.loads(a.args) if a.args else {}
+    except json.JSONDecodeError as e:
+        print(f"shamir: --args invalide (JSON): {e}", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        raw = _exec(a.tool, args)
+    except ShamirCliError as e:
+        print(f"shamir: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        print(json.dumps(json.loads(raw), indent=2, ensure_ascii=False))
+    except (json.JSONDecodeError, TypeError):
+        print(raw)
+
+
+if __name__ == "__main__":
+    main()

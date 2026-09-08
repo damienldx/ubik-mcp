@@ -1280,6 +1280,57 @@
       "situation": "Voir les messages WhatsApp les plus récents tous chats confondus (feed global, pas une conversation ciblée)",
       "cli": "MCP whatsapp_get_recent_messages (serveur natif WhatsApp bridge)",
       "note": "Lecture non-destructive — ne retire jamais un message de la file de routage réservée au router WhatsApp."
+    },
+    "shamir_party_recherche": {
+      "situation": "Chercher un tiers Shamir par nom ou code (ex: un client LBA)",
+      "cli": "shamir shamir_party_recherche --args '{\"q\":\"<terme>\",\"limit\":20}'",
+      "note": "party.party Tryton, code stable PRISMA-<id> = provenance LBA/PrismaSoft"
+    },
+    "shamir_party_detail": {
+      "situation": "Détail d'un tiers Shamir déjà identifié (id Tryton connu)",
+      "cli": "shamir shamir_party_detail --args '{\"id\":123}'"
+    },
+    "shamir_party_creer": {
+      "situation": "Créer un tiers Shamir — SEULEMENT sur confirmation explicite de l'utilisateur",
+      "cli": "shamir shamir_party_creer --args '{\"name\":\"...\",\"email\":\"...\"}'"
+    },
+    "shamir_article_recherche": {
+      "situation": "Chercher un article Shamir par désignation ou code",
+      "cli": "shamir shamir_article_recherche --args '{\"q\":\"<terme>\",\"limit\":20}'",
+      "note": "product.template Tryton, code stable PRISMA-ART-<id>, pas de prix (aucune company configurée)"
+    },
+    "shamir_article_detail": {
+      "situation": "Détail d'un article Shamir déjà identifié (id Tryton connu)",
+      "cli": "shamir shamir_article_detail --args '{\"id\":123}'"
+    },
+    "shamir_article_creer": {
+      "situation": "Créer un article Shamir — SEULEMENT sur confirmation explicite de l'utilisateur",
+      "cli": "shamir shamir_article_creer --args '{\"name\":\"...\",\"code\":\"...\"}'"
+    },
+    "shamir_commande_recherche": {
+      "situation": "Chercher des commandes/BL/factures Shamir (par client, etat, periode)",
+      "cli": "shamir shamir_commande_recherche --args '{\"client_code\":\"PRISMA-<id>\",\"limit\":20}'",
+      "note": "lecture directe DuckDB, pas Tryton -- historique transactionnel"
+    },
+    "shamir_commande_detail": {
+      "situation": "Detail d une commande/BL/facture Shamir avec ses lignes article",
+      "cli": "shamir shamir_commande_detail --args '{\"id\":123}'"
+    },
+    "shamir_client_historique_ventes": {
+      "situation": "Combien un client Shamir a commande/achete sur une periode (CA agrege)",
+      "cli": "shamir shamir_client_historique_ventes --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_tournee_recherche": {
+      "situation": "Tournees de livraison Shamir planifiees sur une periode",
+      "cli": "shamir shamir_tournee_recherche --args '{\"date_from\":\"...\",\"date_to\":\"...\"}'"
+    },
+    "shamir_tournee_fixe_liste": {
+      "situation": "Referentiel des circuits de livraison fixes Shamir (jours desservis)",
+      "cli": "shamir shamir_tournee_fixe_liste"
+    },
+    "shamir_livraison_directe_recherche": {
+      "situation": "Livraisons directes / mises a disposition Shamir (hors tournee classique)",
+      "cli": "shamir shamir_livraison_directe_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     }
   }
 }
