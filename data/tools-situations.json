@@ -1331,6 +1331,26 @@
     "shamir_livraison_directe_recherche": {
       "situation": "Livraisons directes / mises a disposition Shamir (hors tournee classique)",
       "cli": "shamir shamir_livraison_directe_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_vente_creer": {
+      "situation": "Creer une NOUVELLE vente Tryton (ecriture vivante, pas historique PrismaSoft) -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_vente_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"PRISMA-ART-<id>\",\"quantity\":6}]}'"
+    },
+    "shamir_vente_detail": {
+      "situation": "Detail d une vente Tryton (lignes, expedition, facture liees)",
+      "cli": "shamir shamir_vente_detail --args '{\"id\":123}'"
+    },
+    "shamir_vente_recherche": {
+      "situation": "Chercher des ventes Tryton en cours (par client, etat)",
+      "cli": "shamir shamir_vente_recherche --args '{\"party_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_vente_confirmer": {
+      "situation": "Confirmer une vente en brouillon -- SEULEMENT sur confirmation utilisateur pour CETTE etape",
+      "cli": "shamir shamir_vente_confirmer --args '{\"id\":123}'"
+    },
+    "shamir_vente_traiter": {
+      "situation": "Traiter une vente confirmee (genere expedition + facture brouillon) -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_vente_traiter --args '{\"id\":123}'"
     }
   }
 }

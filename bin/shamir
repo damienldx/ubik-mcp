@@ -181,6 +181,44 @@ TOOLS = [
             "client_code": {"type": "string"},
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
     },
+    {
+        "name": "shamir_vente_creer",
+        "description": ("Crée une NOUVELLE vente Tryton (sale.sale) en brouillon — POST /api/ventes. "
+                         "ÉCRITURE — nécessite confirmation explicite de l'utilisateur avant appel. "
+                         "Distinct de shamir_commande_recherche (historique PrismaSoft en lecture "
+                         "seule) : ceci crée une vraie donnée vivante dans le noyau Tryton."),
+        "inputSchema": {"type": "object", "required": ["party_code", "lines"], "properties": {
+            "party_code": {"type": "string", "description": "code PRISMA-<id> du client"},
+            "lines": {"type": "array", "items": {"type": "object", "properties": {
+                "article_code": {"type": "string", "description": "code PRISMA-ART-<id>"},
+                "quantity": {"type": "number"}}}}}},
+    },
+    {
+        "name": "shamir_vente_detail",
+        "description": "Détail d'une vente Tryton avec lignes, expédition(s), facture(s) — GET /api/ventes/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_vente_recherche",
+        "description": "Recherche de ventes Tryton (par client, état) — GET /api/ventes.",
+        "inputSchema": {"type": "object", "properties": {
+            "party_code": {"type": "string"}, "state": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_vente_confirmer",
+        "description": ("Confirme une vente en brouillon (draft → quotation → confirmed) — "
+                         "POST /api/ventes/{id}/confirmer. ÉCRITURE — confirmation utilisateur requise."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_vente_traiter",
+        "description": ("Traite une vente confirmée (confirmed → processing) — génère l'expédition et "
+                         "la facture (brouillon) — POST /api/ventes/{id}/traiter. ÉCRITURE — confirmation "
+                         "utilisateur requise. Pas de garantie de stock réel disponible (aucune donnée "
+                         "d'inventaire dans le snapshot LBA)."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -221,6 +259,19 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_livraison_directe_recherche":
         return _get("/api/livraisons-directes", {
             "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    if tool == "shamir_vente_creer":
+        return _post("/api/ventes", {
+            "party_code": _req(args, "party_code"), "lines": _req(args, "lines")})
+    if tool == "shamir_vente_detail":
+        return _get(f"/api/ventes/{_req(args, 'id')}", {})
+    if tool == "shamir_vente_recherche":
+        return _get("/api/ventes", {
+            "party_code": args.get("party_code"), "state": args.get("state"),
+            "limit": args.get("limit", 20)})
+    if tool == "shamir_vente_confirmer":
+        return _post(f"/api/ventes/{_req(args, 'id')}/confirmer", {})
+    if tool == "shamir_vente_traiter":
+        return _post(f"/api/ventes/{_req(args, 'id')}/traiter", {})
     raise ShamirCliError(f"tool inconnu (pas dispatché): {tool!r}")
 
 
