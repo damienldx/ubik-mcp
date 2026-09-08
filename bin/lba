@@ -193,6 +193,14 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # mécanisme que lba_client_adresse_creer. N'existait sous aucune forme
     # côté Bacchus avant ce fix.
     "lba_client_contact_creer",
+    # ── lba_client_reglement_corriger (2026-09-08, gap signalé par Bacchus
+    # en conversation réelle : "délai de règlement 15 jours net, pas de
+    # tool pour le modifier après coup") — PATCH /api/bacchus/client/{code}/
+    # reglement, Depends(current_user) réel côté bacchus_client_tools.py,
+    # même mécanisme que lba_prospect_passer_client. N'existait sous
+    # aucune forme avant ce fix (ces champs n'étaient posables qu'une
+    # seule fois, à la conversion prospect->client).
+    "lba_client_reglement_corriger",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2090,6 +2098,34 @@ TOOLS = [
             "tva_intra_com": {"type": "string"}}},
     },
     {
+        "name": "lba_client_reglement_corriger",
+        "description": ("[ÉCRITURE] Corrige les champs \"Informations tiers\" financiers (régime TVA, "
+                         "langue, devise, IBAN/BIC/RIB/domiciliation bancaire, mode/délai de règlement, "
+                         "remises) d'un CLIENT DÉJÀ EXISTANT — PATCH /api/bacchus/client/{code}/reglement. "
+                         "GAP COMBLÉ 2026-09-08 (signalé par Bacchus en conversation réelle : \"délai de "
+                         "règlement 15 jours net, pas de tool pour le modifier après coup\") — jusqu'ici "
+                         "ces champs n'étaient posables QU'UNE SEULE FOIS, au moment du passage "
+                         "prospect->client (lba_prospect_passer_client). Ne touche JAMAIS isClient/"
+                         "isProspect — passer_client reste l'unique voie de conversion. "
+                         "regime_tva/langue/devise/mode_reglement sont des MENUS DÉROULANTS PRISMA (ids "
+                         "référentiels, cf lba_referentiel_tarifs et la doctrine de lba_prospect_"
+                         "passer_client) — ne JAMAIS deviner, faire confirmer explicitement par "
+                         "l'utilisateur. Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string", "description": "code client PRISMA"},
+            "tva_intra_com": {"type": "string"},
+            "regime_tva": {"type": "integer", "description": "id PrismaGestionCo_tva_assujetti : 1=FRANCE, 2=EXO, 3=INTRACOM"},
+            "langue": {"type": "integer", "description": "id PrismaGestionCo_langue (48=Français)"},
+            "devise": {"type": "integer"},
+            "iban": {"type": "string"}, "bic": {"type": "string"}, "rib": {"type": "string"},
+            "domiciliation_bancaire": {"type": "string"},
+            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO"},
+            "echeance_nb_jours": {"type": "integer"},
+            "echeance_le": {"type": "integer"},
+            "echeance_fin_de_mois": {"type": "boolean"},
+            "remise1": {"type": "number"}, "remise2": {"type": "number"}, "remise3": {"type": "number"}}},
+    },
+    {
         "name": "lba_prospect_activation",
         "description": ("[ÉCRITURE] Active ou désactive un tiers (isActif), prospect OU client "
                          "indifféremment (cf est_client) — POST /api/bacchus/prospects/activation. "
@@ -3618,6 +3654,17 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/prospects/activation", {
             "tiers_id": _req(args, "tiers_id"), "est_client": _req(args, "est_client"),
             "is_actif": _req(args, "is_actif")}, headers)
+    if tool == "lba_client_reglement_corriger":
+        code = _seg(_req(args, "code"))
+        raw = {"tva_intra_com": args.get("tva_intra_com"), "regime_tva": args.get("regime_tva"),
+               "langue": args.get("langue"), "devise": args.get("devise"),
+               "iban": args.get("iban"), "bic": args.get("bic"), "rib": args.get("rib"),
+               "domiciliation_bancaire": args.get("domiciliation_bancaire"),
+               "mode_reglement": args.get("mode_reglement"), "echeance_nb_jours": args.get("echeance_nb_jours"),
+               "echeance_le": args.get("echeance_le"), "echeance_fin_de_mois": args.get("echeance_fin_de_mois"),
+               "remise1": args.get("remise1"), "remise2": args.get("remise2"), "remise3": args.get("remise3")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _patch(f"/api/bacchus/client/{code}/reglement", payload, headers)
     if tool == "lba_referentiel_representant_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
