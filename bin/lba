@@ -357,6 +357,17 @@ TOOLS = [
             "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
     },
     {
+        "name": "lba_client_fiche_live",
+        "description": ("Identité/statut/paramétrage d'un client en LECTURE LIVE (SQL Server direct, PAS "
+                         "le snapshot DuckDB de lba_client_fiche) — GET /api/bacchus/client/{code}/fiche-live. "
+                         "Couvre notamment isBlocage/isActif/isClient/isProspect — utile pour vérifier un état "
+                         "à l'instant T (ex. juste après une création/conversion, avant que le sync DuckDB "
+                         "/15min ne l'ait rattrapé) sans attendre. AUCUN KPI/CA/historique ici (ça reste sur "
+                         "lba_client_fiche, agrégations lourdes) — n'utiliser cette route que quand la "
+                         "fraîcheur immédiate du statut/paramétrage compte, pas pour l'analytique."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string"}}},
+    },
+    {
         "name": "lba_client_evolution",
         "description": ("Série temporelle CA HT / marge HT d'un client, période N et N-1 en une seule "
                          "réponse — GET /api/bacchus/client/{code}/evolution. Réplique le modèle PRISMA "
@@ -3968,6 +3979,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_client_fiche_live":
+        code = _seg(_req(args, "code"))
+        return _get(f"/api/bacchus/client/{code}/fiche-live", {})
     if tool == "lba_client_evolution":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/evolution", {
