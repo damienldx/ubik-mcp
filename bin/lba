@@ -1821,7 +1821,15 @@ TOOLS = [
                          "affecté AUTOMATIQUEMENT par secteur géographique côté serveur (CP de la "
                          "1re adresse) — ne JAMAIS le demander ni le deviner. Confirmation utilisateur "
                          "OBLIGATOIRE avant appel (raison_sociale/siret/adresse doivent venir d'un "
-                         "document réel — KBIS ou équivalent — jamais inventés)."),
+                         "document réel — KBIS ou équivalent — jamais inventés). "
+                         "⚠️ RÉPONSE : renvoie 'id' (tiers.id, le VRAI identifiant du prospect — "
+                         "c'est CETTE valeur, et SEULEMENT celle-ci, qu'il faut réutiliser comme "
+                         "tiers_id pour lba_prospect_passer_client et tout autre tool fiche client) "
+                         "et 'crmSocieteId' (PrismaGestionCo_CRM_Societe.id, entité CRM DISTINCTE, "
+                         "usage EXCLUSIF pour idSocieteAffectation de lba_visite_creer/"
+                         "lba_calendar_creer — JAMAIS pour passer_client : confondre les deux a causé "
+                         "un incident réel où deux fournisseurs existants ont été basculés en client "
+                         "par erreur, 2026-09-08)."),
         "inputSchema": {"type": "object", "required": ["raison_sociale"], "properties": {
             "raison_sociale": {"type": "string"},
             "nom_commercial": {"type": "string", "description": "enseigne commerciale si différente de la raison sociale"},
