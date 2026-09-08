@@ -187,6 +187,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # jamais câblés en tool CLI — gap comblé en même temps que le fix de
     # résolution live (crmSocieteId, cf lba_prospect_creer).
     "lba_client_adresse_creer", "lba_client_adresse_types_appliquer",
+    # ── lba_client_contact_creer (2026-09-08, audit temps-réel Damien) —
+    # POST /api/bacchus/client/{code}/contacts, Depends(current_user) réel
+    # côté bacchus_client_tools.py (trace QUEL commercial agit), même
+    # mécanisme que lba_client_adresse_creer. N'existait sous aucune forme
+    # côté Bacchus avant ce fix.
+    "lba_client_contact_creer",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -419,10 +425,27 @@ TOOLS = [
         "name": "lba_client_contacts",
         "description": ("Contacts de la fiche client (onglet CRM > Contacts Prisma) — nom, prénom, "
                          "civilité, téléphones, emails, fonction — GET /api/bacchus/client/{code}/contacts. "
-                         "Ces contacts sont OBLIGATOIRES pour créer une visite CRM_Rdv côté Prisma."),
+                         "Ces contacts sont OBLIGATOIRES pour créer une visite CRM_Rdv côté Prisma. "
+                         "Lecture LIVE (SQL Server direct, pas DuckDB, fix 2026-09-08)."),
         "inputSchema": {"type": "object", "required": ["code"], "properties": {
             "code": {"type": "string"},
             "only_active": {"type": "boolean", "description": "défaut true — uniquement les contacts actifs"}}},
+    },
+    {
+        "name": "lba_client_contact_creer",
+        "description": ("[ÉCRITURE] Crée un contact et le lie à un client DÉJÀ EXISTANT — POST "
+                         "/api/bacchus/client/{code}/contacts. Lecture/écriture LIVE (pas DuckDB, fix "
+                         "2026-09-08). N'existait sous AUCUNE forme avant ce fix : un contact ne pouvait "
+                         "être ajouté qu'à la création du prospect (lba_prospect_creer), jamais après coup. "
+                         "Échoue explicitement (400) si le client n'a pas d'entité CRM_Societe (cas rare). "
+                         "Ne PAS deviner nom/prénom/téléphone/email : les faire confirmer par l'utilisateur. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string", "description": "code client PRISMA"},
+            "nom": {"type": "string"}, "prenom": {"type": "string"}, "civilite": {"type": "string"},
+            "telephone_mobile": {"type": "string"}, "telephone_fixe": {"type": "string"},
+            "email_professionnel": {"type": "string"}, "email_personnel": {"type": "string"},
+            "fonction": {"type": "string"}, "commentaire": {"type": "string"}}},
     },
     {
         "name": "lba_client_historique_visites",
@@ -4006,6 +4029,15 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/contacts", {
             "only_active": args.get("only_active", True)})
+    if tool == "lba_client_contact_creer":
+        code = _seg(_req(args, "code"))
+        raw = {"nom": args.get("nom"), "prenom": args.get("prenom"), "civilite": args.get("civilite"),
+               "telephone_mobile": args.get("telephone_mobile"), "telephone_fixe": args.get("telephone_fixe"),
+               "email_professionnel": args.get("email_professionnel"),
+               "email_personnel": args.get("email_personnel"),
+               "fonction": args.get("fonction"), "commentaire": args.get("commentaire")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post(f"/api/bacchus/client/{code}/contacts", payload, headers)
     if tool == "lba_client_historique_visites":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/historique-visites", {
