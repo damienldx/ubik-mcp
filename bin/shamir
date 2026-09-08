@@ -219,6 +219,26 @@ TOOLS = [
                          "d'inventaire dans le snapshot LBA)."),
         "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
+    {
+        "name": "shamir_lba_archive_list_tables",
+        "description": ("Liste les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA "
+                         "(archive/base de test, donnée non migrée dans Tryton) avec leur row_count — "
+                         "GET /api/lba-archive/tables. Découverte avant shamir_lba_archive_query."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "shamir_lba_archive_query",
+        "description": ("Requête générique en LECTURE SEULE sur une table PrismaGestionCo_* du snapshot "
+                         "DuckDB LBA — POST /api/lba-archive/query. Table et colonnes de filtre validées "
+                         "contre le catalogue réel de la base (jamais de SQL brut). Pour tout domaine non "
+                         "couvert par les briques dédiées (shamir_commande_*, shamir_tournee_*, "
+                         "shamir_livraison_directe_*)."),
+        "inputSchema": {"type": "object", "required": ["table"], "properties": {
+            "table": {"type": "string", "description": "nom exact, ex: PrismaGestionCo_tiers"},
+            "filters": {"type": "object", "description": "colonne -> valeur (égalité stricte)"},
+            "limit": {"type": "integer", "description": "défaut 50, max 500"},
+            "order_by": {"type": "string", "description": "nom de colonne pour ORDER BY"}}},
+    },
 ]
 
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -272,6 +292,12 @@ def _exec(tool: str, args: dict):
         return _post(f"/api/ventes/{_req(args, 'id')}/confirmer", {})
     if tool == "shamir_vente_traiter":
         return _post(f"/api/ventes/{_req(args, 'id')}/traiter", {})
+    if tool == "shamir_lba_archive_list_tables":
+        return _get("/api/lba-archive/tables", {})
+    if tool == "shamir_lba_archive_query":
+        return _post("/api/lba-archive/query", {
+            "table": _req(args, "table"), "filters": args.get("filters"),
+            "limit": args.get("limit", 50), "order_by": args.get("order_by")})
     raise ShamirCliError(f"tool inconnu (pas dispatché): {tool!r}")
 
 

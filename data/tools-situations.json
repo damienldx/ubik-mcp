@@ -1351,6 +1351,14 @@
     "shamir_vente_traiter": {
       "situation": "Traiter une vente confirmee (genere expedition + facture brouillon) -- SEULEMENT sur confirmation utilisateur",
       "cli": "shamir shamir_vente_traiter --args '{\"id\":123}'"
+    },
+    "shamir_lba_archive_list_tables": {
+      "situation": "Decouvrir les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA (archive/base de test, donnee non migree Tryton)",
+      "cli": "shamir shamir_lba_archive_list_tables --args '{}'"
+    },
+    "shamir_lba_archive_query": {
+      "situation": "Interroger en lecture seule une table PrismaGestionCo_* non couverte par les briques dediees (commande/tournee/livraison)",
+      "cli": "shamir shamir_lba_archive_query --args '{\"table\":\"PrismaGestionCo_tiers\",\"limit\":3}'"
     }
   }
 }
