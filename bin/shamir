@@ -121,7 +121,7 @@ TOOLS = [
         "description": ("Recherche un article (product.template Tryton) par désignation ou code — "
                          "GET /api/articles. Casse-insensible, substring. Code stable PRISMA-ART-<id> = "
                          "provenance LBA/PrismaSoft (client test, 832 articles importés). Retourne aussi "
-                         "category (famille comptable PCG), uom, cost_price, list_price, salable."),
+                         "category (famille comptable PCG), uom, cost_price, list_price, salable, quantity (stock reel en Storage Zone)."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
             "q": {"type": "string", "description": "terme de recherche (désignation ou code)"},
             "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
