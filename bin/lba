@@ -2368,6 +2368,29 @@ TOOLS = [
             "quantite": {"type": "number", "description": "défaut 1.0"}}},
     },
     {
+        "name": "lba_client_horaire_appel",
+        "description": ("Lecture pure — jours/heures d'appel télévente + jour de livraison "
+                         "associé pour ce client (0 à N lignes, un client peut avoir plusieurs "
+                         "jours d'appel) — GET /api/bacchus/referentiel/horaire-appel/{code_client}."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"}}},
+    },
+    {
+        "name": "lba_client_horaire_appel_affecter",
+        "description": ("[ÉCRITURE] Ajoute (ou met à jour) un jour d'appel télévente pour ce "
+                         "client — POST /api/bacchus/referentiel/horaire-appel/{code_client}. "
+                         "UPSERT sur (client, jour) — un client peut avoir plusieurs jours "
+                         "d'appel, appeler une fois par jour à ajouter. jour/jour_livraison = un "
+                         "des 7 jours réels (français capitalisé, ex 'Lundi'), jamais "
+                         "deviné/abrégé. heure_appel au format HH:MM. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client", "jour", "heure_appel"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "jour": {"type": "string", "description": "Lundi/Mardi/Mercredi/Jeudi/Vendredi/Samedi/Dimanche"},
+            "heure_appel": {"type": "string", "description": "format HH:MM"},
+            "jour_livraison": {"type": "string", "description": "Lundi/Mardi/Mercredi/Jeudi/Vendredi/Samedi/Dimanche — optionnel"}}},
+    },
+    {
         "name": "lba_calendar_accepter",
         "description": ("[ÉCRITURE] Accepte une invitation calendrier — POST /api/bacchus/calendar/{event_id}/accepter. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel, jamais de réponse automatique."),
@@ -3894,6 +3917,17 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code_article = _req(args, "code_article")
         payload = {"code_article": code_article, "quantite": args.get("quantite", 1.0)}
         return _post(f"/api/bacchus/referentiel/articles-commande/{_seg(code_client)}", payload, headers)
+    if tool == "lba_client_horaire_appel":
+        code_client = _req(args, "code_client")
+        return _get(f"/api/bacchus/referentiel/horaire-appel/{_seg(code_client)}", {}, headers)
+    if tool == "lba_client_horaire_appel_affecter":
+        code_client = _req(args, "code_client")
+        payload = {k: v for k, v in {
+            "jour": _req(args, "jour"),
+            "heure_appel": _req(args, "heure_appel"),
+            "jour_livraison": args.get("jour_livraison"),
+        }.items() if v is not None}
+        return _post(f"/api/bacchus/referentiel/horaire-appel/{_seg(code_client)}", payload, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",

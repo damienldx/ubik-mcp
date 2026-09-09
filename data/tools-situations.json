@@ -1709,6 +1709,16 @@
       "situation": "Utilisateur veut qu'un article soit automatiquement ajoute a chaque commande future d'un client — ECRITURE",
       "cli": "lba lba_client_article_commande_ajouter --args '{\"code_client\":\"<code>\",\"code_article\":\"FG\",\"quantite\":1}'",
       "note": "FRAIS DE GESTION (code FG) qte 1 = convention systematique a la creation d'un compte, sauf indication contraire. Upsert (met a jour la quantite si l'article est deja lie, ne duplique jamais). Ne jamais deviner code_article -- le resoudre via lba_articles_liste d'abord."
+    },
+    "lba_client_horaire_appel": {
+      "situation": "Utilisateur veut voir les jours/heures d'appel televente et le jour de livraison associe d'un client",
+      "cli": "lba lba_client_horaire_appel --args '{\"code_client\":\"<code>\"}'",
+      "note": "0 a N lignes -- un client peut avoir plusieurs jours d'appel."
+    },
+    "lba_client_horaire_appel_affecter": {
+      "situation": "Utilisateur veut ajouter/modifier un jour d'appel televente (jour+heure+jour de livraison) pour un client — ECRITURE",
+      "cli": "lba lba_client_horaire_appel_affecter --args '{\"code_client\":\"<code>\",\"jour\":\"Lundi\",\"heure_appel\":\"10:30\",\"jour_livraison\":\"Mardi\"}'",
+      "note": "Upsert sur (client, jour) -- appeler une fois par jour d'appel a ajouter. jour/jour_livraison = un des 7 jours reels francais capitalises, jamais devine. heure_appel format HH:MM."
     }
   }
 }
