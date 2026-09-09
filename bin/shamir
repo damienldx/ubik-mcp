@@ -183,6 +183,45 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
     },
     {
+        "name": "shamir_litige_referentiel_motifs",
+        "description": ("Référentiel des motifs de litige (origine/demande/retour) — "
+                         "GET /api/litiges/referentiel-motifs. Proxy LIVE prisma-api, pas DuckDB."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "shamir_litige_client",
+        "description": ("Litiges LIVE d'un client (avec contexte article/pièce) — "
+                         "GET /api/clients/{code}/litiges. Proxy LIVE prisma-api : aucune table "
+                         "Litiges dans le snapshot DuckDB, contrairement à commande_*/tournee_*."),
+        "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
+            "client_code": {"type": "string", "description": "code PRISMA-<id>"}}},
+    },
+    {
+        "name": "shamir_litige_simuler",
+        "description": ("Résout une pièce de vente + un article AVANT d'ouvrir un litige — "
+                         "GET /api/litiges/simuler. Lecture pure, à appeler avant "
+                         "shamir_litige_creer pour obtenir idClientCommandeLigne/idCommande."),
+        "inputSchema": {"type": "object", "required": ["numero_piece", "code_article"], "properties": {
+            "numero_piece": {"type": "string"}, "code_article": {"type": "string"},
+            "type_piece": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_litige_creer",
+        "description": ("Ouvre un litige sur une ligne DÉJÀ résolue par shamir_litige_simuler — "
+                         "POST /api/litiges. ÉCRITURE — confirmation utilisateur explicite requise. "
+                         "id_motif_litige vient de shamir_litige_referentiel_motifs."),
+        "inputSchema": {"type": "object",
+            "required": ["id_client_commande_ligne", "id_commande", "id_motif_litige"],
+            "properties": {
+                "id_client_commande_ligne": {"type": "integer"},
+                "id_commande": {"type": "integer"},
+                "id_motif_litige": {"type": "integer"},
+                "quantite_litige": {"type": "number"},
+                "commentaire": {"type": "string"},
+                "demande_traitement_id_motif": {"type": "integer"},
+                "origine_demande": {"type": "string"}}},
+    },
+    {
         "name": "shamir_crm_evenements_recherche",
         "description": ("RDV/evenements CRM commerciaux (negociations, prises de commande, "
                          "tournees) — GET /api/crm/evenements. Lecture seule DuckDB PrismaSoft."),
@@ -376,6 +415,22 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_livraison_directe_recherche":
         return _get("/api/livraisons-directes", {
             "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    if tool == "shamir_litige_referentiel_motifs":
+        return _get("/api/litiges/referentiel-motifs", {})
+    if tool == "shamir_litige_client":
+        return _get(f"/api/clients/{_req(args, 'client_code')}/litiges", {})
+    if tool == "shamir_litige_simuler":
+        return _get("/api/litiges/simuler", {
+            "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
+            "type_piece": args.get("type_piece")})
+    if tool == "shamir_litige_creer":
+        return _post("/api/litiges", {
+            "id_client_commande_ligne": _req(args, "id_client_commande_ligne"),
+            "id_commande": _req(args, "id_commande"),
+            "id_motif_litige": _req(args, "id_motif_litige"),
+            "quantite_litige": args.get("quantite_litige"), "commentaire": args.get("commentaire"),
+            "demande_traitement_id_motif": args.get("demande_traitement_id_motif"),
+            "origine_demande": args.get("origine_demande")})
     if tool == "shamir_crm_evenements_recherche":
         return _get("/api/crm/evenements", {
             "client_code": args.get("client_code"), "date_from": args.get("date_from"),

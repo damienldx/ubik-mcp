@@ -1368,6 +1368,22 @@
       "situation": "Contacts commerciaux d un client, ou recherche par nom",
       "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
+    "shamir_litige_referentiel_motifs": {
+      "situation": "Referentiel des motifs de litige (origine/demande/retour), proxy live prisma-api",
+      "cli": "shamir shamir_litige_referentiel_motifs --args '{}'"
+    },
+    "shamir_litige_client": {
+      "situation": "Litiges LIVE d un client (proxy prisma-api, pas DuckDB)",
+      "cli": "shamir shamir_litige_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_litige_simuler": {
+      "situation": "Resoudre une piece de vente + article AVANT d ouvrir un litige",
+      "cli": "shamir shamir_litige_simuler --args '{\"numero_piece\":\"...\",\"code_article\":\"...\"}'"
+    },
+    "shamir_litige_creer": {
+      "situation": "Ouvrir un litige sur une ligne deja resolue -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_litige_creer --args '{\"id_client_commande_ligne\":123,\"id_commande\":456,\"id_motif_litige\":1}'"
+    },
     "shamir_lba_archive_list_tables": {
       "situation": "Decouvrir les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA (archive/base de test, donnee non migree Tryton)",
       "cli": "shamir shamir_lba_archive_list_tables --args '{}'"
