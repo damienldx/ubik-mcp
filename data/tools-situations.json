@@ -1479,6 +1479,126 @@
     "shamir_client_extrait_compte": {
       "situation": "Sortir l'extrait de compte / grand livre d'un client (debit/credit, lettrage, solde) -- perimetre 2026",
       "cli": "shamir shamir_client_extrait_compte --args '{\"party_code\":\"PRISMA-<id>\"}'"
+    },
+    "lba_articles_liste": {
+      "situation": "Utilisateur veut le catalogue articles BRUT (pas scopé aux acheteurs de l'année) filtrable famille/sous-famille/isActif",
+      "cli": "lba lba_articles_liste --args '{\"famille\":\"...\",\"is_actif\":true}'",
+      "note": "isActif est le flag RÉEL PrismaSoft (colonne a.isActif), PAS une déduction par les ventes (contrairement à lba_rentabilite_produits). Aucune exclusion de famille imposée par défaut (DIVERS/TAXE PARAFISCALE/CONSIGNE-DECONSIGNE inclus)."
+    },
+    "lba_client_contacts": {
+      "situation": "Utilisateur veut les contacts d'un client (onglet CRM > Contacts Prisma) — nom, fonction, téléphones, emails",
+      "cli": "lba lba_client_contacts --args '{\"code\":\"<code client>\"}'",
+      "note": "Ces contacts sont OBLIGATOIRES pour créer une visite CRM_Rdv côté Prisma (idContact). Lecture LIVE (SQL Server direct, pas DuckDB)."
+    },
+    "lba_clients_filtre": {
+      "situation": "Utilisateur veut lister/compter des clients (TOUTE la base, pas juste les acheteurs de l'année) par isActif × famille/sous-famille × tarif nommé",
+      "cli": "lba lba_clients_filtre --args '{\"is_actif\":true,\"famille\":\"CHR\",\"tarif_libelle\":\"ESSENTIELLE\"}'",
+      "note": "Préférer tiers_id (identifiant fiable) à code — code n'est PAS toujours unique. Répond en une requête à 'combien de clients isActif, famille X, tarif Y'."
+    },
+    "lba_clients_par_ville": {
+      "situation": "Utilisateur cherche des clients par ville/commune (pas par nom de client)",
+      "cli": "lba lba_clients_par_ville --args '{\"ville\":\"<ville, min 2 caractères>\"}'",
+      "note": "Ville en LIKE (ex: 'Montreuil' matche aussi 'MONTREUIL-SOUS-BOIS'). is_actif=true par défaut. Aucun autre tool ne filtre par adresse."
+    },
+    "lba_dropcontact_credits": {
+      "situation": "Avant un lot d'enrichissement Dropcontact — vérifier le solde de crédits restant sur l'abonnement",
+      "cli": "lba lba_dropcontact_credits --args '{}'",
+      "note": "Aucun endpoint dédié Dropcontact — repose sur un POST d'un contact vide qui NE CONSOMME AUCUN CRÉDIT. Appeler AVANT lba_dropcontact_enrichir pour ne pas soumettre un lot trop grand."
+    },
+    "lba_dropcontact_enrichir": {
+      "situation": "Utilisateur veut retrouver l'email pro vérifié de dirigeants sourcés (typiquement via lba_recherche_entreprises) — ÉCRITURE",
+      "cli": "lba lba_dropcontact_enrichir --args '{\"contacts\":[{\"first_name\":\"...\",\"last_name\":\"...\",\"company\":\"...\"}]}'",
+      "note": "Chaque contact doit fournir au moins prénom+nom+société, un LinkedIn, ou un email — ne JAMAIS deviner un champ manquant. Renvoie soit le résultat direct, soit un requestId à repasser à lba_dropcontact_resultat."
+    },
+    "lba_dropcontact_resultat": {
+      "situation": "Récupérer le résultat d'un enrichissement Dropcontact déjà lancé (requestId en status pending)",
+      "cli": "lba lba_dropcontact_resultat --args '{\"request_id\":\"<requestId de lba_dropcontact_enrichir>\"}'",
+      "note": "{status:pending} = pas encore prêt, état normal, pas une erreur. {status:done, resultats:[...]} sinon."
+    },
+    "lba_kpis_ventes_full": {
+      "situation": "Utilisateur veut les KPI ventes N/N-1 (CA HT, marge, taux de marque, panier moyen) — sémantique CRM Client",
+      "cli": "lba lba_kpis_ventes_full --args '{\"date_from\":\"YYYY-MM-DD\",\"date_to\":\"YYYY-MM-DD\"}'",
+      "note": "⚠️ Sémantique CRM Client (attribution dateFacture), PAS la sémantique TDC (dateBL/dateFacture COALESCE, périmètre CHR+3ème marché) — cf lba_tdc_kpis pour ça. Ne jamais comparer les deux comme s'ils mesuraient la même chose (écarts de plusieurs milliers d'euros mesurés)."
+    },
+    "lba_mail_dossiers_lister": {
+      "situation": "Utilisateur nomme un dossier mail précis (\"dans mon dossier Fournisseurs\") — lister les dossiers avant de chercher dedans",
+      "cli": "lba lba_mail_dossiers_lister --args '{}'",
+      "note": "Liste tous les dossiers (boîte principale + sous-dossiers, jusqu'à 8 niveaux) avec leur chemin complet. Appeler AVANT lba_mail_rechercher — ne jamais deviner un dossier_id depuis son nom seul."
+    },
+    "lba_mail_piece_jointe_telecharger": {
+      "situation": "Utilisateur veut que Bacchus traite/voie une pièce jointe d'un mail — ÉCRITURE (locale uniquement, rien envoyé sur Microsoft)",
+      "cli": "lba lba_mail_piece_jointe_telecharger --args '{\"message_id\":\"...\",\"attachment_id\":\"...\"}'",
+      "note": "attachment_id vient de lba_mail_pieces_jointes_lister. Le `path` retourné se lit ensuite avec le tool `Read` natif (vision), ou s'enchaîne sur lba_facture_lire/lba_facture_piece_jointe_attacher pour une facture reçue par mail."
+    },
+    "lba_mail_pieces_jointes_lister": {
+      "situation": "Utilisateur veut savoir quelles pièces jointes contient un mail avant de les traiter",
+      "cli": "lba lba_mail_pieces_jointes_lister --args '{\"message_id\":\"...\"}'",
+      "note": "Lecture pure (nom/type/taille), sans télécharger. Seul moyen de connaître l'attachment_id nécessaire à lba_mail_piece_jointe_telecharger."
+    },
+    "lba_mail_rechercher": {
+      "situation": "Utilisateur nomme un expéditeur/objet/dossier précis plutôt que 'les derniers mails'",
+      "cli": "lba lba_mail_rechercher --args '{\"q\":\"<mot-clé>\",\"dossier_id\":\"<optionnel, cf lba_mail_dossiers_lister>\"}'",
+      "note": "Complète lba_mail_liste (qui ne fait que les N derniers messages de la boîte principale). Au moins un de q ou dossier_id requis."
+    },
+    "lba_piece_lire": {
+      "situation": "Utilisateur veut le détail d'une pièce de vente (header, lignes, fiche client, audit) par son numéro/id",
+      "cli": "lba lba_piece_lire --args '{\"piece_id\":<id entier>}'",
+      "note": "Lecture LIVE PRISMA. ⚠️ PIÈGE : l'espace d'ID des pièces de vente et des factures fournisseur/achats peut coïncider par hasard — si rien de cohérent ne revient, essayer lba_achats_bl_lire_entete avant de conclure à une erreur de saisie."
+    },
+    "lba_planning_appel": {
+      "situation": "Utilisateur veut le planning d'appel ADV du jour (clients à appeler, tournée, état Traité/À appeler)",
+      "cli": "lba lba_planning_appel --args '{\"date\":\"YYYY-MM-DD\"}'",
+      "note": "Toutes tournées confondues. Distinct de lba_planning_current (planning terrain déjà booké, pas les appels ADV)."
+    },
+    "lba_recherche_entreprises": {
+      "situation": "Utilisateur veut sourcer de nouvelles entreprises à prospecter par secteur (NAF)/zone/effectif/rayon",
+      "cli": "lba lba_recherche_entreprises --args '{\"code_naf\":\"...\",\"ville\":\"...\",\"rayon_km\":20}'",
+      "note": "API publique gratuite recherche-entreprises.api.gouv.fr (Phase 0 coût zéro). Chaque résultat inclut déjà le(s) dirigeant(s) — suffisant pour alimenter lba_prospect_creer sans Dropcontact si l'email n'est pas requis. rayon_km sans ville ni code_postal est ignoré silencieusement (log warning backend, pas une erreur)."
+    },
+    "lba_recouvrement_ecrire": {
+      "situation": "Utilisateur veut ajouter un commentaire de recouvrement sur un client — ÉCRITURE",
+      "cli": "lba lba_recouvrement_ecrire --args '{\"tiers_id\":<id entier>,\"commentaire\":\"...\"}'",
+      "note": "Signature automatique « — Bacchus, le … » ajoutée côté backend. Seul tool WRITE du groupe recouvrement — toujours vérifier tiers_id via lba_recherche_client avant."
+    },
+    "lba_recouvrement_lire": {
+      "situation": "Utilisateur veut consulter le suivi recouvrement d'un client (solde, encours par tranche, historique commentaires)",
+      "cli": "lba lba_recouvrement_lire --args '{\"tiers_id\":<id entier>}'",
+      "note": "Bloc « Commentaire Recouvrement / Précédent Commentaire / Action à faire » du panel Ventes. Prend tiers_id (pas le code client) — le récupérer via lba_recherche_client si besoin."
+    },
+    "lba_relance_blocage_eligibles": {
+      "situation": "Utilisateur veut les clients à relancer/bloquer pour retard de paiement, avec le nombre de jours de retard",
+      "cli": "lba lba_relance_blocage_eligibles --args '{}'",
+      "note": "Retourne [{id_tiers, jours_retard}] pour tout client actif du portefeuille. Le paramètre kind est compat contrat uniquement, sans effet réel sur le résultat."
+    },
+    "lba_teams_piece_jointe_telecharger": {
+      "situation": "Utilisateur veut que Bacchus voie une image postée inline dans un message Teams déjà lu",
+      "cli": "lba lba_teams_piece_jointe_telecharger --args '{\"message_id\":\"...\",\"hosted_content_id\":\"...\"}'",
+      "note": "hosted_content_id vient de hostedContentIds (lba_teams_lire_messages/lba_teams_lire_canal_messages) — non vide requis. SCOPE LIMITÉ aux images inline, pas les vrais fichiers joints (SharePoint/OneDrive, hors scope, consentement admin non accordé). Fournir chat_id OU team_id+channel_id, jamais les deux. Le `path` retourné se lit avec le tool `Read` natif."
+    },
+    "lba_ventes_pieces": {
+      "situation": "Utilisateur veut la liste de ses pièces de vente en cours (devis/commande/préparation/livraison/facture/avoir) avec KPI agrégés",
+      "cli": "lba lba_ventes_pieces --args '{\"date_from\":\"YYYY-MM-DD\",\"date_to\":\"YYYY-MM-DD\"}'",
+      "note": "Retourne {total, items, kpis} (CA, marge, %panier≥10 articles/≥500€, évolution N-1). type en CSV (Devis,Commande,Preparation,Livraison,Facture,Avoir) filtre les types, vide = tous."
+    },
+    "lba_whatsapp_envoyer": {
+      "situation": "Utilisateur veut envoyer un message WhatsApp sortant — ÉCRITURE, confirmation destinataire+contenu obligatoire",
+      "cli": "lba lba_whatsapp_envoyer --args '{\"chatId\":\"<JID, ex 33612345678@s.whatsapp.net ou groupe ...@g.us>\",\"message\":\"...\"}'",
+      "note": "Mirroir exact de lba_mail_envoyer — même gate serveur VERT/ORANGE/ROUGE (bacchus_direction_autonomie.py) : VERT envoie immédiatement, ORANGE persiste sans envoyer (validation clic front UNIQUEMENT, aucun tool CLI de confirmation), ROUGE refuse (403). Distinct du tool MCP whatsapp_send_message (bridge natif, pas de gate)."
+    },
+    "lba_whatsapp_liste": {
+      "situation": "Utilisateur veut voir ses derniers messages WhatsApp reçus, toutes conversations confondues",
+      "cli": "lba lba_whatsapp_liste --args '{}'",
+      "note": "Flux global (feed), pas une conversation ciblée — cf lba_whatsapp_lire pour ça. Bridge Baileys per-tenant, aucun Depends(current_user) côté backend."
+    },
+    "lba_whatsapp_lire": {
+      "situation": "Utilisateur veut les derniers messages d'UNE conversation WhatsApp précise",
+      "cli": "lba lba_whatsapp_lire --args '{\"chat_id\":\"<JID, cf lba_whatsapp_liste>\"}'",
+      "note": "chat_id inconnu → liste vide, pas une erreur. chat_id se découvre via lba_whatsapp_liste."
+    },
+    "lba_whatsapp_piece_jointe_telecharger": {
+      "situation": "Utilisateur veut que Bacchus voie un média (image/vidéo/audio/document) d'un message WhatsApp déjà lu",
+      "cli": "lba lba_whatsapp_piece_jointe_telecharger --args '{\"message_id\":\"<messageId de lba_whatsapp_liste/lire>\"}'",
+      "note": "hasMedia:true requis sur le message d'origine. Enregistre en fichier local, `path` à lire avec le tool `Read` natif (vision). DISTINCT du tool MCP whatsapp_download_media qui renvoie du base64 dans le texte — préférer CE tool quand le but est que Bacchus voie l'image, préférer l'autre pour manipuler les octets. 404 si message introuvable ou sans média."
     }
   }
 }
