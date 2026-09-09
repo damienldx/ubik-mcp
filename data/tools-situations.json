@@ -1091,9 +1091,9 @@
       "note": "Au moins un champ requis. restauration est un booléen simple, PAS de typologie à reconstruire."
     },
     "lba_referentiel_commercial_divers_affecter": {
-      "situation": "Utilisateur veut poser l'autorisation promo et/ou un commentaire télévente sur un client — ÉCRITURE, confirmation obligatoire",
-      "cli": "lba lba_referentiel_commercial_divers_affecter --args '{\"code_client\":\"...\",\"is_autorise_promo\":true}'",
-      "note": "Au moins un champ requis. commentaire_televente = champ unique sur la fiche, distinct de l'historique d'appels ADV (lba_client_fiche_adv)."
+      "situation": "Utilisateur veut poser isAutorisePromo, un commentaire (televente/commande/BL/BP/facture) ou l'alerte commentaire commercial d'un client — ECRITURE",
+      "cli": "lba lba_referentiel_commercial_divers_affecter --args '{\"code_client\":\"<code>\",\"is_autorise_promo\":true}'",
+      "note": "Au moins un champ requis. commentaire_bl (tiers_client, recurrent) DISTINCT du commentaireBL par piece d'une commande deja creee (autre table, autre tool). 4 commentaires + alerte ajoutes 2026-09-09 (bloc Clients, brief Damien)."
     },
     "lba_memoire_save": {
       "situation": "Utilisateur partage un fait/décision/préférence qui doit survivre au-delà de cette conversation — ÉCRITURE",
@@ -1699,6 +1699,16 @@
       "situation": "Utilisateur veut voir quels clients sont deja rattaches a une centrale donnee",
       "cli": "lba lba_referentiel_centrale_enfants --args '{\"code_centrale\":\"<code maitre>\"}'",
       "note": "Liste vide si aucun enfant, jamais une erreur."
+    },
+    "lba_client_articles_commande": {
+      "situation": "Utilisateur veut voir les articles automatiquement ajoutes a chaque commande d'un client (ex. FRAIS DE GESTION)",
+      "cli": "lba lba_client_articles_commande --args '{\"code_client\":\"<code>\"}'",
+      "note": "Convention reelle verifiee sur 100% des clients echantillonnes : FRAIS DE GESTION (code FG) qte 1 systematique. Appeler avant d'ajouter pour eviter les doublons (l'ecriture est de toute facon un upsert)."
+    },
+    "lba_client_article_commande_ajouter": {
+      "situation": "Utilisateur veut qu'un article soit automatiquement ajoute a chaque commande future d'un client — ECRITURE",
+      "cli": "lba lba_client_article_commande_ajouter --args '{\"code_client\":\"<code>\",\"code_article\":\"FG\",\"quantite\":1}'",
+      "note": "FRAIS DE GESTION (code FG) qte 1 = convention systematique a la creation d'un compte, sauf indication contraire. Upsert (met a jour la quantite si l'article est deja lie, ne duplique jamais). Ne jamais deviner code_article -- le resoudre via lba_articles_liste d'abord."
     }
   }
 }

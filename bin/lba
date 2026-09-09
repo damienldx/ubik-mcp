@@ -2325,16 +2325,47 @@ TOOLS = [
     },
     {
         "name": "lba_referentiel_commercial_divers_affecter",
-        "description": ("[ÉCRITURE] Pose isAutorisePromo et/ou commentaireTelevente d'un "
-                         "client PRISMA existant — PATCH /api/bacchus/referentiel/"
-                         "commercial-divers/{code_client}. commentaire_televente est une note "
-                         "libre distincte de l'historique d'appels ADV (lba_client_fiche_adv) — "
-                         "un champ unique sur la fiche, pas un historique. Au moins un champ "
-                         "requis. Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "description": ("[ÉCRITURE] Pose isAutorisePromo, commentaires (télévente/commande/BL/BP/"
+                         "facture) et/ou alerte commentaire commercial d'un client PRISMA existant "
+                         "— PATCH /api/bacchus/referentiel/commercial-divers/{code_client}. "
+                         "commentaire_televente est une note libre distincte de l'historique "
+                         "d'appels ADV (lba_client_fiche_adv) — un champ unique sur la fiche, pas "
+                         "un historique. commentaire_bl (tiers_client, récurrent) est DISTINCT du "
+                         "commentaireBL par PIÈCE d'une commande déjà créée (autre table). Au "
+                         "moins un champ requis. Confirmation utilisateur OBLIGATOIRE avant appel."),
         "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
             "code_client": {"type": "string", "description": "code client PRISMA"},
             "is_autorise_promo": {"type": "boolean"},
-            "commentaire_televente": {"type": "string", "description": "note libre distincte de l'historique d'appels ADV"}}},
+            "commentaire_televente": {"type": "string", "description": "note libre distincte de l'historique d'appels ADV"},
+            "commentaire_commande": {"type": "string", "description": "texte libre, affiché en pied de chaque commande générée pour ce client"},
+            "commentaire_bl": {"type": "string", "description": "texte libre, tiers_client (récurrent) — distinct du commentaire par pièce"},
+            "commentaire_bp": {"type": "string", "description": "texte libre, affiché sur chaque bon de préparation"},
+            "commentaire_facture": {"type": "string", "description": "texte libre, affiché sur chaque facture"},
+            "is_alerte_commentaire_commerciale": {"type": "boolean", "description": "active un signal visuel natif PrismaSoft"}}},
+    },
+    {
+        "name": "lba_client_articles_commande",
+        "description": ("Lecture pure — articles automatiquement ajoutés à chaque commande de "
+                         "ce client (ex. FRAIS DE GESTION qté 1, convention réelle sur 100% des "
+                         "clients échantillonnés) — GET /api/bacchus/referentiel/articles-commande/"
+                         "{code_client}."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"}}},
+    },
+    {
+        "name": "lba_client_article_commande_ajouter",
+        "description": ("[ÉCRITURE] Ajoute (ou met à jour la quantité si déjà présent) un "
+                         "article automatiquement inclus à chaque commande de ce client — POST "
+                         "/api/bacchus/referentiel/articles-commande/{code_client}. FRAIS DE "
+                         "GESTION (code 'FG') qté 1 est la convention systématique observée sur "
+                         "100% des clients — l'ajouter par défaut à la création d'un compte, sauf "
+                         "indication contraire. Ne JAMAIS deviner code_article — le résoudre "
+                         "d'abord (ex. lba_articles_liste). Confirmation utilisateur OBLIGATOIRE "
+                         "avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client", "code_article"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA"},
+            "code_article": {"type": "string", "description": "code article PRISMA, ex 'FG'"},
+            "quantite": {"type": "number", "description": "défaut 1.0"}}},
     },
     {
         "name": "lba_calendar_accepter",
@@ -3848,8 +3879,21 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         payload = {k: v for k, v in {
             "is_autorise_promo": args.get("is_autorise_promo"),
             "commentaire_televente": args.get("commentaire_televente"),
+            "commentaire_commande": args.get("commentaire_commande"),
+            "commentaire_bl": args.get("commentaire_bl"),
+            "commentaire_bp": args.get("commentaire_bp"),
+            "commentaire_facture": args.get("commentaire_facture"),
+            "is_alerte_commentaire_commerciale": args.get("is_alerte_commentaire_commerciale"),
         }.items() if v is not None}
         return _patch(f"/api/bacchus/referentiel/commercial-divers/{_seg(code_client)}", payload, headers)
+    if tool == "lba_client_articles_commande":
+        code_client = _req(args, "code_client")
+        return _get(f"/api/bacchus/referentiel/articles-commande/{_seg(code_client)}", {}, headers)
+    if tool == "lba_client_article_commande_ajouter":
+        code_client = _req(args, "code_client")
+        code_article = _req(args, "code_article")
+        payload = {"code_article": code_article, "quantite": args.get("quantite", 1.0)}
+        return _post(f"/api/bacchus/referentiel/articles-commande/{_seg(code_client)}", payload, headers)
     if tool in ("lba_calendar_accepter", "lba_calendar_refuser", "lba_calendar_accepter_provisoire"):
         event_id = _req(args, "event_id")
         action = {"lba_calendar_accepter": "accepter", "lba_calendar_refuser": "refuser",
