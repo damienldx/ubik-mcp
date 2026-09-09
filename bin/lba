@@ -2140,6 +2140,7 @@ TOOLS = [
             "code_client": {"type": "string", "description": "code client PRISMA"},
             "date_creation_societe": {"type": "string", "description": "YYYY-MM-DD"},
             "date_creation_chez_lba": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_cloture_chez_lba": {"type": "string", "description": "YYYY-MM-DD — fin de la relation client (PersoField_dateClotureChezLBA, pendant symétrique de date_creation_chez_lba). AJOUTÉ 2026-09-09 : déjà écrivable côté backend/route, oublié du schema CLI jusqu'ici."},
             "code_ape": {"type": "string"},
             "capital_social": {"type": "number"},
             "classification": {"type": "string", "description": "texte libre, ex 'A'/'B'/'C'"},
@@ -3740,6 +3741,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         payload = {k: v for k, v in {
             "date_creation_societe": args.get("date_creation_societe"),
             "date_creation_chez_lba": args.get("date_creation_chez_lba"),
+            "date_cloture_chez_lba": args.get("date_cloture_chez_lba"),
             "code_ape": args.get("code_ape"),
             "capital_social": args.get("capital_social"),
             "classification": args.get("classification"),

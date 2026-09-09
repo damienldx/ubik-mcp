@@ -1061,9 +1061,9 @@
       "note": "3 petites listes fixes (codes PersoField_Ressources). Les autres champs (dates, code APE, capital, classification) sont du texte/numérique libre, pas de lookup nécessaire."
     },
     "lba_referentiel_infos_entreprise_affecter": {
-      "situation": "Utilisateur veut compléter la fiche entreprise d'un client (date création société/LBA, code APE, capital, classification, statut juridique, homme clé, indicateur financier) — ÉCRITURE, confirmation obligatoire",
+      "situation": "Utilisateur veut compléter la fiche entreprise d'un client (date création société/LBA, date de clôture chez LBA, code APE, capital, classification, statut juridique, homme clé, indicateur financier) — ÉCRITURE, confirmation obligatoire",
       "cli": "lba lba_referentiel_infos_entreprise_affecter --args '{\"code_client\":\"...\",\"code_ape\":\"...\"}'",
-      "note": "Au moins un champ requis. id_statut_juridique/id_homme_cle/id_indicateur_financier résolus via lba_referentiel_infos_entreprise, jamais devinés."
+      "note": "Au moins un champ requis. id_statut_juridique/id_homme_cle/id_indicateur_financier resolus via lba_referentiel_infos_entreprise, jamais devines. date_cloture_chez_lba (2026-09-09, gap de schema CLI comble) = fin de la relation client, pendant symetrique de date_creation_chez_lba -- deja ecrivable cote backend/route depuis avant, juste absent du schema CLI jusqu'a cette session."
     },
     "lba_referentiel_representant_affecter": {
       "situation": "Utilisateur veut réaffecter le commercial (propriétaire du portefeuille) d'un client PRISMA — ÉCRITURE, confirmation obligatoire",
