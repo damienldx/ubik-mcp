@@ -1368,6 +1368,22 @@
       "situation": "Contacts commerciaux d un client, ou recherche par nom",
       "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
+    "shamir_document_liste": {
+      "situation": "Lister les documents joints d une ressource Shamir (party/vente/achat)",
+      "cli": "shamir shamir_document_liste --args '{\"modele\":\"party\",\"record_ref\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_document_upload": {
+      "situation": "Attacher un document -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_document_upload --args '{\"modele\":\"party\",\"record_ref\":\"PRISMA-<id>\",\"name\":\"...\",\"data_base64\":\"...\"}'"
+    },
+    "shamir_document_telecharger": {
+      "situation": "Telecharger un document (contenu base64 inclus)",
+      "cli": "shamir shamir_document_telecharger --args '{\"id\":123}'"
+    },
+    "shamir_document_supprimer": {
+      "situation": "Supprimer DEFINITIVEMENT un document -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_document_supprimer --args '{\"id\":123}'"
+    },
     "shamir_representants_liste": {
       "situation": "Liste des representants (commerciaux) LIVE",
       "cli": "shamir shamir_representants_liste --args '{}'"

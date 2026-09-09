@@ -102,6 +102,23 @@ def _patch(path: str, payload: dict, timeout: int = 30) -> str:
         raise ShamirCliError(f"PATCH {url} — injoignable ({e.reason})") from e
 
 
+def _delete(path: str, timeout: int = 30) -> str:
+    url = f"{BASE}{path}"
+    req = urllib.request.Request(url, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        body_txt = ""
+        try:
+            body_txt = e.read().decode(errors="replace")[:500]
+        except Exception:
+            pass
+        raise ShamirCliError(f"DELETE {url} — HTTP {e.code} {e.reason}" + (f": {body_txt}" if body_txt else "")) from e
+    except urllib.error.URLError as e:
+        raise ShamirCliError(f"DELETE {url} — injoignable ({e.reason})") from e
+
+
 def _req(args: dict, name: str):
     """Paramètre requis — erreur explicite plutôt qu'un KeyError opaque."""
     if name not in args or args[name] in (None, ""):
@@ -199,6 +216,36 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "client_code": {"type": "string"},
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_document_liste",
+        "description": ("Liste les documents joints (ir.attachment Tryton natif) d'une ressource "
+                         "Shamir — GET /api/documents. modele in {party, vente, achat} ; record_ref "
+                         "= code PRISMA-<id> pour party, id numérique Tryton pour vente/achat."),
+        "inputSchema": {"type": "object", "required": ["modele", "record_ref"], "properties": {
+            "modele": {"type": "string", "enum": ["party", "vente", "achat"]},
+            "record_ref": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_document_upload",
+        "description": ("Attache un document (fichier encodé base64) à une ressource Shamir — "
+                         "POST /api/documents. ÉCRITURE — confirmation utilisateur explicite requise."),
+        "inputSchema": {"type": "object",
+            "required": ["modele", "record_ref", "name", "data_base64"], "properties": {
+                "modele": {"type": "string", "enum": ["party", "vente", "achat"]},
+                "record_ref": {"type": "string"}, "name": {"type": "string"},
+                "data_base64": {"type": "string"}, "description": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_document_telecharger",
+        "description": "Télécharge un document (contenu base64 inclus) — GET /api/documents/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_document_supprimer",
+        "description": ("Supprime DÉFINITIVEMENT un document (pas de corbeille) — "
+                         "DELETE /api/documents/{id}. ÉCRITURE — confirmation utilisateur explicite requise."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
     {
         "name": "shamir_representants_liste",
@@ -534,6 +581,18 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_livraison_directe_recherche":
         return _get("/api/livraisons-directes", {
             "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    if tool == "shamir_document_liste":
+        return _get("/api/documents", {
+            "modele": _req(args, "modele"), "record_ref": _req(args, "record_ref")})
+    if tool == "shamir_document_upload":
+        return _post("/api/documents", {
+            "modele": _req(args, "modele"), "record_ref": _req(args, "record_ref"),
+            "name": _req(args, "name"), "data_base64": _req(args, "data_base64"),
+            "description": args.get("description")})
+    if tool == "shamir_document_telecharger":
+        return _get(f"/api/documents/{_req(args, 'id')}", {})
+    if tool == "shamir_document_supprimer":
+        return _delete(f"/api/documents/{_req(args, 'id')}")
     if tool == "shamir_representants_liste":
         return _get("/api/representants", {"active_only": args.get("active_only", True)})
     if tool == "shamir_representant_clients":
