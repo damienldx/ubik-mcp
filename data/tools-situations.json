@@ -1385,7 +1385,7 @@
       "cli": "shamir shamir_document_supprimer --args '{\"id\":123}'"
     },
     "shamir_representants_liste": {
-      "situation": "Liste des representants (commerciaux) LIVE",
+      "situation": "Liste des representants (commerciaux), Tryton natif",
       "cli": "shamir shamir_representants_liste --args '{}'"
     },
     "shamir_representant_clients": {
@@ -1409,7 +1409,7 @@
       "cli": "shamir shamir_representant_reaffecter --args '{\"client_code\":\"PRISMA-<id>\",\"id_personne_representant\":101}'"
     },
     "shamir_aide_marche_client": {
-      "situation": "Aides de marche LIVE d un client (remises fournisseur ponctuelles sur articles)",
+      "situation": "Aides de marche d un client (remises fournisseur ponctuelles sur articles), Tryton natif",
       "cli": "shamir shamir_aide_marche_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
     "shamir_aide_marche_simuler": {
@@ -1421,7 +1421,7 @@
       "cli": "shamir shamir_aide_marche_creer --args '{\"client_code\":\"PRISMA-<id>\",\"id_fournisseur\":1,\"id_article\":2}'"
     },
     "shamir_investissement_client": {
-      "situation": "Contrats d investissement materiel LIVE d un client (mise a disposition)",
+      "situation": "Contrats d investissement materiel d un client (mise a disposition), Tryton natif",
       "cli": "shamir shamir_investissement_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
     "shamir_investissement_simuler_article": {
@@ -1433,11 +1433,11 @@
       "cli": "shamir shamir_investissement_creer --args '{\"client_code\":\"PRISMA-<id>\",\"numero_contrat\":\"...\",\"lignes\":[]}'"
     },
     "shamir_litige_referentiel_motifs": {
-      "situation": "Referentiel des motifs de litige (origine/demande/retour), proxy live prisma-api",
+      "situation": "Referentiel des motifs de litige (origine/demande/retour), Tryton natif",
       "cli": "shamir shamir_litige_referentiel_motifs --args '{}'"
     },
     "shamir_litige_client": {
-      "situation": "Litiges LIVE d un client (proxy prisma-api, pas DuckDB)",
+      "situation": "Litiges d un client, Tryton natif",
       "cli": "shamir shamir_litige_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
     "shamir_litige_simuler": {

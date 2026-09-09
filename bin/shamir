@@ -249,8 +249,8 @@ TOOLS = [
     },
     {
         "name": "shamir_representants_liste",
-        "description": ("Liste des representants (commerciaux) LIVE — GET /api/representants. "
-                         "Proxy live prisma-api."),
+        "description": ("Liste des representants (commerciaux), Tryton natif (module "
+                         "shamir_extensions) — GET /api/representants."),
         "inputSchema": {"type": "object", "properties": {
             "active_only": {"type": "boolean", "description": "defaut true"}}},
     },
@@ -293,8 +293,8 @@ TOOLS = [
     },
     {
         "name": "shamir_aide_marche_client",
-        "description": ("Aides de marché LIVE d'un client (remises fournisseur ponctuelles sur "
-                         "articles) — GET /api/clients/{code}/aide-marche. Proxy live prisma-api."),
+        "description": ("Aides de marché d'un client (remises fournisseur ponctuelles sur "
+                         "articles), Tryton natif — GET /api/clients/{code}/aide-marche."),
         "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
             "client_code": {"type": "string", "description": "code PRISMA-<id>"}}},
     },
@@ -322,9 +322,8 @@ TOOLS = [
     },
     {
         "name": "shamir_investissement_client",
-        "description": ("Contrats d'investissement matériel LIVE d'un client (mise à disposition, "
-                         "engagement de volume) — GET /api/clients/{code}/investissements. "
-                         "Proxy live prisma-api."),
+        "description": ("Contrats d'investissement matériel d'un client (mise à disposition, "
+                         "engagement de volume), Tryton natif — GET /api/clients/{code}/investissements."),
         "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
             "client_code": {"type": "string"}}},
     },
@@ -350,15 +349,15 @@ TOOLS = [
     },
     {
         "name": "shamir_litige_referentiel_motifs",
-        "description": ("Référentiel des motifs de litige (origine/demande/retour) — "
-                         "GET /api/litiges/referentiel-motifs. Proxy LIVE prisma-api, pas DuckDB."),
+        "description": ("Référentiel des motifs de litige (origine/demande/retour), Tryton natif "
+                         "(28 motifs seedés) — GET /api/litiges/referentiel-motifs."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "shamir_litige_client",
-        "description": ("Litiges LIVE d'un client (avec contexte article/pièce) — "
-                         "GET /api/clients/{code}/litiges. Proxy LIVE prisma-api : aucune table "
-                         "Litiges dans le snapshot DuckDB, contrairement à commande_*/tournee_*."),
+        "description": ("Litiges d'un client (avec contexte article/pièce), Tryton natif "
+                         "(module shamir_extensions, backfillé depuis PrismaSoft le 2026-09-09) — "
+                         "GET /api/clients/{code}/litiges."),
         "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
             "client_code": {"type": "string", "description": "code PRISMA-<id>"}}},
     },
@@ -375,7 +374,9 @@ TOOLS = [
         "name": "shamir_litige_creer",
         "description": ("Ouvre un litige sur une ligne DÉJÀ résolue par shamir_litige_simuler — "
                          "POST /api/litiges. ÉCRITURE — confirmation utilisateur explicite requise. "
-                         "id_motif_litige vient de shamir_litige_referentiel_motifs."),
+                         "id_motif_litige vient de shamir_litige_referentiel_motifs. "
+                         "id_commande DOIT être un id réel de PrismaGestionCo_commande (historique) — "
+                         "sert à résoudre le client via le snapshot DuckDB, refus explicite sinon."),
         "inputSchema": {"type": "object",
             "required": ["id_client_commande_ligne", "id_commande", "id_motif_litige"],
             "properties": {
