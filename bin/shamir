@@ -206,10 +206,22 @@ TOOLS = [
                          "lba_snapshot.duckdb) — cf shamir_commande_recherche pour la recherche "
                          "ciblée sur un client, ce tool-ci répond à \"qu'est-ce qu'on a comme "
                          "pièces de vente sur telle période\" sans client précis en tête. Réponse "
-                         "{total, items} paginée (limit/offset). ⚠️ date_field DÉTERMINE sur quelle "
-                         "date porte date_from/date_to — le choisir selon l'intention réelle "
-                         "('livraison pour demain' = date_field=livraison, PAS le défaut creation, "
-                         "sinon résultat vide/faux alors que des pièces existent bien)."),
+                         "{total, items, kpis} paginée (limit/offset). ⚠️ date_field DÉTERMINE sur "
+                         "quelle date porte date_from/date_to (liste) — le choisir selon l'intention "
+                         "réelle ('livraison pour demain' = date_field=livraison, PAS le défaut "
+                         "creation). Chaque item = PARITÉ COMPLÈTE avec le panel VENTES LBA-DESKTOP "
+                         "(2026-09-09) : type, numero, statut/statut_code, date_creation/livraison/"
+                         "facture, code_client/raison_sociale/client_etablissement/ref_client, "
+                         "total_ttc, ht_hd (hors droits hors consigne), marge, taux_marque_pct, "
+                         "nb_articles, representant -- SEUL le bloc Commentaire Recouvrement de LBA "
+                         "est omis (hors scope Shamir V1), remplacé par party_code/encours/"
+                         "encours_echu (jointure Tryton compte 411, un seul batch pour toute la "
+                         "page) -- encours=null signifie 'client pas encore importé dans Tryton', "
+                         "PAS '0 encours vérifié' (0.0 explicite = vérifié, rien dû). `kpis` "
+                         "{total, pct_app, pct_sup500, nb_livraisons scopés par les MÊMES filtres "
+                         "que la liste ; ca_ht_hd/marge/taux_marque_pct DÉCOUPLÉS du filtre `types` "
+                         "-- toujours l'activité de livraison (facturé + livraison/préparation) sur "
+                         "[date_from, date_to], jamais la somme de ce qui est affiché à l'écran}."),
         "inputSchema": {"type": "object", "properties": {
             "date_from": {"type": "string", "description": "YYYY-MM-DD"},
             "date_to": {"type": "string", "description": "YYYY-MM-DD"},
