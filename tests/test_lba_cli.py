@@ -579,7 +579,10 @@ class TestCliSurface(unittest.TestCase):
         # (plan_1ed88719, mode batch multi-corrections create_avoir, backend
         # bacchus_avoir_tools.py déjà en prod, gap arsenal Bacchus signalé
         # par Ivan) = 228.
-        self.assertEqual(len(tools), 228)
+        # - 1 doublon lba_devis_envoyer supprimé (t_f24a440439, bug
+        # "schema != execution" — 2 définitions coexistaient dans TOOLS,
+        # la stale client_code/file_base64 a été retirée) = 227.
+        self.assertEqual(len(tools), 227)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
