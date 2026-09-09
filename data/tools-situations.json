@@ -1379,6 +1379,10 @@
     "shamir_achat_traiter": {
       "situation": "Creer et completer la reception d'un achat confirme (incremente le stock reel) -- SEULEMENT sur confirmation utilisateur",
       "cli": "shamir shamir_achat_traiter --args '{\"id\":123}'"
+    },
+    "shamir_client_extrait_compte": {
+      "situation": "Sortir l'extrait de compte / grand livre d'un client (debit/credit, lettrage, solde) -- perimetre 2026",
+      "cli": "shamir shamir_client_extrait_compte --args '{\"party_code\":\"PRISMA-<id>\"}'"
     }
   }
 }

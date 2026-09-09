@@ -262,6 +262,18 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
     {
+        "name": "shamir_client_extrait_compte",
+        "description": ("Extrait de compte / grand livre auxiliaire client (compte 411 Tryton) — "
+                         "GET /api/clients/{code}/extrait-compte. Liste debit/credit/etat de lettrage "
+                         "avec solde cumule, plus le solde courant global. Periode 2026 uniquement "
+                         "(historique 2016-2025 pas importe dans Tryton, cf shamir_lba_archive_query "
+                         "sur prismaCompta_ecritureLigne pour l'historique DuckDB)."),
+        "inputSchema": {"type": "object", "required": ["party_code"], "properties": {
+            "party_code": {"type": "string", "description": "code PRISMA-<id> du client"},
+            "date_from": {"type": "string", "description": "YYYY-MM-DD, optionnel"},
+            "date_to": {"type": "string", "description": "YYYY-MM-DD, optionnel"}}},
+    },
+    {
         "name": "shamir_lba_archive_list_tables",
         "description": ("Liste les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA "
                          "(archive/base de test, donnée non migrée dans Tryton) avec leur row_count — "
@@ -347,6 +359,9 @@ def _exec(tool: str, args: dict):
         return _post(f"/api/achats/{_req(args, 'id')}/confirmer", {})
     if tool == "shamir_achat_traiter":
         return _post(f"/api/achats/{_req(args, 'id')}/traiter", {})
+    if tool == "shamir_client_extrait_compte":
+        return _get(f"/api/clients/{_req(args, 'party_code')}/extrait-compte", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to")})
     if tool == "shamir_lba_archive_list_tables":
         return _get("/api/lba-archive/tables", {})
     if tool == "shamir_lba_archive_query":
