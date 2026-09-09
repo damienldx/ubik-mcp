@@ -354,6 +354,52 @@ class TestAvoirBatch(unittest.TestCase):
         self.assertEqual(cap.payload["agent_id"], "22fcf4a5-agent-1")
 
 
+class TestPieceVentePrixNegocie(unittest.TestCase):
+    """Mission 4/4 (t_fcef8eac92, plan_b3838858) — câblage bin/lba pour
+    lba_piece_vente_prix_negocie_simuler/creer, même gap potentiel que
+    TestAvoirBatch ci-dessus (backend bacchus_piece_vente_prix_negocie_tools.py
+    déjà en prod, doctrine câblage complet : ne pas oublier ce registre)."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    LIGNE_NEGOCIEE = {"code_article": "ART1", "quantite": 5, "prix_unitaire": 3.6667}
+    LIGNE_CATALOGUE = {"code_article": "ART2", "quantite": 2}
+
+    def test_simuler_path_et_lignes_passthrough(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_piece_vente_prix_negocie_simuler", {
+                "code_client": "2362", "lignes": [self.LIGNE_NEGOCIEE, self.LIGNE_CATALOGUE],
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/pieces-vente/prix-negocie/simuler")
+        self.assertEqual(cap.payload["code_client"], "2362")
+        self.assertEqual(cap.payload["lignes"], [self.LIGNE_NEGOCIEE, self.LIGNE_CATALOGUE])
+
+    def test_creer_transmet_ref_externe_confirm_et_agent_id(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_piece_vente_prix_negocie_creer", {
+                "code_client": "2362", "ref_externe": "PVN-MESNIL-1",
+                "lignes": [self.LIGNE_NEGOCIEE], "confirm": True,
+                "agent_id": "22fcf4a5-agent-1",
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/pieces-vente/prix-negocie/creer")
+        self.assertEqual(cap.payload["code_client"], "2362")
+        self.assertEqual(cap.payload["ref_externe"], "PVN-MESNIL-1")
+        self.assertEqual(cap.payload["lignes"], [self.LIGNE_NEGOCIEE])
+        self.assertTrue(cap.payload["confirm"])
+        self.assertEqual(cap.payload["agent_id"], "22fcf4a5-agent-1")
+
+
 class TestAchatsBlDeduireTaxesCalculees(unittest.TestCase):
     """P1 signalé Ivan via Pierre (msg_ref=91571b5f3457, plan_b4be7a9b) : le
     tool n'était jamais câblé dans le registre CLI (0 résultat sur `deduire`
@@ -582,7 +628,11 @@ class TestCliSurface(unittest.TestCase):
         # - 1 doublon lba_devis_envoyer supprimé (t_f24a440439, bug
         # "schema != execution" — 2 définitions coexistaient dans TOOLS,
         # la stale client_code/file_base64 a été retirée) = 227.
-        self.assertEqual(len(tools), 227)
+        # + lba_piece_vente_prix_negocie_simuler/lba_piece_vente_prix_negocie_creer
+        # (t_fcef8eac92, plan_b3838858, mission 4/4 — création d'une piece de
+        # vente native avec prix négocié, backend
+        # bacchus_piece_vente_prix_negocie_tools.py déjà en prod) = 229.
+        self.assertEqual(len(tools), 229)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
