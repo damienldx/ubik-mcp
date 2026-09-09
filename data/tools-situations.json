@@ -1352,6 +1352,14 @@
       "situation": "Traiter une vente confirmee (genere expedition + facture brouillon) -- SEULEMENT sur confirmation utilisateur",
       "cli": "shamir shamir_vente_traiter --args '{\"id\":123}'"
     },
+    "shamir_vente_tournee": {
+      "situation": "Etat actuel de tournee (Shamir-native) sur les expedition(s) d une vente",
+      "cli": "shamir shamir_vente_tournee --args '{\"id\":123}'"
+    },
+    "shamir_vente_reaffecter_tournee": {
+      "situation": "Affecter/reaffecter une vente a une tournee Shamir-native (numero=null pour detacher) -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_vente_reaffecter_tournee --args '{\"id\":123,\"tournee_numero\":\"T-01\",\"tournee_date\":\"2026-09-10\"}'"
+    },
     "shamir_lba_archive_list_tables": {
       "situation": "Decouvrir les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA (archive/base de test, donnee non migree Tryton)",
       "cli": "shamir shamir_lba_archive_list_tables --args '{}'"

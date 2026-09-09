@@ -221,6 +221,25 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
     {
+        "name": "shamir_vente_tournee",
+        "description": ("État actuel de tournée (Shamir-native, PAS PrismaSoft) sur toutes les "
+                         "expédition(s) d'une vente — GET /api/ventes/{id}/tournee. Distinct de "
+                         "shamir_tournee_recherche (lecture seule DuckDB PrismaSoft) : ceci concerne "
+                         "les ventes créées directement dans Shamir (sale.sale->stock.shipment.out)."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_vente_reaffecter_tournee",
+        "description": ("Affecte/réaffecte TOUTES les expédition(s) d'une vente à une tournée "
+                         "(Shamir-native) — POST /api/ventes/{id}/reaffecter-tournee. ÉCRITURE — "
+                         "confirmation utilisateur requise. tournee_numero=null détache explicitement "
+                         "(pas un défaut silencieux) ; dans ce cas tournee_date doit aussi être absent."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {
+            "id": {"type": "integer"},
+            "tournee_numero": {"type": ["string", "null"], "description": "identifiant de tournée, ou null pour détacher"},
+            "tournee_date": {"type": ["string", "null"], "description": "YYYY-MM-DD, absent si tournee_numero est null"}}},
+    },
+    {
         "name": "shamir_achat_creer",
         "description": ("Crée un NOUVEL achat fournisseur Tryton (purchase.purchase) en brouillon — "
                          "POST /api/achats. ÉCRITURE — nécessite confirmation explicite de l'utilisateur. "
@@ -346,6 +365,11 @@ def _exec(tool: str, args: dict):
         return _post(f"/api/ventes/{_req(args, 'id')}/confirmer", {})
     if tool == "shamir_vente_traiter":
         return _post(f"/api/ventes/{_req(args, 'id')}/traiter", {})
+    if tool == "shamir_vente_tournee":
+        return _get(f"/api/ventes/{_req(args, 'id')}/tournee", {})
+    if tool == "shamir_vente_reaffecter_tournee":
+        return _post(f"/api/ventes/{_req(args, 'id')}/reaffecter-tournee", {
+            "tournee_numero": args.get("tournee_numero"), "tournee_date": args.get("tournee_date")})
     if tool == "shamir_achat_creer":
         return _post("/api/achats", {
             "party_code": _req(args, "party_code"), "lines": _req(args, "lines")})
