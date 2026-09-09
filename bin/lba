@@ -2245,6 +2245,27 @@ TOOLS = [
             "risque_prolongation_en_jours_echeance": {"type": "integer", "description": "jours de prolongation ajoutés à l'échéance normale avant qu'un retard soit compté"}}},
     },
     {
+        "name": "lba_referentiel_centrale_affecter",
+        "description": ("[ÉCRITURE] Associe un client à sa centrale (client \"maître\", ex. "
+                         "groupe/centrale d'achat) — PATCH /api/bacchus/referentiel/"
+                         "centrale/{code_client}. Omettre code_centrale (ou null explicite) "
+                         "pour DÉTACHER la centrale actuelle. Distinct de idTiersRistourneReferent "
+                         "et de secteur/tournée (zone géo/livraison, sans rapport). Testé "
+                         "write→read→rollback en session 2026-09-09. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string", "description": "code client PRISMA (l'enfant)"},
+            "code_centrale": {"type": "string", "description": "code du client maître — omettre pour détacher"}}},
+    },
+    {
+        "name": "lba_referentiel_centrale_enfants",
+        "description": ("Lecture pure — liste les clients \"enfants\" déjà rattachés à cette "
+                         "centrale (client \"maître\") — GET /api/bacchus/referentiel/"
+                         "centrale/{code_centrale}/enfants. Vide si aucun, jamais une erreur."),
+        "inputSchema": {"type": "object", "required": ["code_centrale"], "properties": {
+            "code_centrale": {"type": "string", "description": "code du client maître"}}},
+    },
+    {
         "name": "lba_referentiel_relance_affecter",
         "description": ("[ÉCRITURE] Pose les paramètres de relance d'un client PRISMA existant "
                          "— PATCH /api/bacchus/referentiel/relance/{code_client} : activation "
@@ -3778,6 +3799,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "risque_prolongation_en_jours_echeance": args.get("risque_prolongation_en_jours_echeance"),
         }.items() if v is not None}
         return _patch(f"/api/bacchus/referentiel/risque/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_centrale_affecter":
+        code_client = _req(args, "code_client")
+        payload = {"code_centrale": args.get("code_centrale")}
+        return _patch(f"/api/bacchus/referentiel/centrale/{_seg(code_client)}", payload, headers)
+    if tool == "lba_referentiel_centrale_enfants":
+        code_centrale = _req(args, "code_centrale")
+        return _get(f"/api/bacchus/referentiel/centrale/{_seg(code_centrale)}/enfants", {}, headers)
     if tool == "lba_referentiel_relance_affecter":
         code_client = _req(args, "code_client")
         payload = {k: v for k, v in {

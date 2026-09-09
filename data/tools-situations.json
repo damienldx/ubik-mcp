@@ -1689,6 +1689,16 @@
       "situation": "Avant de renseigner le pays d'une adresse (création ou correction) — résoudre l'id réel, jamais écrire un nom de pays en texte libre",
       "cli": "lba lba_referentiel_pays --args '{}'",
       "note": "TOUJOURS appeler avant lba_prospect_creer (adresses[].pays) ou lba_client_adresse_creer. Le champ pays est l'ID de PrismaGestionCo_Pays stringifie (ex. '75'=France) -- verifie en live : 100% des adresses reelles en base sont numeriques, aucune exception. France en tete de liste (id=75)."
+    },
+    "lba_referentiel_centrale_affecter": {
+      "situation": "Utilisateur veut associer un client a sa centrale (client maitre, ex. groupe/centrale d'achat) ou le detacher — ECRITURE",
+      "cli": "lba lba_referentiel_centrale_affecter --args '{\"code_client\":\"<code enfant>\",\"code_centrale\":\"<code maitre>\"}'",
+      "note": "Omettre code_centrale (ou null) pour detacher la centrale actuelle. Distinct de idTiersRistourneReferent et de secteur/tournee (zone geo/livraison, sans rapport). Champ idTiersCentral jamais expose avant cette session -- teste write/read/rollback en conditions reelles."
+    },
+    "lba_referentiel_centrale_enfants": {
+      "situation": "Utilisateur veut voir quels clients sont deja rattaches a une centrale donnee",
+      "cli": "lba lba_referentiel_centrale_enfants --args '{\"code_centrale\":\"<code maitre>\"}'",
+      "note": "Liste vide si aucun enfant, jamais une erreur."
     }
   }
 }
