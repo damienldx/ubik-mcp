@@ -207,6 +207,17 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # réel côté bacchus_prospect_tools.py:router_referentiel, même
     # mécanisme que les autres referentiel_*_affecter.
     "lba_referentiel_envoi_facture_mail_affecter",
+    # ── Documents (pièces jointes GED tiers) — brique 3 skill
+    # bacchus-prospect-client, brief Damien 2026-09-09. POST/GET/PATCH
+    # /api/bacchus/prospects/documents/*, Depends(current_user) réel côté
+    # bacchus_prospect_tools.py (même mécanisme que lba_prospect_creer
+    # ci-dessus). NE PAS confondre avec lba_document_generer_{pptx,docx,
+    # xlsx} ci-dessus (store "Mes Documents" privé, générateur de
+    # contenu) : ceci attache un fichier existant à la GED native
+    # PrismaSoft (PrismaSoft_GED), visible dans l'écran tiers natif.
+    "lba_tiers_document_lister", "lba_tiers_document_types",
+    "lba_tiers_document_attacher", "lba_tiers_document_telecharger",
+    "lba_tiers_document_modifier",
 })
 
 # lba_devis_envoyer UNIQUEMENT — garde-fou CODE (pas juste une note de
@@ -2230,6 +2241,70 @@ TOOLS = [
             "is_actif": {"type": "boolean", "description": "true = active, false = désactive"}}},
     },
     {
+        "name": "lba_tiers_document_types",
+        "description": ("Lecture pure — rubriques/dénominations déjà utilisées sur la GED tiers "
+                         "(KBIS, RIB, CONTRAT, PIECE IDENTITE...), triées par fréquence — GET /api/"
+                         "bacchus/prospects/documents/types. `type` est un champ libre côté "
+                         "PrismaSoft (aucune table de référence) : proposer une valeur de cette "
+                         "liste OU en écrire une nouvelle via lba_tiers_document_attacher — "
+                         "\"ajouter une nouvelle rubrique\" ne demande aucune action séparée."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_tiers_document_lister",
+        "description": ("Lecture pure — documents (pièces jointes) déjà attachés à un tiers "
+                         "(prospect OU client indifféremment) — GET /api/bacchus/prospects/"
+                         "documents/{tiers_id}. Mécanisme GED natif PrismaSoft (PrismaSoft_GED) — "
+                         "les documents listés ici sont les MÊMES que ceux visibles dans l'écran "
+                         "tiers natif PrismaSoft."),
+        "inputSchema": {"type": "object", "required": ["tiers_id"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"}}},
+    },
+    {
+        "name": "lba_tiers_document_attacher",
+        "description": ("[ÉCRITURE] Attache une pièce jointe à un tiers (prospect OU client) via "
+                         "la GED native PrismaSoft — POST /api/bacchus/prospects/documents/"
+                         "attacher. LE MÊME mécanisme que le drag-and-drop natif dans l'écran : le "
+                         "document est immédiatement visualisable/téléchargeable DANS PrismaSoft, "
+                         "pas un stockage LBA-DESKTOP séparé. `contenu_base64` = contenu du "
+                         "fichier encodé base64 (jamais un chemin local ni une URL). `type` = "
+                         "rubrique/dénomination — appeler lba_tiers_document_types avant pour "
+                         "proposer les valeurs déjà utilisées, mais TOUJOURS confirmer le libellé "
+                         "exact avec l'utilisateur avant écriture (champ libre, toute valeur est "
+                         "acceptée). Confirmation utilisateur OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "nom_fichier", "contenu_base64"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"},
+            "nom_fichier": {"type": "string", "description": "nom de fichier, ex 'kbis.pdf'"},
+            "contenu_base64": {"type": "string", "description": "contenu du fichier encodé base64"},
+            "extension": {"type": "string", "description": "déduite de nom_fichier si absente"},
+            "type": {"type": "string", "description": "rubrique/dénomination — cf lba_tiers_document_types pour les valeurs déjà utilisées"},
+            "commentaire": {"type": "string", "description": "texte libre"}}},
+    },
+    {
+        "name": "lba_tiers_document_telecharger",
+        "description": ("Lecture pure — contenu binaire (base64) d'UN document déjà attaché à un "
+                         "tiers, pour visualisation/téléchargement côté Bacchus — GET /api/bacchus/"
+                         "prospects/documents/{tiers_id}/{id_document}/telecharger. Appeler lba_"
+                         "tiers_document_lister avant pour connaître id_document."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "id_document"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"},
+            "id_document": {"type": "integer", "description": "id du document GED, cf lba_tiers_document_lister"}}},
+    },
+    {
+        "name": "lba_tiers_document_modifier",
+        "description": ("[ÉCRITURE] Corrige la rubrique (`type`) et/ou le commentaire d'un "
+                         "document déjà attaché à un tiers — PATCH /api/bacchus/prospects/"
+                         "documents/modifier. Ne touche JAMAIS le binaire ni le nom de fichier — "
+                         "pour remplacer un fichier, ré-attacher via lba_tiers_document_attacher. "
+                         "Au moins un champ (type ou commentaire) requis. Confirmation utilisateur "
+                         "OBLIGATOIRE avant appel."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "id_document"], "properties": {
+            "tiers_id": {"type": "integer", "description": "id PrismaGestionCo_tiers"},
+            "id_document": {"type": "integer", "description": "id du document GED, cf lba_tiers_document_lister"},
+            "type": {"type": "string"},
+            "commentaire": {"type": "string"}}},
+    },
+    {
         "name": "lba_referentiel_risque_affecter",
         "description": ("[ÉCRITURE] Pose les paramètres de risque crédit d'un client PRISMA "
                          "existant — PATCH /api/bacchus/referentiel/risque/{code_client} : "
@@ -3819,6 +3894,24 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/prospects/activation", {
             "tiers_id": _req(args, "tiers_id"), "est_client": _req(args, "est_client"),
             "is_actif": _req(args, "is_actif")}, headers)
+    if tool == "lba_tiers_document_types":
+        return _get("/api/bacchus/prospects/documents/types", {}, headers)
+    if tool == "lba_tiers_document_lister":
+        tiers_id = _seg(_req(args, "tiers_id"))
+        return _get(f"/api/bacchus/prospects/documents/{tiers_id}", {}, headers)
+    if tool == "lba_tiers_document_attacher":
+        return _post("/api/bacchus/prospects/documents/attacher", {
+            "tiers_id": _req(args, "tiers_id"), "nom_fichier": _req(args, "nom_fichier"),
+            "contenu_base64": _req(args, "contenu_base64"), "extension": args.get("extension"),
+            "type": args.get("type"), "commentaire": args.get("commentaire")}, headers)
+    if tool == "lba_tiers_document_telecharger":
+        tiers_id = _seg(_req(args, "tiers_id"))
+        id_document = _seg(_req(args, "id_document"))
+        return _get(f"/api/bacchus/prospects/documents/{tiers_id}/{id_document}/telecharger", {}, headers)
+    if tool == "lba_tiers_document_modifier":
+        return _patch("/api/bacchus/prospects/documents/modifier", {
+            "tiers_id": _req(args, "tiers_id"), "id_document": _req(args, "id_document"),
+            "type": args.get("type"), "commentaire": args.get("commentaire")}, headers)
     if tool == "lba_client_reglement_corriger":
         code = _seg(_req(args, "code"))
         raw = {"tva_intra_com": args.get("tva_intra_com"), "regime_tva": args.get("regime_tva"),

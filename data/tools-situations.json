@@ -1719,6 +1719,31 @@
       "situation": "Utilisateur veut ajouter/modifier un jour d'appel televente (jour+heure+jour de livraison) pour un client — ECRITURE",
       "cli": "lba lba_client_horaire_appel_affecter --args '{\"code_client\":\"<code>\",\"jour\":\"Lundi\",\"heure_appel\":\"10:30\",\"jour_livraison\":\"Mardi\"}'",
       "note": "Upsert sur (client, jour) -- appeler une fois par jour d'appel a ajouter. jour/jour_livraison = un des 7 jours reels francais capitalises, jamais devine. heure_appel format HH:MM."
+    },
+    "lba_tiers_document_types": {
+      "situation": "Utilisateur veut savoir quelles rubriques/denominations existent deja pour classer un document tiers (avant d'en attacher un)",
+      "cli": "lba lba_tiers_document_types --args '{}'",
+      "note": "Champ `type` libre cote PrismaSoft, aucune table de reference -- cette liste n'est qu'une proposition (KBIS, RIB, CONTRAT...). Ecrire une valeur absente de la liste = 'ajouter une nouvelle rubrique', aucune action separee requise."
+    },
+    "lba_tiers_document_lister": {
+      "situation": "Utilisateur veut voir les documents/pieces jointes deja attaches a un prospect ou client",
+      "cli": "lba lba_tiers_document_lister --args '{\"tiers_id\":<id>}'",
+      "note": "Mecanisme GED natif PrismaSoft (PrismaSoft_GED) -- ce sont les MEMES documents que ceux visibles dans l'ecran tiers natif, pas un stockage LBA-DESKTOP separe. tiers_id = id PrismaGestionCo_tiers, prospect ou client indifferemment."
+    },
+    "lba_tiers_document_attacher": {
+      "situation": "Utilisateur veut que Bacchus attache une piece jointe (KBIS, RIB, contrat, piece identite...) a un prospect ou client — ECRITURE",
+      "cli": "lba lba_tiers_document_attacher --args '{\"tiers_id\":<id>,\"nom_fichier\":\"kbis.pdf\",\"contenu_base64\":\"<base64>\",\"type\":\"KBIS\",\"commentaire\":\"...\"}'",
+      "note": "contenu_base64 = octets du fichier deja recus (piece jointe WhatsApp/mail), jamais un chemin local ni une URL. Appeler lba_tiers_document_types avant pour proposer une rubrique, mais toujours confirmer le libelle exact avec l'utilisateur. Document immediatement visualisable/telechargeable DANS PrismaSoft (meme mecanisme que le drag-and-drop natif)."
+    },
+    "lba_tiers_document_telecharger": {
+      "situation": "Utilisateur veut que Bacchus visualise/telecharge le contenu d'un document deja attache a un tiers",
+      "cli": "lba lba_tiers_document_telecharger --args '{\"tiers_id\":<id>,\"id_document\":<id>}'",
+      "note": "id_document se decouvre via lba_tiers_document_lister. Retourne le contenu binaire encode base64."
+    },
+    "lba_tiers_document_modifier": {
+      "situation": "Utilisateur veut corriger la rubrique ou le commentaire d'un document deja attache a un tiers — ECRITURE",
+      "cli": "lba lba_tiers_document_modifier --args '{\"tiers_id\":<id>,\"id_document\":<id>,\"commentaire\":\"...\"}'",
+      "note": "Ne touche jamais le binaire ni le nom de fichier -- pour remplacer un fichier, ré-attacher via lba_tiers_document_attacher. Au moins un champ (type ou commentaire) requis."
     }
   }
 }
