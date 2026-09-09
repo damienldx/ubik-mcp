@@ -96,7 +96,8 @@ TOOLS = [
         "name": "shamir_party_recherche",
         "description": ("Recherche un tiers (party.party Tryton) par nom ou code — GET /api/parties. "
                          "Casse-insensible, substring. Code stable PRISMA-<id> = provenance LBA/PrismaSoft "
-                         "(client test, 2148 tiers importés)."),
+                         "(client test, 2148 tiers importés). Retourne aussi categories (Client/Fournisseur), "
+                         "siret, tva, addresses, tarif (grille de prix), credit_limit_amount."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
             "q": {"type": "string", "description": "terme de recherche (nom ou code)"},
             "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
@@ -119,8 +120,8 @@ TOOLS = [
         "name": "shamir_article_recherche",
         "description": ("Recherche un article (product.template Tryton) par désignation ou code — "
                          "GET /api/articles. Casse-insensible, substring. Code stable PRISMA-ART-<id> = "
-                         "provenance LBA/PrismaSoft (client test, 832 articles importés). Pas de prix "
-                         "(list_price/cost_price) tant qu'aucune company n'est configurée dans azoth."),
+                         "provenance LBA/PrismaSoft (client test, 832 articles importés). Retourne aussi "
+                         "category (famille comptable PCG), uom, cost_price, list_price, salable."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
             "q": {"type": "string", "description": "terme de recherche (désignation ou code)"},
             "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
