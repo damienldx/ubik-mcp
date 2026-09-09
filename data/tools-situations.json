@@ -1333,7 +1333,7 @@
       "cli": "shamir shamir_livraison_directe_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
     "shamir_vente_creer": {
-      "situation": "Creer une NOUVELLE vente Tryton (ecriture vivante, pas historique PrismaSoft) -- SEULEMENT sur confirmation utilisateur",
+      "situation": "Creer une NOUVELLE vente Tryton (ecriture vivante, pas historique PrismaSoft) -- SEULEMENT sur confirmation utilisateur. Retour/avoir (ex. consigne rendue) = quantity negative",
       "cli": "shamir shamir_vente_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"PRISMA-ART-<id>\",\"quantity\":6}]}'"
     },
     "shamir_vente_detail": {

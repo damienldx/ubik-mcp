@@ -187,7 +187,10 @@ TOOLS = [
         "description": ("Crée une NOUVELLE vente Tryton (sale.sale) en brouillon — POST /api/ventes. "
                          "ÉCRITURE — nécessite confirmation explicite de l'utilisateur avant appel. "
                          "Distinct de shamir_commande_recherche (historique PrismaSoft en lecture "
-                         "seule) : ceci crée une vraie donnée vivante dans le noyau Tryton."),
+                         "seule) : ceci crée une vraie donnée vivante dans le noyau Tryton. "
+                         "RETOUR/AVOIR (ex. consigne rendue par un client) : quantity NÉGATIVE sur "
+                         "une ligne — Tryton route nativement vers stock.shipment.out.return "
+                         "(visible dans shamir_vente_detail.shipment_returns), aucun tool dédié."),
         "inputSchema": {"type": "object", "required": ["party_code", "lines"], "properties": {
             "party_code": {"type": "string", "description": "code PRISMA-<id> du client"},
             "lines": {"type": "array", "items": {"type": "object", "properties": {
@@ -196,7 +199,9 @@ TOOLS = [
     },
     {
         "name": "shamir_vente_detail",
-        "description": "Détail d'une vente Tryton avec lignes, expédition(s), facture(s) — GET /api/ventes/{id}.",
+        "description": ("Détail d'une vente Tryton avec lignes, expédition(s) sortante(s) "
+                         "(shipments) ET retour(s) (shipment_returns, généré si une ligne a une "
+                         "quantity négative), facture(s) — GET /api/ventes/{id}."),
         "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
     {
