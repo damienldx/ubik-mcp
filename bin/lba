@@ -420,7 +420,8 @@ TOOLS = [
             "nom": {"type": "string", "description": "raison sociale du SITE (siège, entrepôt...) — peut différer du nom du tiers"},
             "adresse1": {"type": "string"}, "adresse2": {"type": "string"},
             "adresse3": {"type": "string"}, "code_postal": {"type": "string"}, "ville": {"type": "string"},
-            "pays": {"type": "string"}, "designation": {"type": "string"}}},
+            "pays": {"type": "string", "description": "⚠️ ID (stringifié) de PrismaGestionCo_Pays (ex. '75'=France), JAMAIS un nom en texte libre — résoudre via lba_referentiel_pays d'abord"},
+            "designation": {"type": "string"}}},
     },
     {
         "name": "lba_client_adresse_types_appliquer",
@@ -1970,9 +1971,12 @@ TOOLS = [
             "site_internet": {"type": "string"},
             "commentaire": {"type": "string"},
             "adresses": {"type": "array", "items": {"type": "object", "properties": {
-                "designation": {"type": "string"}, "adresse1": {"type": "string"},
+                "designation": {"type": "string"},
+                "nom": {"type": "string", "description": "AJOUTÉ 2026-09-09 — convention LBA : raison sociale + nom commercial, même valeur que designation en pratique"},
+                "adresse1": {"type": "string"},
                 "adresse2": {"type": "string"}, "adresse3": {"type": "string"},
-                "codePostal": {"type": "string"}, "ville": {"type": "string"}, "pays": {"type": "string"}}}},
+                "codePostal": {"type": "string"}, "ville": {"type": "string"},
+                "pays": {"type": "string", "description": "⚠️ ID (stringifié) de PrismaGestionCo_Pays (ex. '75'=France), JAMAIS un nom en texte libre — résoudre via lba_referentiel_pays d'abord"}}}},
             "contacts": {"type": "array", "items": {"type": "object", "properties": {
                 "civilite": {"type": "string"}, "nom": {"type": "string"}, "prenom": {"type": "string"},
                 "telephoneMobile": {"type": "string"}, "telephoneFixe": {"type": "string"},
@@ -2035,6 +2039,16 @@ TOOLS = [
                          "/api/bacchus/referentiel/reglement-tva-langue. Résoudre ICI AVANT tout "
                          "appel à lba_prospect_passer_client ou lba_client_reglement_corriger — "
                          "ne JAMAIS deviner idReglementMode/idAssujettiTiers/idLangue."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_referentiel_pays",
+        "description": ("Lecture pure — référentiel Pays (243 entrées, France id=75 en tête de "
+                         "liste) — GET /api/bacchus/referentiel/pays. ⚠️ Le champ `pays` d'une "
+                         "adresse tiers (PrismaGestionCo_tiers_adresse) est l'ID de ce référentiel "
+                         "(stringifié), JAMAIS un nom de pays en texte libre — vérifié : 100% des "
+                         "adresses réelles en base sont numériques. Résoudre ICI AVANT tout appel à "
+                         "lba_prospect_creer (adresses[].pays) ou lba_client_adresse_creer."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -3694,6 +3708,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/referentiel/tarifs", {}, headers)
     if tool == "lba_referentiel_reglement_tva_langue":
         return _get("/api/bacchus/referentiel/reglement-tva-langue", {}, headers)
+    if tool == "lba_referentiel_pays":
+        return _get("/api/bacchus/referentiel/pays", {}, headers)
     if tool == "lba_referentiel_secteurs_tournees":
         return _get("/api/bacchus/referentiel/secteurs-tournees", {}, headers)
     if tool == "lba_referentiel_infos_entreprise":

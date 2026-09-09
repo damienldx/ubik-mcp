@@ -1684,6 +1684,11 @@
       "situation": "Avant de poser régime TVA/langue/mode de règlement (passage client ou correction) — résoudre les vraies valeurs référentielles PRISMA, jamais deviner",
       "cli": "lba lba_referentiel_reglement_tva_langue --args '{}'",
       "note": "TOUJOURS appeler avant lba_prospect_passer_client/lba_client_reglement_corriger. Retourne les 3 listes réelles (mode de règlement 7 valeurs, régime TVA 3 valeurs, langue 184 valeurs avec Français id=48 en tête). Vérifié en live 2026-09-09 : les valeurs codées en dur ailleurs (docstrings) étaient déjà exactes, ce tool évite juste qu'elles dérivent silencieusement."
+    },
+    "lba_referentiel_pays": {
+      "situation": "Avant de renseigner le pays d'une adresse (création ou correction) — résoudre l'id réel, jamais écrire un nom de pays en texte libre",
+      "cli": "lba lba_referentiel_pays --args '{}'",
+      "note": "TOUJOURS appeler avant lba_prospect_creer (adresses[].pays) ou lba_client_adresse_creer. Le champ pays est l'ID de PrismaGestionCo_Pays stringifie (ex. '75'=France) -- verifie en live : 100% des adresses reelles en base sont numeriques, aucune exception. France en tete de liste (id=75)."
     }
   }
 }
