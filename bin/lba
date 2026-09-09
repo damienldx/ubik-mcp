@@ -2730,23 +2730,19 @@ TOOLS = [
             "format": {"type": "string", "description": "'pdf' | 'html' | 'xlsx' | 'csv'"},
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
     },
-    {
-        "name": "lba_devis_envoyer",
-        "description": ("[ÉCRITURE — envoie un email] Envoie un devis déjà généré (lba_devis_generer) "
-                         "par email au nom du commercial connecté — POST /api/me/client/{code}/devis/"
-                         "envoyer (Microsoft Graph, CC backoffice@lba-boissons.fr systématique et non "
-                         "modifiable). Résoudre to_email en PRIORITÉ depuis client_email (retourné par "
-                         "lba_devis_generer) sauf si l'utilisateur dicte explicitement une autre "
-                         "adresse en conversation — TOUJOURS confirmer destinataire + contenu à "
-                         "l'utilisateur avant d'appeler ce tool, jamais d'envoi silencieux."),
-        "inputSchema": {"type": "object", "required": ["client_code", "file_base64", "filename", "format", "to_email", "message"], "properties": {
-            "client_code": {"type": "string"},
-            "file_base64": {"type": "string", "description": "tel que renvoyé par lba_devis_generer"},
-            "filename": {"type": "string"},
-            "format": {"type": "string", "description": "'pdf' | 'html' | 'xlsx' | 'csv' — doit matcher le format généré"},
-            "to_email": {"type": "string"},
-            "message": {"type": "string", "description": "corps du mail (cf lba_devis_envoyer_previsionnel pour un texte par défaut)"}}},
-    },
+    # lba_devis_envoyer — DÉFINITION UNIQUE désormais (fix t_f24a440439,
+    # bug "schema != execution"). Deux définitions coexistaient : celle-ci
+    # (client_code/file_base64, contrat POST /api/me/client/{code}/devis/
+    # envoyer) a été SUPPRIMÉE — c'était la version STALE. Root cause vérifiée
+    # côté backend (LBA-DESKTOP/plan/lba_api.py) : POST /api/me/documents/
+    # {document_id}/envoyer (conservée plus bas, ~L2991) est un WRAPPER
+    # délibéré autour de me_client_devis_envoyer, ajouté avec un GARDE-FOU
+    # NON NÉGOCIABLE (poids scoring 0.35, directive LEAD) — vérifie
+    # ownership/type='devis'/contenu HTML AVANT d'envoyer, alors que l'ancien
+    # contrat (file_base64 fourni brut par l'appelant) ne le fait pas. C'est
+    # la définition document_id/confirmed_by_user qui est la SEULE conservée
+    # (TOOLS + dispatch _exec) — jamais les deux, jamais un dispatch sur
+    # l'ancien contrat qui contournerait ce garde-fou.
     # ── Panel Procedures (mission #1, plan CLI Bridge Bacchus/procedures) ──
     # /api/me/procedures/* déjà live (lba_api.py L9703-9802, procedures_db.py).
     # PAS de wrapper pour /queue ni /{id}/validate : réservés
@@ -3974,12 +3970,6 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/me/devis/generer", {
             "client_code": _req(args, "client_code"), "articles": _req(args, "articles"),
             "format": _req(args, "format"), "rep_code": args.get("rep_code")}, headers)
-    if tool == "lba_devis_envoyer":
-        code = _req(args, "client_code")
-        return _post(f"/api/me/client/{quote(code, safe='')}/devis/envoyer", {
-            "file_base64": _req(args, "file_base64"), "filename": _req(args, "filename"),
-            "format": _req(args, "format"), "to_email": _req(args, "to_email"),
-            "message": _req(args, "message")}, headers)
     if tool == "lba_procedure_creer":
         return _post("/api/me/procedures", {
             "titre": _req(args, "titre"), "theme": _req(args, "theme"),
