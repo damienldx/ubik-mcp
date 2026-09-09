@@ -1368,6 +1368,30 @@
       "situation": "Contacts commerciaux d un client, ou recherche par nom",
       "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
+    "shamir_representants_liste": {
+      "situation": "Liste des representants (commerciaux) LIVE",
+      "cli": "shamir shamir_representants_liste --args '{}'"
+    },
+    "shamir_representant_clients": {
+      "situation": "Portefeuille clients d un representant (CA/commandes sur la periode)",
+      "cli": "shamir shamir_representant_clients --args '{\"id_rep\":101,\"days\":90}'"
+    },
+    "shamir_representant_commandes": {
+      "situation": "Commandes d un representant sur la periode",
+      "cli": "shamir shamir_representant_commandes --args '{\"id_rep\":101,\"days\":90}'"
+    },
+    "shamir_representant_kpis": {
+      "situation": "KPIs agreges (CA, panier moyen, repartition par etat) d un representant, fenetre glissante",
+      "cli": "shamir shamir_representant_kpis --args '{\"id_rep\":101,\"days\":90}'"
+    },
+    "shamir_representant_kpis_full": {
+      "situation": "Memes KPIs sur une periode explicite (date_from/date_to)",
+      "cli": "shamir shamir_representant_kpis_full --args '{\"id_rep\":101,\"date_from\":\"2026-01-01\",\"date_to\":\"2026-09-09\"}'"
+    },
+    "shamir_representant_reaffecter": {
+      "situation": "Reaffecter le representant referent d un client -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_representant_reaffecter --args '{\"client_code\":\"PRISMA-<id>\",\"id_personne_representant\":101}'"
+    },
     "shamir_aide_marche_client": {
       "situation": "Aides de marche LIVE d un client (remises fournisseur ponctuelles sur articles)",
       "cli": "shamir shamir_aide_marche_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
