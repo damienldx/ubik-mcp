@@ -1359,6 +1359,26 @@
     "shamir_lba_archive_query": {
       "situation": "Interroger en lecture seule une table PrismaGestionCo_* non couverte par les briques dediees (commande/tournee/livraison)",
       "cli": "shamir shamir_lba_archive_query --args '{\"table\":\"PrismaGestionCo_tiers\",\"limit\":3}'"
+    },
+    "shamir_achat_creer": {
+      "situation": "Creer un NOUVEL achat fournisseur Tryton (ecriture vivante) -- SEULEMENT sur confirmation utilisateur, unit_price requis par ligne",
+      "cli": "shamir shamir_achat_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"PRISMA-ART-<id>\",\"quantity\":10,\"unit_price\":1.75}]}'"
+    },
+    "shamir_achat_detail": {
+      "situation": "Detail d'un achat Tryton (lignes, reception, facture)",
+      "cli": "shamir shamir_achat_detail --args '{\"id\":123}'"
+    },
+    "shamir_achat_recherche": {
+      "situation": "Rechercher des achats Tryton par fournisseur ou etat",
+      "cli": "shamir shamir_achat_recherche --args '{\"party_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_achat_confirmer": {
+      "situation": "Confirmer un achat en brouillon (genere deja la facture fournisseur) -- SEULEMENT sur confirmation utilisateur pour CETTE etape",
+      "cli": "shamir shamir_achat_confirmer --args '{\"id\":123}'"
+    },
+    "shamir_achat_traiter": {
+      "situation": "Creer et completer la reception d'un achat confirme (incremente le stock reel) -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_achat_traiter --args '{\"id\":123}'"
     }
   }
 }

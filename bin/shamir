@@ -216,8 +216,49 @@ TOOLS = [
         "name": "shamir_vente_traiter",
         "description": ("Traite une vente confirmée (confirmed → processing) — génère l'expédition et "
                          "la facture (brouillon) — POST /api/ventes/{id}/traiter. ÉCRITURE — confirmation "
-                         "utilisateur requise. Pas de garantie de stock réel disponible (aucune donnée "
-                         "d'inventaire dans le snapshot LBA)."),
+                         "utilisateur requise. Stock réel importé (2026-09-09, 637 articles) — le mouvement "
+                         "de sortie s'appuie desormais sur une quantite reelle en Storage Zone."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_achat_creer",
+        "description": ("Crée un NOUVEL achat fournisseur Tryton (purchase.purchase) en brouillon — "
+                         "POST /api/achats. ÉCRITURE — nécessite confirmation explicite de l'utilisateur. "
+                         "unit_price REQUIS par ligne (pas de list_price fournisseur fiable à reprendre "
+                         "automatiquement — cost_price est un coût moyen reconcilié, pas le prix négocié "
+                         "de CETTE commande)."),
+        "inputSchema": {"type": "object", "required": ["party_code", "lines"], "properties": {
+            "party_code": {"type": "string", "description": "code PRISMA-<id> du fournisseur"},
+            "lines": {"type": "array", "items": {"type": "object", "properties": {
+                "article_code": {"type": "string", "description": "code PRISMA-ART-<id>"},
+                "quantity": {"type": "number"},
+                "unit_price": {"type": "number", "description": "prix d'achat unitaire HT, requis"}}}}}},
+    },
+    {
+        "name": "shamir_achat_detail",
+        "description": "Détail d'un achat Tryton avec lignes, réception(s), facture(s) — GET /api/achats/{id}.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_achat_recherche",
+        "description": "Recherche d'achats Tryton (par fournisseur, état) — GET /api/achats.",
+        "inputSchema": {"type": "object", "properties": {
+            "party_code": {"type": "string"}, "state": {"type": "string"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_achat_confirmer",
+        "description": ("Confirme un achat en brouillon (draft -> quotation -> processing, génère déjà la "
+                         "facture fournisseur) — POST /api/achats/{id}/confirmer. ÉCRITURE — confirmation "
+                         "utilisateur requise pour CETTE étape précise."),
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+    },
+    {
+        "name": "shamir_achat_traiter",
+        "description": ("Crée et complète la réception (stock.shipment.in, Input Zone -> Storage Zone) "
+                         "d'un achat confirmé — POST /api/achats/{id}/traiter. C'est CETTE étape qui "
+                         "incrémente le stock réel (distinct de shamir_achat_confirmer qui ne fait que "
+                         "générer la facture). ÉCRITURE — confirmation utilisateur requise."),
         "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
     },
     {
@@ -293,6 +334,19 @@ def _exec(tool: str, args: dict):
         return _post(f"/api/ventes/{_req(args, 'id')}/confirmer", {})
     if tool == "shamir_vente_traiter":
         return _post(f"/api/ventes/{_req(args, 'id')}/traiter", {})
+    if tool == "shamir_achat_creer":
+        return _post("/api/achats", {
+            "party_code": _req(args, "party_code"), "lines": _req(args, "lines")})
+    if tool == "shamir_achat_detail":
+        return _get(f"/api/achats/{_req(args, 'id')}", {})
+    if tool == "shamir_achat_recherche":
+        return _get("/api/achats", {
+            "party_code": args.get("party_code"), "state": args.get("state"),
+            "limit": args.get("limit", 20)})
+    if tool == "shamir_achat_confirmer":
+        return _post(f"/api/achats/{_req(args, 'id')}/confirmer", {})
+    if tool == "shamir_achat_traiter":
+        return _post(f"/api/achats/{_req(args, 'id')}/traiter", {})
     if tool == "shamir_lba_archive_list_tables":
         return _get("/api/lba-archive/tables", {})
     if tool == "shamir_lba_archive_query":
