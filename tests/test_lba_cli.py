@@ -306,6 +306,54 @@ class TestT19HarmonisationAppliquerCodeArticle(unittest.TestCase):
         self.assertEqual(cap.payload["r2_cible"], 0.0)
 
 
+class TestAvoirBatch(unittest.TestCase):
+    """Gap arsenal Bacchus signalé par Ivan (plan_1ed88719, carte
+    t_726cd48936) — même famille de gap que TestAchatsBlDeduireTaxesCalculees
+    ci-dessous (backend bacchus_avoir_tools.py déjà en prod depuis
+    t_281b5f6f96/plan_856a0f64, mais lba_avoir_batch_simuler/creer jamais
+    câblés dans ce registre CLI — 0 résultat, Bacchus ne pouvait pas les
+    appeler malgré les routes HTTP fonctionnelles)."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    CORRECTIONS = [
+        {"num_piece": 26005171, "code_client": "2414", "code_article": "1155",
+         "quantite": 7.0, "prix_corrige": 1.5, "sens": "complement",
+         "type_operation": "correction_erreur"},
+        {"num_piece": 26005417, "code_client": "2414", "code_article": "1200",
+         "quantite": 3.0, "prix_corrige": 2.5, "sens": "avoir",
+         "type_operation": "harmonisation_prix_cible"},
+    ]
+
+    def test_batch_simuler_path_et_corrections_passthrough(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_avoir_batch_simuler", {"corrections": self.CORRECTIONS})
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/avoirs/batch/simuler")
+        self.assertEqual(cap.payload["corrections"], self.CORRECTIONS)
+
+    def test_batch_creer_transmet_confirm_et_agent_id(self):
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_avoir_batch_creer", {
+                "corrections": self.CORRECTIONS, "confirm": True,
+                "agent_id": "22fcf4a5-agent-1",
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/avoirs/batch/creer")
+        self.assertEqual(cap.payload["corrections"], self.CORRECTIONS)
+        self.assertTrue(cap.payload["confirm"])
+        self.assertEqual(cap.payload["agent_id"], "22fcf4a5-agent-1")
+
+
 class TestAchatsBlDeduireTaxesCalculees(unittest.TestCase):
     """P1 signalé Ivan via Pierre (msg_ref=91571b5f3457, plan_b4be7a9b) : le
     tool n'était jamais câblé dans le registre CLI (0 résultat sur `deduire`
@@ -518,12 +566,27 @@ class TestCliSurface(unittest.TestCase):
         # quota/solde Dropcontact en lecture seule, commit 2056a07) = 220.
         # (rayon_km/ville sur lba_recherche_entreprises, commit 3f272f6, est un
         # paramètre ajouté à un tool existant, pas un nouveau tool -- ne compte pas ici.)
-        self.assertEqual(len(tools), 220)
+        # DRIFT PRÉEXISTANT CONSTATÉ (2026-09-09, plan_1ed88719) : ce compteur
+        # documentait 220 avant ce commit, mais le total RÉEL relevé (avant
+        # tout ajout de cette mission) était déjà de 226 — 6 tools ajoutés
+        # sans mise à jour de ce commentaire/assertion à un moment antérieur
+        # non identifié. Même doctrine que le drift déjà documenté ailleurs
+        # dans ce fichier (ex. test_lba_auth_required_tools.py) : signalé au
+        # Chef d'Atelier plutôt qu'investigué/corrigé silencieusement ici
+        # (hors scope de cette mission, coût d'investigation important pour
+        # un simple compteur documentaire). Total ci-dessous = 226 (réel
+        # préexistant) + lba_avoir_batch_simuler/lba_avoir_batch_creer
+        # (plan_1ed88719, mode batch multi-corrections create_avoir, backend
+        # bacchus_avoir_tools.py déjà en prod, gap arsenal Bacchus signalé
+        # par Ivan) = 228.
+        self.assertEqual(len(tools), 228)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
         self.assertIn("lba_avoir_simuler", names)
         self.assertIn("lba_avoir_creer", names)
+        self.assertIn("lba_avoir_batch_simuler", names)
+        self.assertIn("lba_avoir_batch_creer", names)
         self.assertIn("lba_articles_liste", names)
         self.assertIn("lba_clients_filtre", names)
         self.assertIn("lba_achats_bl_lignes_non_imputees", names)

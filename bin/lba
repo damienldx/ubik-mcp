@@ -1637,6 +1637,52 @@ TOOLS = [
             }},
     },
     {
+        "name": "lba_avoir_batch_simuler",
+        "description": ("Lecture pure — mode BATCH de lba_avoir_simuler : regroupe plusieurs "
+                         "corrections (potentiellement issues de num_piece/factures DIFFÉRENTES "
+                         "pour un même client) en prévision d'UNE SEULE pièce de sortie. SANS RIEN "
+                         "ÉCRIRE. TOUJOURS appeler EN PREMIER quand l'utilisateur demande de "
+                         "regrouper plusieurs corrections en un seul document, jamais "
+                         "lba_avoir_batch_creer directement — même doctrine que le mode simple. "
+                         "N'utiliser CE mode QUE pour un regroupement explicite ; pour une "
+                         "correction isolée, rester sur lba_avoir_simuler. POST "
+                         "/api/bacchus/avoirs/batch/simuler."),
+        "inputSchema": {"type": "object", "required": ["corrections"], "properties": {
+            "corrections": {"type": "array", "items": {"type": "object",
+                "required": ["num_piece", "code_client", "code_article", "quantite", "prix_corrige", "sens", "type_operation"],
+                "properties": {
+                    "num_piece": {"type": "integer"}, "code_client": {"type": "string"},
+                    "code_article": {"type": "string"}, "quantite": {"type": "number"},
+                    "prix_facture_errone": {"type": "number"}, "prix_corrige": {"type": "number"},
+                    "sens": {"type": "string", "enum": ["complement", "avoir"]},
+                    "type_operation": {"type": "string", "enum": ["correction_erreur", "harmonisation_prix_cible"]},
+                }}},
+        }},
+    },
+    {
+        "name": "lba_avoir_batch_creer",
+        "description": ("ÉCRITURE — mode BATCH de lba_avoir_creer : crée UNE SEULE pièce "
+                         "corrective regroupant toutes les corrections du batch dans PrismaSoft. "
+                         "TOUJOURS avoir appelé lba_avoir_batch_simuler AVANT et présenté le "
+                         "résultat PAR correction à l'utilisateur — n'appeler qu'APRÈS "
+                         "confirmation explicite sur les valeurs affichées pour CHAQUE "
+                         "correction. confirm=true REQUIS. Réservé direction/backoffice/"
+                         "ivan.diril — 403 sinon. POST /api/bacchus/avoirs/batch/creer."),
+        "inputSchema": {"type": "object", "required": ["corrections", "confirm"], "properties": {
+            "corrections": {"type": "array", "items": {"type": "object",
+                "required": ["num_piece", "code_client", "code_article", "quantite", "prix_corrige", "sens", "type_operation"],
+                "properties": {
+                    "num_piece": {"type": "integer"}, "code_client": {"type": "string"},
+                    "code_article": {"type": "string"}, "quantite": {"type": "number"},
+                    "prix_facture_errone": {"type": "number"}, "prix_corrige": {"type": "number"},
+                    "sens": {"type": "string", "enum": ["complement", "avoir"]},
+                    "type_operation": {"type": "string", "enum": ["correction_erreur", "harmonisation_prix_cible"]},
+                }}},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_tarifs_client_simuler",
         "description": ("Lecture pure — tarif ACTUEL du client vs tarif CIBLE proposé "
                          "(Essentiel=6/Confort=7/Prestige=8/AD2026=18/Proximité=20), + nombre de "
@@ -4470,6 +4516,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "prix_facture_errone": args.get("prix_facture_errone"),
             "prix_corrige": _req(args, "prix_corrige"), "sens": _req(args, "sens"),
             "type_operation": _req(args, "type_operation"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_avoir_batch_simuler":
+        return _post("/api/bacchus/avoirs/batch/simuler", {
+            "corrections": _req(args, "corrections")})
+    if tool == "lba_avoir_batch_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/avoirs/batch/creer", {
+            "corrections": _req(args, "corrections"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_tarifs_client_simuler":
         return _get("/api/bacchus/tarifs/client/simuler", {
