@@ -183,6 +183,25 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
     },
     {
+        "name": "shamir_crm_evenements_recherche",
+        "description": ("RDV/evenements CRM commerciaux (negociations, prises de commande, "
+                         "tournees) — GET /api/crm/evenements. Lecture seule DuckDB PrismaSoft."),
+        "inputSchema": {"type": "object", "properties": {
+            "client_code": {"type": "string", "description": "code PRISMA-<id>"},
+            "date_from": {"type": "string"}, "date_to": {"type": "string"},
+            "etat": {"type": "string", "description": "ex. Traité, Non traité"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
+        "name": "shamir_crm_contacts_recherche",
+        "description": ("Contacts commerciaux d'un client (ou recherche par nom) — "
+                         "GET /api/crm/contacts. Lecture seule DuckDB PrismaSoft."),
+        "inputSchema": {"type": "object", "properties": {
+            "client_code": {"type": "string", "description": "code PRISMA-<id>"},
+            "q": {"type": "string", "description": "recherche nom/prenom"},
+            "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
+    },
+    {
         "name": "shamir_vente_creer",
         "description": ("Crée une NOUVELLE vente Tryton (sale.sale) en brouillon — POST /api/ventes. "
                          "ÉCRITURE — nécessite confirmation explicite de l'utilisateur avant appel. "
@@ -357,6 +376,13 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_livraison_directe_recherche":
         return _get("/api/livraisons-directes", {
             "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    if tool == "shamir_crm_evenements_recherche":
+        return _get("/api/crm/evenements", {
+            "client_code": args.get("client_code"), "date_from": args.get("date_from"),
+            "date_to": args.get("date_to"), "etat": args.get("etat"), "limit": args.get("limit", 20)})
+    if tool == "shamir_crm_contacts_recherche":
+        return _get("/api/crm/contacts", {
+            "client_code": args.get("client_code"), "q": args.get("q"), "limit": args.get("limit", 20)})
     if tool == "shamir_vente_creer":
         return _post("/api/ventes", {
             "party_code": _req(args, "party_code"), "lines": _req(args, "lines")})

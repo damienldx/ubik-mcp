@@ -1360,6 +1360,14 @@
       "situation": "Affecter/reaffecter une vente a une tournee Shamir-native (numero=null pour detacher) -- SEULEMENT sur confirmation utilisateur",
       "cli": "shamir shamir_vente_reaffecter_tournee --args '{\"id\":123,\"tournee_numero\":\"T-01\",\"tournee_date\":\"2026-09-10\"}'"
     },
+    "shamir_crm_evenements_recherche": {
+      "situation": "RDV/evenements CRM commerciaux d un client (negociations, prises de commande, tournees)",
+      "cli": "shamir shamir_crm_evenements_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_crm_contacts_recherche": {
+      "situation": "Contacts commerciaux d un client, ou recherche par nom",
+      "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
     "shamir_lba_archive_list_tables": {
       "situation": "Decouvrir les tables PrismaGestionCo_* disponibles dans le snapshot DuckDB LBA (archive/base de test, donnee non migree Tryton)",
       "cli": "shamir shamir_lba_archive_list_tables --args '{}'"
