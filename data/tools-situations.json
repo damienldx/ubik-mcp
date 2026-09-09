@@ -1368,6 +1368,30 @@
       "situation": "Contacts commerciaux d un client, ou recherche par nom",
       "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
+    "shamir_aide_marche_client": {
+      "situation": "Aides de marche LIVE d un client (remises fournisseur ponctuelles sur articles)",
+      "cli": "shamir shamir_aide_marche_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_aide_marche_simuler": {
+      "situation": "Resoudre fournisseur+article AVANT de creer une aide de marche",
+      "cli": "shamir shamir_aide_marche_simuler --args '{\"client_code\":\"PRISMA-<id>\",\"fournisseur\":\"...\",\"code_article\":\"...\"}'"
+    },
+    "shamir_aide_marche_creer": {
+      "situation": "Ajouter une aide de marche -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_aide_marche_creer --args '{\"client_code\":\"PRISMA-<id>\",\"id_fournisseur\":1,\"id_article\":2}'"
+    },
+    "shamir_investissement_client": {
+      "situation": "Contrats d investissement materiel LIVE d un client (mise a disposition)",
+      "cli": "shamir shamir_investissement_client --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_investissement_simuler_article": {
+      "situation": "Resoudre un article de materiel AVANT de creer un investissement",
+      "cli": "shamir shamir_investissement_simuler_article --args '{\"code_article\":\"...\"}'"
+    },
+    "shamir_investissement_creer": {
+      "situation": "Creer un contrat d investissement materiel -- SEULEMENT sur confirmation utilisateur",
+      "cli": "shamir shamir_investissement_creer --args '{\"client_code\":\"PRISMA-<id>\",\"numero_contrat\":\"...\",\"lignes\":[]}'"
+    },
     "shamir_litige_referentiel_motifs": {
       "situation": "Referentiel des motifs de litige (origine/demande/retour), proxy live prisma-api",
       "cli": "shamir shamir_litige_referentiel_motifs --args '{}'"

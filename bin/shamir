@@ -183,6 +183,63 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
     },
     {
+        "name": "shamir_aide_marche_client",
+        "description": ("Aides de marché LIVE d'un client (remises fournisseur ponctuelles sur "
+                         "articles) — GET /api/clients/{code}/aide-marche. Proxy live prisma-api."),
+        "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
+            "client_code": {"type": "string", "description": "code PRISMA-<id>"}}},
+    },
+    {
+        "name": "shamir_aide_marche_simuler",
+        "description": ("Résout fournisseur+article AVANT de créer une aide de marché — "
+                         "GET /api/clients/{code}/aide-marche/simuler. À appeler avant "
+                         "shamir_aide_marche_creer pour obtenir idFournisseur/idArticle."),
+        "inputSchema": {"type": "object",
+            "required": ["client_code", "fournisseur", "code_article"], "properties": {
+                "client_code": {"type": "string"}, "fournisseur": {"type": "string"},
+                "code_article": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_aide_marche_creer",
+        "description": ("Ajoute une aide de marché pour un client, sur id_fournisseur/id_article "
+                         "DÉJÀ résolus (shamir_aide_marche_simuler) — POST /api/clients/{code}/"
+                         "aide-marche. ÉCRITURE — confirmation utilisateur explicite requise."),
+        "inputSchema": {"type": "object",
+            "required": ["client_code", "id_fournisseur", "id_article"], "properties": {
+                "client_code": {"type": "string"}, "id_fournisseur": {"type": "integer"},
+                "id_article": {"type": "integer"}, "prix_brasseur": {"type": "number"},
+                "prix_client": {"type": "number"}, "prix_brasseur_direct": {"type": "number"},
+                "prix_societe_direct": {"type": "number"}}},
+    },
+    {
+        "name": "shamir_investissement_client",
+        "description": ("Contrats d'investissement matériel LIVE d'un client (mise à disposition, "
+                         "engagement de volume) — GET /api/clients/{code}/investissements. "
+                         "Proxy live prisma-api."),
+        "inputSchema": {"type": "object", "required": ["client_code"], "properties": {
+            "client_code": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_investissement_simuler_article",
+        "description": ("Résout un article de matériel AVANT de créer un investissement — "
+                         "GET /api/articles/{code}/investissement-simuler."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"}}},
+    },
+    {
+        "name": "shamir_investissement_creer",
+        "description": ("Crée un contrat d'investissement matériel (lignes DÉJÀ résolues via "
+                         "shamir_investissement_simuler_article) — POST /api/clients/{code}/"
+                         "investissements. ÉCRITURE — confirmation utilisateur explicite requise. "
+                         "numero_contrat = texte libre (souvent une date côté SAV, ne pas reformater)."),
+        "inputSchema": {"type": "object",
+            "required": ["client_code", "numero_contrat", "lignes"], "properties": {
+                "client_code": {"type": "string"}, "numero_contrat": {"type": "string"},
+                "lignes": {"type": "array", "items": {"type": "object"}},
+                "contrepartie": {"type": "string", "description": "ex '400 HLS'"},
+                "representant": {"type": "string"}}},
+    },
+    {
         "name": "shamir_litige_referentiel_motifs",
         "description": ("Référentiel des motifs de litige (origine/demande/retour) — "
                          "GET /api/litiges/referentiel-motifs. Proxy LIVE prisma-api, pas DuckDB."),
@@ -415,6 +472,25 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_livraison_directe_recherche":
         return _get("/api/livraisons-directes", {
             "client_code": args.get("client_code"), "limit": args.get("limit", 20)})
+    if tool == "shamir_aide_marche_client":
+        return _get(f"/api/clients/{_req(args, 'client_code')}/aide-marche", {})
+    if tool == "shamir_aide_marche_simuler":
+        return _get(f"/api/clients/{_req(args, 'client_code')}/aide-marche/simuler", {
+            "fournisseur": _req(args, "fournisseur"), "code_article": _req(args, "code_article")})
+    if tool == "shamir_aide_marche_creer":
+        return _post(f"/api/clients/{_req(args, 'client_code')}/aide-marche", {
+            "id_fournisseur": _req(args, "id_fournisseur"), "id_article": _req(args, "id_article"),
+            "prix_brasseur": args.get("prix_brasseur"), "prix_client": args.get("prix_client"),
+            "prix_brasseur_direct": args.get("prix_brasseur_direct"),
+            "prix_societe_direct": args.get("prix_societe_direct")})
+    if tool == "shamir_investissement_client":
+        return _get(f"/api/clients/{_req(args, 'client_code')}/investissements", {})
+    if tool == "shamir_investissement_simuler_article":
+        return _get(f"/api/articles/{_req(args, 'code_article')}/investissement-simuler", {})
+    if tool == "shamir_investissement_creer":
+        return _post(f"/api/clients/{_req(args, 'client_code')}/investissements", {
+            "numero_contrat": _req(args, "numero_contrat"), "lignes": _req(args, "lignes"),
+            "contrepartie": args.get("contrepartie"), "representant": args.get("representant")})
     if tool == "shamir_litige_referentiel_motifs":
         return _get("/api/litiges/referentiel-motifs", {})
     if tool == "shamir_litige_client":
