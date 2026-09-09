@@ -1679,6 +1679,11 @@
       "situation": "Utilisateur veut consulter les litiges d'un client (article/pièce/motif concernés)",
       "cli": "lba lba_client_litiges --args '{\"code\":\"<code client>\"}'",
       "note": "Lecture LIVE, motifs déjà résolus en libellés. Distinct de lba_litige_simuler/lba_litige_creer (création, autre skill ouvrir-litige-client)."
+    },
+    "lba_referentiel_reglement_tva_langue": {
+      "situation": "Avant de poser régime TVA/langue/mode de règlement (passage client ou correction) — résoudre les vraies valeurs référentielles PRISMA, jamais deviner",
+      "cli": "lba lba_referentiel_reglement_tva_langue --args '{}'",
+      "note": "TOUJOURS appeler avant lba_prospect_passer_client/lba_client_reglement_corriger. Retourne les 3 listes réelles (mode de règlement 7 valeurs, régime TVA 3 valeurs, langue 184 valeurs avec Français id=48 en tête). Vérifié en live 2026-09-09 : les valeurs codées en dur ailleurs (docstrings) étaient déjà exactes, ce tool évite juste qu'elles dérivent silencieusement."
     }
   }
 }

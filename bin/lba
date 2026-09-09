@@ -2028,6 +2028,16 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "lba_referentiel_reglement_tva_langue",
+        "description": ("Lecture pure — mode de règlement (7 valeurs : CHEQUE/CB/ESPECES/"
+                         "PRELEVEMENT/VIREMENT/TRAITE/PRO) / régime TVA (FRANCE/EXO/INTRACOM) / "
+                         "langue (184 langues ISO 639, Français id=48 en tête de liste) — GET "
+                         "/api/bacchus/referentiel/reglement-tva-langue. Résoudre ICI AVANT tout "
+                         "appel à lba_prospect_passer_client ou lba_client_reglement_corriger — "
+                         "ne JAMAIS deviner idReglementMode/idAssujettiTiers/idLangue."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "lba_referentiel_secteurs_tournees",
         "description": ("Lecture pure — référentiel des secteurs commerciaux et tournées fixes "
                          "PRISMA (id/libellé/personne rattachée/jours) — GET /api/bacchus/"
@@ -3682,6 +3692,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/referentiel/familles-client", {}, headers)
     if tool == "lba_referentiel_tarifs":
         return _get("/api/bacchus/referentiel/tarifs", {}, headers)
+    if tool == "lba_referentiel_reglement_tva_langue":
+        return _get("/api/bacchus/referentiel/reglement-tva-langue", {}, headers)
     if tool == "lba_referentiel_secteurs_tournees":
         return _get("/api/bacchus/referentiel/secteurs-tournees", {}, headers)
     if tool == "lba_referentiel_infos_entreprise":
