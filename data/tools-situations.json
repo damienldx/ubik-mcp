@@ -1320,6 +1320,11 @@
       "situation": "Combien un client Shamir a commande/achete sur une periode (CA agrege)",
       "cli": "shamir shamir_client_historique_ventes --args '{\"client_code\":\"PRISMA-<id>\"}'"
     },
+    "shamir_ventes_pieces_recherche": {
+      "situation": "Carte deck Pieces de vente -- liste sur une periode, filtrable par type(s) (Devis/Commande/Preparation/Livraison/Facture/Avoir), SANS client precis en tete (ex: 'qu'est-ce qu'on a comme travail pour demain', 'liste des pieces de vente de ce debut de mois')",
+      "cli": "shamir shamir_ventes_pieces_recherche --args '{\"date_from\":\"2026-08-01\",\"date_to\":\"2026-08-31\",\"date_field\":\"livraison\",\"types\":\"Facture,Avoir\",\"limit\":100}'",
+      "note": "reponse {total, items} paginee -- source shamir_snapshot.duckdb (copie dediee Shamir), pas lba_snapshot.duckdb. date_field (creation|livraison|facture, defaut creation) CHOISIR SELON L'INTENTION -- bug reel 2026-09-09 : 'livraison pour demain' avec le defaut creation repondait a tort 'rien trouve'"
+    },
     "shamir_tournee_recherche": {
       "situation": "Tournees de livraison Shamir planifiees sur une periode",
       "cli": "shamir shamir_tournee_recherche --args '{\"date_from\":\"...\",\"date_to\":\"...\"}'"

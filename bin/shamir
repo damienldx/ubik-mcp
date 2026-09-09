@@ -198,6 +198,27 @@ TOOLS = [
             "client_code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
     },
     {
+        "name": "shamir_ventes_pieces_recherche",
+        "description": ("Carte deck \"Pièces de vente\" — liste paginée des pièces de vente sur "
+                         "une période, filtrable par un ou plusieurs types (Devis/Commande/"
+                         "Préparation/Livraison/Facture/Avoir). GET /api/ventes/pieces. LECTURE "
+                         "SEULE, snapshot DuckDB DÉDIÉ Shamir (shamir_snapshot.duckdb, pas "
+                         "lba_snapshot.duckdb) — cf shamir_commande_recherche pour la recherche "
+                         "ciblée sur un client, ce tool-ci répond à \"qu'est-ce qu'on a comme "
+                         "pièces de vente sur telle période\" sans client précis en tête. Réponse "
+                         "{total, items} paginée (limit/offset). ⚠️ date_field DÉTERMINE sur quelle "
+                         "date porte date_from/date_to — le choisir selon l'intention réelle "
+                         "('livraison pour demain' = date_field=livraison, PAS le défaut creation, "
+                         "sinon résultat vide/faux alors que des pièces existent bien)."),
+        "inputSchema": {"type": "object", "properties": {
+            "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+            "date_field": {"type": "string", "description": "creation (défaut) | livraison | facture — champ sur lequel portent date_from/date_to ET le tri"},
+            "types": {"type": "string", "description": "CSV parmi Devis,Commande,Préparation,Livraison,Facture,Avoir — vide = tous"},
+            "limit": {"type": "integer", "description": "défaut 100, max 500"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
         "name": "shamir_tournee_recherche",
         "description": "Tournées de livraison planifiées sur une période — GET /api/tournees.",
         "inputSchema": {"type": "object", "properties": {
@@ -573,6 +594,12 @@ def _exec(tool: str, args: dict):
         code = _req(args, "client_code")
         return _get(f"/api/clients/{code}/historique-ventes", {
             "date_from": args.get("date_from"), "date_to": args.get("date_to")})
+    if tool == "shamir_ventes_pieces_recherche":
+        return _get("/api/ventes/pieces", {
+            "date_from": args.get("date_from"), "date_to": args.get("date_to"),
+            "date_field": args.get("date_field", "creation"),
+            "types": args.get("types"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
     if tool == "shamir_tournee_recherche":
         return _get("/api/tournees", {
             "date_from": args.get("date_from"), "date_to": args.get("date_to"),
