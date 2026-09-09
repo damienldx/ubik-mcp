@@ -1599,6 +1599,86 @@
       "situation": "Utilisateur veut que Bacchus voie un média (image/vidéo/audio/document) d'un message WhatsApp déjà lu",
       "cli": "lba lba_whatsapp_piece_jointe_telecharger --args '{\"message_id\":\"<messageId de lba_whatsapp_liste/lire>\"}'",
       "note": "hasMedia:true requis sur le message d'origine. Enregistre en fichier local, `path` à lire avec le tool `Read` natif (vision). DISTINCT du tool MCP whatsapp_download_media qui renvoie du base64 dans le texte — préférer CE tool quand le but est que Bacchus voie l'image, préférer l'autre pour manipuler les octets. 404 si message introuvable ou sans média."
+    },
+    "lba_prospect_corriger_infos": {
+      "situation": "Utilisateur veut corriger l'identité/coordonnées d'une fiche prospect ou client DÉJÀ créée — ÉCRITURE",
+      "cli": "lba lba_prospect_corriger_infos --args '{\"tiers_id\":<id>,\"est_client\":false,\"raison_sociale\":\"...\"}'",
+      "note": "est_client=true si la fiche est déjà client, false si encore prospect — fait de contexte, jamais deviné. Couvre raison sociale, nom commercial, SIRET, téléphone, email, site internet, fax, commentaire, TVA intracom. Correction de contenu d'adresse/contact déjà existant HORS scope (gap connu)."
+    },
+    "lba_prospect_activation": {
+      "situation": "Utilisateur veut activer ou désactiver un tiers (prospect ou client) — ÉCRITURE",
+      "cli": "lba lba_prospect_activation --args '{\"tiers_id\":<id>,\"est_client\":true,\"is_actif\":false}'",
+      "note": "Fonctionne indifféremment sur un tiers déjà actif ou inactif. Désactiver un client a un impact opérationnel réel (visibilité dans certains écrans/rapports natifs filtrés isActif=1) — confirmation utilisateur obligatoire."
+    },
+    "lba_client_reglement_corriger": {
+      "situation": "Utilisateur veut corriger régime TVA/langue/devise/IBAN/BIC/RIB/mode ou délai de règlement/remises d'un CLIENT déjà existant, en dehors de la création — ÉCRITURE",
+      "cli": "lba lba_client_reglement_corriger --args '{\"code\":\"<code client>\",\"mode_reglement\":5}'",
+      "note": "Seule voie de correction post-passage-client de ces champs (avant, posables une seule fois via lba_prospect_passer_client). Ne touche jamais isClient/isProspect. regime_tva/langue/devise/mode_reglement sont des menus déroulants PRISMA (ids référentiels) — jamais deviné, toujours confirmé."
+    },
+    "lba_client_fiche_live": {
+      "situation": "Besoin du statut/isActif/isBlocage/isClient/isProspect d'un client À L'INSTANT T (ex. juste après création/conversion, avant que le sync 15min DuckDB ne l'ait rattrapé)",
+      "cli": "lba lba_client_fiche_live --args '{\"code\":\"<code client>\"}'",
+      "note": "Lecture live SQL Server direct, PAS le snapshot DuckDB de lba_client_fiche. Aucun KPI/CA/historique ici — utiliser lba_client_fiche pour l'analytique, ce tool uniquement quand la fraîcheur immédiate du statut compte."
+    },
+    "lba_client_adresse_creer": {
+      "situation": "Utilisateur veut ajouter une adresse à un client/prospect DÉJÀ existant — ÉCRITURE",
+      "cli": "lba lba_client_adresse_creer --args '{\"code\":\"<code>\",\"nom\":\"...\",\"adresse1\":\"...\",\"code_postal\":\"...\",\"ville\":\"...\"}'",
+      "note": "Écriture LIVE (pas DuckDB) — fonctionne immédiatement sur un client venant d'être créé/converti. La carte créée est ensuite réutilisable pour livraison/facturation/correspondance via lba_client_adresse_types_appliquer, jamais dupliquée par type."
+    },
+    "lba_client_adresse_types_appliquer": {
+      "situation": "Utilisateur veut affecter une adresse déjà créée aux types correspondance/livraison/facturation",
+      "cli": "lba lba_client_adresse_types_appliquer --args '{\"code\":\"<code>\",\"id_adresse\":<id>,\"types\":[\"livraison\"]}'",
+      "note": "id_adresse doit appartenir au client. Idempotent — remplace la liaison existante pour les types précisés, ne touche pas aux autres types déjà posés."
+    },
+    "lba_client_contact_creer": {
+      "situation": "Utilisateur veut ajouter un contact à un client DÉJÀ existant (pas seulement à la création du prospect) — ÉCRITURE",
+      "cli": "lba lba_client_contact_creer --args '{\"code\":\"<code>\",\"nom\":\"...\",\"prenom\":\"...\"}'",
+      "note": "Écriture LIVE. Échoue explicitement (400) si le client n'a pas d'entité CRM_Societe (cas rare). Ne jamais deviner nom/prénom/téléphone/email."
+    },
+    "lba_client_blocage": {
+      "situation": "Utilisateur veut bloquer ou débloquer un compte client — ÉCRITURE, impact métier immédiat",
+      "cli": "lba lba_client_blocage --args '{\"tiers_id\":<id>,\"is_blocage\":true}'",
+      "note": "Un client bloqué ne peut plus passer commande dans PrismaSoft. Aucune lecture de l'état isBlocage actuel exposée par ce tool — utiliser lba_client_fiche_live pour vérifier l'état courant avant d'agir, jamais le déduire."
+    },
+    "lba_referentiel_envoi_facture_mail_affecter": {
+      "situation": "Utilisateur veut activer/désactiver l'envoi de facture par email pour un client — ÉCRITURE",
+      "cli": "lba lba_referentiel_envoi_facture_mail_affecter --args '{\"code_client\":\"<code>\",\"is_envoi_facture_mail\":true}'",
+      "note": "Flag isEnvoiFactureMail sur tiers_client, comme isBlocage — aucun tool générique (corriger_infos/reglement_corriger) ne l'atteint, ce tool est le seul chemin."
+    },
+    "lba_client_aide_marche": {
+      "situation": "Utilisateur veut consulter les aides de marché (contrepartie négociée fournisseur/brasseur) d'un client",
+      "cli": "lba lba_client_aide_marche --args '{\"code\":\"<code client>\"}'",
+      "note": "Lecture LIVE (SQL Server direct). Écran natif PRISMA CLIENTS > MISE A DISPOSITION/AIDE DE MARCHE, même famille que lba_client_investissements."
+    },
+    "lba_client_aide_marche_simuler": {
+      "situation": "Avant de créer une aide de marché — résoudre fournisseur/article sans rien écrire",
+      "cli": "lba lba_client_aide_marche_simuler --args '{\"code\":\"<code>\",\"fournisseur\":\"...\",\"code_article\":\"...\"}'",
+      "note": "TOUJOURS appeler avant lba_client_aide_marche_creer — ne jamais deviner id_fournisseur/id_article. Montre aussi les aides déjà existantes sur cette combinaison exacte."
+    },
+    "lba_client_aide_marche_creer": {
+      "situation": "Utilisateur veut ajouter une ligne d'aide de marché pour un client, fournisseur/article déjà résolus — ÉCRITURE",
+      "cli": "lba lba_client_aide_marche_creer --args '{\"code\":\"<code>\",\"id_fournisseur\":<id>,\"id_article\":<id>}'",
+      "note": "Des doublons client+fournisseur+article existent réellement en base (PrismaSoft n'impose pas d'unicité) — le simulateur les montre pour décider en connaissance de cause, ne bloque pas un ajout légitime supplémentaire."
+    },
+    "lba_client_investissements": {
+      "situation": "Utilisateur veut consulter les contrats d'investissement matériel (mise à disposition) d'un client",
+      "cli": "lba lba_client_investissements --args '{\"code\":\"<code client>\"}'",
+      "note": "Lecture LIVE avec lignes de matériel (colonne à bière, groupe de froid, machine à café, store/enseigne...). Écran natif PRISMA CLIENTS > MISE A DISPOSITION/AIDE DE MARCHE."
+    },
+    "lba_client_investissement_article_simuler": {
+      "situation": "Avant de créer un investissement matériel — résoudre un article de matériel par son code, sans écrire",
+      "cli": "lba lba_client_investissement_article_simuler --args '{\"code_article\":\"...\"}'",
+      "note": "TOUJOURS appeler pour CHAQUE ligne avant lba_client_investissement_creer. Résolution SANS filtre isActif — du matériel déjà installé peut référencer un modèle aujourd'hui inactif."
+    },
+    "lba_client_investissement_creer": {
+      "situation": "Utilisateur veut créer un contrat d'investissement matériel + ses lignes, articles déjà résolus — ÉCRITURE",
+      "cli": "lba lba_client_investissement_creer --args '{\"code\":\"<code>\",\"numero_contrat\":\"2026-09-09\",\"lignes\":[]}'",
+      "note": "Transaction atomique (tout ou rien). numero_contrat = une DATE (ex '2026-09-03'), jamais un numéro incrémental — convention réelle observée côté SAV, ne pas inventer un autre format."
+    },
+    "lba_client_litiges": {
+      "situation": "Utilisateur veut consulter les litiges d'un client (article/pièce/motif concernés)",
+      "cli": "lba lba_client_litiges --args '{\"code\":\"<code client>\"}'",
+      "note": "Lecture LIVE, motifs déjà résolus en libellés. Distinct de lba_litige_simuler/lba_litige_creer (création, autre skill ouvrir-litige-client)."
     }
   }
 }
