@@ -146,6 +146,15 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # oublié appellerait :8504 SANS Authorization: Bearer -> 401 en
     # silence").
     "lba_referentiel_reglement_tva_langue", "lba_referentiel_pays",
+    # Audit exhaustif suite au gap ci-dessus (2026-09-10, LEAD) — 6 autres
+    # tools du même router_referentiel (+ bacchus_client_tools.py cluster
+    # articles-commande) avaient le même trou, jamais remontés faute d'usage
+    # Bacchus récent : centrale (GET enfants + PATCH affecter), articles-
+    # commande (GET + POST), horaire-appel (GET + POST, signalé par Damien —
+    # "horaire et jour appel télévente" bloqué en 401 malgré le 1er fix).
+    "lba_referentiel_centrale_affecter", "lba_referentiel_centrale_enfants",
+    "lba_client_articles_commande", "lba_client_article_commande_ajouter",
+    "lba_client_horaire_appel", "lba_client_horaire_appel_affecter",
     # ── Cluster COMPTE — blocage/déblocage, correction identité, activation
     # (missions #8/gap plan_8f1cba08/2026-09-06) — POST /api/bacchus/
     # prospects/{blocage,corriger-infos,activation}, Depends(current_user)
