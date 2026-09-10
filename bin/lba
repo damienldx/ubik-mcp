@@ -133,6 +133,19 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_referentiel_secteurs_tournees", "lba_referentiel_infos_entreprise",
     "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
     "lba_referentiel_representant_affecter", "lba_referentiel_infos_entreprise_affecter",
+    # lba_referentiel_reglement_tva_langue / lba_referentiel_pays (2026-09-10,
+    # bug remonté par Damien — 401 "Non authentifié" constant sur reglement-
+    # tva-langue, blocage bascule prospect->client AAS SARCELLES RUGBY) :
+    # gap d'oubli dans CETTE whitelist, pas un bug backend. bacchus_prospect_
+    # tools.py:router_referentiel exige Depends(current_user) réel sur les 4
+    # GET du router (familles-client/tarifs/reglement-tva-langue/pays), mais
+    # seuls les 2 premiers avaient été ajoutés ici — reglement-tva-langue et
+    # pays appelaient donc _get(...) avec headers={} (pas de ticket-exchange,
+    # cf _auth_headers), d'où 401 systématique côté backend, exactement
+    # comme documenté dans le docstring de ce module ("un tool Graph/Todo
+    # oublié appellerait :8504 SANS Authorization: Bearer -> 401 en
+    # silence").
+    "lba_referentiel_reglement_tva_langue", "lba_referentiel_pays",
     # ── Cluster COMPTE — blocage/déblocage, correction identité, activation
     # (missions #8/gap plan_8f1cba08/2026-09-06) — POST /api/bacchus/
     # prospects/{blocage,corriger-infos,activation}, Depends(current_user)
