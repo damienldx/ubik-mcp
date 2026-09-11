@@ -776,18 +776,40 @@ TOOLS = [
     {
         "name": "lba_clients_filtre",
         "description": ("Liste clients (TOUTE la base, pas juste les acheteurs de l'année) filtrable "
-                         "isActif × famille/sous-famille × tarif (num ou libellé), paginée — GET "
-                         "/api/bacchus/clients/filtre. Répond à 'combien de clients isActif=true, famille "
-                         "CHR ou 3EME MARCHE, ont tarif Essentiel/Confort/Prestige/AD2026/Proximité' en une "
-                         "requête. Champs retournés : tiers_id (identifiant fiable, préférer à code — "
-                         "code n'est PAS toujours unique), code, raison_sociale, is_actif, famille, "
-                         "sousfamille, tarif_num, tarif_libelle, rep_code."),
+                         "isActif × famille/sous-famille × tarif (num ou libellé) × email renseigné, "
+                         "paginée — GET /api/bacchus/clients/filtre. Répond à 'combien de clients "
+                         "isActif=true, famille CHR ou 3EME MARCHE, ont tarif Essentiel/Confort/Prestige/"
+                         "AD2026/Proximité' en une requête. Sert AUSSI à sourcer un lot de clients à "
+                         "recontacter par mail (AJOUT 2026-09-11, cf skill relance-clients-inactifs) : "
+                         "is_actif=false + has_email=true = lot de clients inactifs mailables, is_actif="
+                         "true = lot de clients actifs. Champs retournés : tiers_id (identifiant fiable, "
+                         "préférer à code — code n'est PAS toujours unique), code, raison_sociale, "
+                         "is_actif, famille, sousfamille, tarif_num, tarif_libelle, rep_code, email, "
+                         "telephone."),
         "inputSchema": {"type": "object", "properties": {
             "is_actif": {"type": "boolean"}, "famille": {"type": "string", "description": "exact, insensible casse, ex CHR"},
             "sousfamille": {"type": "string", "description": "exact, insensible casse"},
             "tarif_num": {"type": "integer"},
             "tarif_libelle": {"type": "string", "description": "contains, insensible casse, ex ESSENTIELLE/CONFORT/PRESTIGE/AD"},
             "q": {"type": "string", "description": "recherche texte code/raison sociale"},
+            "has_email": {"type": "boolean", "description": "true = uniquement les fiches avec email renseigné (sourcing lot mailable), false = uniquement sans email"},
+            "limit": {"type": "integer", "description": "défaut 100, max 1000"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_prospects_filtre",
+        "description": ("AJOUT 2026-09-11 (brief Damien via LEAD) — miroir de lba_clients_filtre côté "
+                         "PROSPECTS (PrismaGestionCo_tiers.isProspect=True) : liste filtrable isActif × "
+                         "email renseigné, paginée — GET /api/bacchus/prospects/filtre. Pas de famille/"
+                         "tarif ici (notions client uniquement, un prospect n'en a jamais tant qu'il n'est "
+                         "pas passé client, cf lba_prospect_passer_client). Sert à sourcer un lot de "
+                         "prospects à recontacter par mail, même doctrine que lba_clients_filtre "
+                         "(is_actif=false + has_email=true = lot de prospects inactifs mailables). Champs "
+                         "retournés : tiers_id, code, raison_sociale, is_actif, email, telephone."),
+        "inputSchema": {"type": "object", "properties": {
+            "is_actif": {"type": "boolean"},
+            "q": {"type": "string", "description": "recherche texte code/raison sociale"},
+            "has_email": {"type": "boolean", "description": "true = uniquement les fiches avec email renseigné, false = uniquement sans email"},
             "limit": {"type": "integer", "description": "défaut 100, max 1000"},
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
@@ -1949,17 +1971,29 @@ TOOLS = [
         "name": "lba_mail_envoyer",
         "description": ("[ÉCRITURE] Compose et envoie un mail Outlook NEUF (pas un reply) — POST /api/bacchus/mail/envoyer. "
                          "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend. "
-                         "attachments (AJOUT 2026-08-31) : contenu fourni EN BASE64 par l'appelant, pas un path serveur — "
-                         "limite Graph sendMail ~3 Mo par message tous fichiers confondus."),
+                         "attachments : DEUX façons de fournir le contenu, mutuellement exclusives par entrée — "
+                         "`path` (AJOUT 2026-09-11, PRÉFÉRER pour un fichier déjà uploadé au chat via la barre de prompt, "
+                         "chemin absolu tel que reçu dans le marqueur '[fichier joint: ...]' — le serveur lit et encode "
+                         "base64 lui-même, ne JAMAIS retaper le contenu en base64 pour ce cas) OU `content_base64` "
+                         "(AJOUT 2026-08-31, contenu déjà en clair fourni par l'appelant, ex. pièce jointe WhatsApp reçue "
+                         "dans le fil). Taille cumulée vérifiée côté serveur avant envoi — limite Graph sendMail ~3 Mo "
+                         "par message tous fichiers confondus, message d'erreur explicite si dépassée. "
+                         "⚠️ USAGE ATTENDU inter-collaborateur (transmettre un document à un collègue/un client déjà en "
+                         "relation active) — PAS pour une relance/prospection externe non sollicitée (risque spam/"
+                         "phishing côté destinataire, doctrine Damien 2026-09-11) : refuser d'attacher un fichier à ce "
+                         "type de mail et le signaler à l'opérateur plutôt que d'exécuter silencieusement."),
         "inputSchema": {"type": "object", "required": ["to", "subject", "body"], "properties": {
             "to": {"type": "string", "description": "destinataire(s), CSV d'emails"},
             "subject": {"type": "string"}, "body": {"type": "string"},
             "cc": {"type": "string", "description": "optionnel, CSV d'emails"},
             "is_html": {"type": "boolean", "description": "défaut false"},
-            "attachments": {"type": "array", "description": "optionnel — liste de {name, content_type, content_base64}",
-                             "items": {"type": "object", "required": ["name", "content_base64"], "properties": {
-                                 "name": {"type": "string"}, "content_type": {"type": "string"},
-                                 "content_base64": {"type": "string"}}}}}},
+            "attachments": {"type": "array",
+                             "description": "optionnel — liste d'objets, chacun avec soit path soit content_base64 (jamais les deux)",
+                             "items": {"type": "object", "properties": {
+                                 "name": {"type": "string", "description": "requis avec content_base64 ; déduit du nom de fichier si path est utilisé et name omis"},
+                                 "content_type": {"type": "string", "description": "optionnel, déduit de l'extension si path est utilisé"},
+                                 "path": {"type": "string", "description": "chemin absolu d'un fichier déjà uploadé au chat — préféré, lu/encodé côté serveur"},
+                                 "content_base64": {"type": "string", "description": "contenu déjà en base64, ex. pièce jointe WhatsApp"}}}}}},
     },
     {
         "name": "lba_whatsapp_envoyer",
