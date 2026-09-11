@@ -1996,6 +1996,93 @@ TOOLS = [
                                  "content_base64": {"type": "string", "description": "contenu déjà en base64, ex. pièce jointe WhatsApp"}}}}}},
     },
     {
+        "name": "lba_email_generer_html",
+        "description": ("AJOUT 2026-09-11 (brief Damien via LEAD, plan_0d04dd1f) — génère un fragment HTML "
+                         "mail-safe (styles inline, tableaux, zéro flex/grid/image) charté LBA (marine, or) "
+                         "à partir de blocs composés par Bacchus — POST /api/bacchus/email/generer_html. "
+                         "Stateless, aucune écriture, aucune donnée privée lue. Le `html` retourné est "
+                         "directement réutilisable comme `body` de lba_mail_envoyer(is_html=true) — RIEN "
+                         "d'autre à transformer. Pour le PRÉSENTER à l'opérateur avant envoi, l'inclure dans "
+                         "le marqueur [[ARTIFACT:...]] du panneau synthèse (champ `html`, cf artifactMarker). "
+                         "Bloc 'bouton' : url doit commencer par http(s):// (rejeté sinon, ex. javascript:). "
+                         "Champs correctement nommés par bloc — 'titre'/'paragraphe' utilisent `texte`, "
+                         "'liste' utilise `items`, 'tableau' utilise `lignes` (1ère ligne = en-tête), "
+                         "'bouton' utilise `label` (PAS `texte`) + `url` + `accent` optionnel."),
+        "inputSchema": {"type": "object", "required": ["titre", "blocs"], "properties": {
+            "titre": {"type": "string", "description": "titre interne (repli objet si `objet` absent)"},
+            "objet": {"type": "string", "description": "objet du mail (défaut = titre)"},
+            "signature": {"type": "string", "description": "pied de mail (défaut 'LBA Boissons')"},
+            "blocs": {"type": "array", "description": "blocs de contenu, dans l'ordre",
+                      "items": {"type": "object", "required": ["type"], "properties": {
+                          "type": {"type": "string", "description": "un de : titre, paragraphe, liste, tableau, bouton, separateur"},
+                          "texte": {"type": "string", "description": "texte (type='titre' ou 'paragraphe')"},
+                          "niveau": {"type": "integer", "description": "niveau de titre (type='titre'), 1=plus visible, défaut 1"},
+                          "items": {"type": "array", "description": "puces (type='liste')", "items": {"type": "string"}},
+                          "lignes": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type='tableau')",
+                                     "items": {"type": "array", "items": {"type": "string"}}},
+                          "label": {"type": "string", "description": "texte du bouton (type='bouton', PAS `texte`)"},
+                          "url": {"type": "string", "description": "lien du bouton, http(s):// requis (type='bouton')"},
+                          "accent": {"type": "string", "description": "couleur du bouton : marine (défaut), rouge ou or (type='bouton')"}}}}}},
+    },
+    {
+        "name": "lba_prospection_documents_tree",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) — arborescence du Drive Documents Prospection "
+                         "(root PARTAGÉ, tous seats/users) — GET /api/bacchus/prospection/documents/tree. "
+                         "Réponse `tree` = rendu ASCII texte (pas du JSON structuré, cf ├──/└──), max_depth "
+                         "borne la profondeur (défaut serveur 3). `path` = dossier de départ (racine '.' si omis)."),
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "dossier de départ, racine ('.') si omis"},
+            "max_depth": {"type": "integer", "description": "profondeur max de l'arborescence, défaut serveur 3"}}},
+    },
+    {
+        "name": "lba_prospection_documents_mkdir",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) [ÉCRITURE] — crée un dossier dans le Drive "
+                         "Documents Prospection — POST /api/bacchus/prospection/documents/mkdir."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin du nouveau dossier (relatif à la racine du Drive)"}}},
+    },
+    {
+        "name": "lba_prospection_documents_rename",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) [ÉCRITURE] — renomme un dossier/fichier du Drive "
+                         "Documents Prospection — POST /api/bacchus/prospection/documents/rename. ⚠️ Champ "
+                         "`src` (PAS `path`) pour le chemin source."),
+        "inputSchema": {"type": "object", "required": ["src", "new_name"], "properties": {
+            "src": {"type": "string", "description": "chemin actuel (relatif à la racine du Drive)"},
+            "new_name": {"type": "string", "description": "nouveau nom (segment final uniquement, pas un chemin)"}}},
+    },
+    {
+        "name": "lba_prospection_documents_rm",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) [ÉCRITURE, destructif] — supprime définitivement "
+                         "un dossier (récursif) ou fichier du Drive Documents Prospection — DELETE /api/"
+                         "bacchus/prospection/documents/rm. Confirmation utilisateur explicite recommandée "
+                         "avant tout appel — aucune corbeille, suppression immédiate."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin à supprimer (relatif à la racine du Drive)"}}},
+    },
+    {
+        "name": "lba_prospection_documents_search",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) — recherche de fichiers/dossiers dans le Drive "
+                         "Documents Prospection — POST /api/bacchus/prospection/documents/search."),
+        "inputSchema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string", "description": "mot-clé recherché (nom de fichier/dossier)"},
+            "limit": {"type": "integer", "description": "défaut serveur 8"},
+            "path_prefix": {"type": "string", "description": "optionnel — restreint la recherche à ce sous-dossier"}}},
+    },
+    {
+        "name": "lba_prospection_documents_archiver",
+        "description": ("AJOUT 2026-09-11 (plan_0d04dd1f) [ÉCRITURE] — archive dans le Drive Documents "
+                         "Prospection un fichier DÉJÀ présent sur le serveur (ex. généré par lba_email_"
+                         "generer_html sauvegardé localement, ou pièce jointe déjà téléchargée) — POST /api/"
+                         "bacchus/prospection/documents/archiver. Même discipline que lba_dossier_archiver : "
+                         "`local_path` doit être un chemin déjà légitime côté serveur, jamais un chemin "
+                         "arbitraire (garde-fou serveur). `path` doit être un dossier EXISTANT du Drive "
+                         "(pas de mkdir implicite — créer via lba_prospection_documents_mkdir si besoin)."),
+        "inputSchema": {"type": "object", "required": ["local_path", "path"], "properties": {
+            "local_path": {"type": "string", "description": "chemin serveur du fichier déjà présent (ex. téléchargement précédent)"},
+            "path": {"type": "string", "description": "dossier CIBLE EXISTANT du Drive où archiver"},
+            "filename": {"type": "string", "description": "optionnel — nom d'archivage, défaut nom du fichier source"}}},
+    },
+    {
         "name": "lba_whatsapp_envoyer",
         "description": ("[ÉCRITURE] Compose et envoie un message WhatsApp SORTANT — POST /api/bacchus/whatsapp/envoyer. "
                          "Mirroir exact de lba_mail_envoyer (même gate VERT/ORANGE/ROUGE côté backend, "
@@ -3924,7 +4011,34 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_mail_envoyer":
         return _post("/api/bacchus/mail/envoyer", {
             "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
-            "cc": args.get("cc"), "is_html": args.get("is_html", False)}, headers)
+            "cc": args.get("cc"), "is_html": args.get("is_html", False),
+            "attachments": args.get("attachments")}, headers)
+    if tool == "lba_email_generer_html":
+        return _post("/api/bacchus/email/generer_html", {
+            "titre": _req(args, "titre"), "objet": args.get("objet"),
+            "signature": args.get("signature"), "blocs": _req(args, "blocs")})
+    if tool == "lba_prospection_documents_tree":
+        return _get("/api/bacchus/prospection/documents/tree", {
+            "path": args.get("path"), "max_depth": args.get("max_depth")})
+    if tool == "lba_prospection_documents_mkdir":
+        return _post("/api/bacchus/prospection/documents/mkdir", {"path": _req(args, "path")})
+    if tool == "lba_prospection_documents_rename":
+        return _post("/api/bacchus/prospection/documents/rename", {
+            "src": _req(args, "src"), "new_name": _req(args, "new_name")})
+    if tool == "lba_prospection_documents_rm":
+        return _delete(f"/api/bacchus/prospection/documents/rm?{urlencode({'path': _req(args, 'path')})}")
+    if tool == "lba_prospection_documents_search":
+        payload = {"query": _req(args, "query")}
+        if args.get("limit") is not None:
+            payload["limit"] = args["limit"]
+        if args.get("path_prefix") is not None:
+            payload["path_prefix"] = args["path_prefix"]
+        return _post("/api/bacchus/prospection/documents/search", payload)
+    if tool == "lba_prospection_documents_archiver":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/prospection/documents/archiver", {
+            "local_path": _req(args, "local_path"), "path": _req(args, "path"),
+            "filename": args.get("filename"), "agent_id": agent_id})
     if tool == "lba_whatsapp_envoyer":
         return _post("/api/bacchus/whatsapp/envoyer", {
             "chatId": _req(args, "chatId"), "message": _req(args, "message")}, headers)
@@ -4610,6 +4724,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "is_actif": args.get("is_actif"), "famille": args.get("famille"),
             "sousfamille": args.get("sousfamille"), "tarif_num": args.get("tarif_num"),
             "tarif_libelle": args.get("tarif_libelle"), "q": args.get("q"),
+            "has_email": args.get("has_email"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_prospects_filtre":
+        return _get("/api/bacchus/prospects/filtre", {
+            "is_actif": args.get("is_actif"), "q": args.get("q"),
+            "has_email": args.get("has_email"),
             "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
     if tool == "lba_tdc_kpis":
         return _get("/api/bacchus/rentabilite/tdc-kpis", {
