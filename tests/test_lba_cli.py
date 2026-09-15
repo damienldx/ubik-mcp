@@ -873,5 +873,65 @@ class TestCapacitesRechercher(unittest.TestCase):
         self.assertIn("lba_capacites_rechercher", names)
 
 
+class TestAchatsBlImporterLignesSousLignes(unittest.TestCase):
+    """Mission #4 (plan_aaa13ea2) : extension du schema JSON lba_achats_bl_
+    importer_lignes pour exposer sous_lignes (facturation d'une même ligne
+    BL en plusieurs portions prix/remise différents — cas gratuités
+    fournisseur). Verrouille le schema exposé côté Bacchus + le passthrough
+    intégral au dispatch (aucune transformation attendue, le dispatcher
+    forwarde lignes_facturees tel quel vers prisma-api)."""
+
+    def setUp(self):
+        self._orig_post = lba_cli._post
+
+        def fake_post(path, payload, headers=None):
+            raise CapturedPost(path, payload)
+
+        lba_cli._post = fake_post
+
+    def tearDown(self):
+        lba_cli._post = self._orig_post
+
+    def _schema(self):
+        tool = next(t for t in lba_cli.TOOLS if t["name"] == "lba_achats_bl_importer_lignes")
+        return tool["inputSchema"]["properties"]["lignes_facturees"]["items"]["properties"]
+
+    def test_schema_exposes_sous_lignes_field(self):
+        props = self._schema()
+        self.assertIn("sous_lignes", props)
+        sl_items = props["sous_lignes"]["items"]
+        self.assertEqual(sl_items["required"], ["quantite_facturee", "prix_unitaire_facture"])
+        self.assertIn("remise1_pct", sl_items["properties"])
+
+    def test_sous_lignes_passthrough_unchanged(self):
+        sous_lignes = [
+            {"quantite_facturee": 7, "prix_unitaire_facture": 0.7395},
+            {"quantite_facturee": 3, "prix_unitaire_facture": 0.7395, "remise1_pct": 100},
+        ]
+        lignes_facturees = [{"id_ligne": 52924, "quantite_facturee": 10, "sous_lignes": sous_lignes}]
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_achats_bl_importer_lignes", {
+                "ids_lignes": [52924], "lignes_facturees": lignes_facturees,
+                "confirm": True, "agent_id": "22fcf4a5-agent-1",
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.path, "/api/bacchus/achats/facturation/importer-lignes")
+        self.assertEqual(cap.payload["lignes_facturees"], lignes_facturees)
+        self.assertEqual(cap.payload["lignes_facturees"][0]["sous_lignes"], sous_lignes)
+
+    def test_lignes_facturees_without_sous_lignes_still_optional(self):
+        # non-régression : sous_lignes absent doit rester un cas valide,
+        # comportement inchangé (une seule quantite/prix par id_ligne).
+        lignes_facturees = [{"id_ligne": 52924, "quantite_facturee": 10, "prix_unitaire_facture": 0.7395}]
+        with self.assertRaises(CapturedPost) as ctx:
+            lba_cli._exec("lba_achats_bl_importer_lignes", {
+                "ids_lignes": [52924], "lignes_facturees": lignes_facturees,
+                "confirm": True, "agent_id": "22fcf4a5-agent-1",
+            })
+        cap = ctx.exception
+        self.assertEqual(cap.payload["lignes_facturees"], lignes_facturees)
+        self.assertNotIn("sous_lignes", cap.payload["lignes_facturees"][0])
+
+
 if __name__ == "__main__":
     unittest.main()

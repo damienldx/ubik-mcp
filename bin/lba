@@ -1476,6 +1476,12 @@ TOOLS = [
                     "quantite_facturee": {"type": "number", "description": "quantité FACTURÉE lue sur le PDF, jamais la quantité BL"},
                     "prix_unitaire_facture": {"type": "number"},
                     "motif_ecart": {"type": "string", "description": "texte libre optionnel"},
+                    "sous_lignes": {"type": "array", "description": "optionnel — scinde CETTE ligne BL en plusieurs portions à prix/remise différents (ex. gratuités fournisseur : une portion plein tarif + une portion remise1_pct=100). Au moins 2 entrées si fourni (sinon omettre). La somme des quantite_facturee des sous-lignes DOIT égaler quantite_facturee de la ligne parente (vérifié côté prisma-api, refus explicite sinon).", "items": {
+                        "type": "object", "required": ["quantite_facturee", "prix_unitaire_facture"], "properties": {
+                            "quantite_facturee": {"type": "number"},
+                            "prix_unitaire_facture": {"type": "number", "description": "prix d'achat de référence — reste visible même pour une portion à remise1_pct=100 (net 0€), jamais omis"},
+                            "remise1_pct": {"type": "number", "description": "remise en % (0-100), ex. 100 = gratuité fournisseur"},
+                        }}},
                 }}},
             "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
