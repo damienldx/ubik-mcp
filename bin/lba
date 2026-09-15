@@ -187,6 +187,12 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # correspondants n'ont PAS Depends(current_user) côté backend, donc pas
     # listés ici.
     "lba_client_aide_marche_creer", "lba_client_investissement_creer",
+    # ── lba_commande_statut_modifier (2026-09-15, msg_ref=c72f21f7476d) —
+    # PATCH /api/bacchus/commande/{num_commande}/statut, Depends(current_user)
+    # réel côté bacchus_commande_tools.py (actor=user["email"] tracé côté
+    # backend), même mécanisme que lba_prospect_creer. lba_commande_statuts
+    # (GET référentiel) n'a PAS Depends(current_user) — pas listé ici.
+    "lba_commande_statut_modifier",
     # ── Câblage lba_direction_* restants (2026-09-06, carte t_d34e744fe6,
     # gap remonté 2x avant ce sprint) — SEUL des 4 tools de ce lot à exiger
     # le ticket-exchange : bacchus_direction_envois_attente a
@@ -739,6 +745,39 @@ TOOLS = [
             "echeance_a": {"type": "string", "description": "YYYY-MM-DD"},
             "limit": {"type": "integer", "description": "défaut 200, max 1000"},
             "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_commande_statuts",
+        "description": ("Lecture pure — référentiel complet des statuts de commande "
+                         "(idStatutCommande, colonne \"Statut\" du module Liste > Commande, racine "
+                         "Clients côté PrismaSoft natif) — GET /api/bacchus/commande/statuts. "
+                         "10 statuts réels : INTERNE, PRÉ-COMMANDE, RELIQUAT RUPTURE, APP, RELEVÉ DE "
+                         "BL, BLOCAGE COMPTA, PLV DÉJÀ LIVRÉE, REPRISE DE VIDE, DOUBLON DÉCONSIGNE, "
+                         "IVAN — chacun avec la liste des états de commande où il est applicable "
+                         "(ex. PRÉ-COMMANDE invalide sur une pièce Avoir). TOUJOURS appeler AVANT "
+                         "lba_commande_statut_modifier pour connaître les libellés valides — jamais "
+                         "en deviner un."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_commande_statut_modifier",
+        "description": ("[ÉCRITURE] Pose ou EFFACE le statut (idStatutCommande) d'une commande "
+                         "existante, identifiée par son numCommande — PATCH "
+                         "/api/bacchus/commande/{num_commande}/statut. libelle_statut = un des "
+                         "libellés de lba_commande_statuts (appeler ce tool AVANT, jamais deviner un "
+                         "libellé) ; absent/vide EFFACE le statut existant. Refusé (400) si le statut "
+                         "demandé n'est pas applicable à l'état courant de la commande (ex. "
+                         "\"RELEVÉ DE BL\" n'est valide que sur une pièce Livraison) — le message "
+                         "d'erreur liste les états valides, à relayer tel quel à l'utilisateur, "
+                         "jamais forcé. Distinct du flux opérationnel etat (Commande/Préparation/"
+                         "Livraison/Facture) : ce statut est un simple tag de traçabilité/reporting, "
+                         "orthogonal, il ne fait pas avancer la commande dans son cycle de vie. "
+                         "Confirmation utilisateur OBLIGATOIRE avant appel — ne jamais poser/effacer "
+                         "un statut sans validation explicite dans l'échange conversationnel, en "
+                         "particulier une remise à vide."),
+        "inputSchema": {"type": "object", "required": ["num_commande"], "properties": {
+            "num_commande": {"type": "integer", "description": "numéro de commande (numCommande, identifiant métier visible utilisateur — PAS l'id interne)"},
+            "libelle_statut": {"type": "string", "description": "un des libellés de lba_commande_statuts — absent/vide efface le statut existant"}}},
     },
     {
         "name": "lba_rentabilite_produits",
@@ -4832,6 +4871,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "en_cours_uniquement": args.get("en_cours_uniquement"),
             "echeance_de": args.get("echeance_de"), "echeance_a": args.get("echeance_a"),
             "limit": args.get("limit", 200), "offset": args.get("offset", 0)}, headers)
+    if tool == "lba_commande_statuts":
+        return _get("/api/bacchus/commande/statuts", {}, headers)
+    if tool == "lba_commande_statut_modifier":
+        num_commande = _req(args, "num_commande")
+        return _patch(f"/api/bacchus/commande/{num_commande}/statut", {
+            "libelle_statut": args.get("libelle_statut")}, headers)
     if tool == "lba_litige_motifs":
         return _get("/api/bacchus/client/litiges/motifs", {})
     if tool == "lba_client_litiges":
