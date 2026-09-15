@@ -1978,7 +1978,12 @@ TOOLS = [
                          "une erreur. POST /api/bacchus/pieces-vente/prix-negocie/creer."),
         "inputSchema": {"type": "object",
             "required": ["code_client", "ref_externe", "lignes", "confirm"], "properties": {
-            "code_client": {"type": "string"}, "ref_externe": {"type": "string"},
+            "code_client": {"type": "string"},
+            "ref_externe": {"type": "string", "maxLength": 100,
+                             "description": "MAX 100 caractères (colonne PrismaSoft limitée, tronqué "
+                                             "silencieusement au-delà côté ce tool) — mets l'info la "
+                                             "plus importante en PREMIER (ex. code_client puis motif "
+                                             "court), n'écris PAS une phrase complète ici"},
             "origine_commande": {"type": "string"},
             "lignes": {"type": "array", "items": {"type": "object",
                 "required": ["code_article", "quantite"],
