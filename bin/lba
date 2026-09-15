@@ -1469,6 +1469,51 @@ TOOLS = [
                 "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
             }},
     },
+    # ── Modification directe de quantité sur ligne de réception (plan_c27c8a6b,
+    # brief Ivan via Pierre, msg_ref 972ed291c417) — UPDATE atomique de la
+    # ligne ET du mouvement de stock côté prisma-api, SANS suppression+
+    # recréation. Cas réel Rouquette BL 00579199/79200, ligne GRANINI NEC
+    # ANANAS 6X1L PET, 152 -> 114 packs. Mécanisme d'enregistrement VÉRIFIÉ
+    # (liste manuelle + dispatch manuel, même discipline que ligne_
+    # suppression ci-dessus) avant rédaction de ces entrées.
+    {
+        "name": "lba_achats_reception_ligne_modifier_simuler",
+        "description": ("Lecture pure — résout une ligne de réception fournisseur par son "
+                         "numéro de BL (`numero_piece`) et son article (`code_article`), même "
+                         "désambiguïsation que lba_achats_reception_ligne_suppression_simuler "
+                         "(`quantite` optionnel), et prévisualise la MODIFICATION de sa quantité "
+                         "livrée vers `nouvelle_quantite` + du mouvement de stock associé. SANS "
+                         "RIEN ÉCRIRE. TOUJOURS appeler EN PREMIER, présenter le résultat à "
+                         "l'utilisateur, ne JAMAIS deviner une ligne ambiguë à sa place. POST "
+                         "/api/bacchus/achats/reception/ligne-modifier/simuler."),
+        "inputSchema": {"type": "object",
+            "required": ["numero_piece", "code_article", "nouvelle_quantite"], "properties": {
+                "numero_piece": {"type": "string", "description": "numéro de BL (numBL PrismaSoft)"},
+                "code_article": {"type": "string"},
+                "nouvelle_quantite": {"type": "number", "description": "quantité livrée corrigée"},
+                "quantite": {"type": "number", "description": "optionnel — désambiguïse si plusieurs lignes même article/BL (quantité livrée ACTUELLE de la ligne visée)"},
+            }},
+    },
+    {
+        "name": "lba_achats_reception_ligne_modifier_creer",
+        "description": ("ÉCRITURE — modifie ATOMIQUEMENT (même transaction côté prisma-api) la "
+                         "quantité livrée d'une ligne de réception fournisseur ET le mouvement de "
+                         "stock qu'elle a créé, SANS suppression+recréation. TOUJOURS avoir appelé "
+                         "lba_achats_reception_ligne_modifier_simuler AVANT et présenté le résultat "
+                         "à l'utilisateur — n'appeler qu'APRÈS confirmation explicite sur la ligne, "
+                         "l'ancienne et la nouvelle quantité, et le mouvement de stock affichés. "
+                         "confirm=true REQUIS. Réservé direction/backoffice/achats-logistique — 403 "
+                         "sinon. POST /api/bacchus/achats/reception/ligne-modifier/creer."),
+        "inputSchema": {"type": "object",
+            "required": ["numero_piece", "code_article", "nouvelle_quantite", "confirm"], "properties": {
+                "numero_piece": {"type": "string"},
+                "code_article": {"type": "string"},
+                "nouvelle_quantite": {"type": "number", "description": "quantité livrée corrigée"},
+                "quantite": {"type": "number", "description": "optionnel — désambiguïse si plusieurs lignes même article/BL (quantité livrée ACTUELLE de la ligne visée)"},
+                "confirm": {"type": "boolean"},
+                "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+            }},
+    },
     {
         "name": "lba_achats_bl_lignes_non_imputees",
         "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
@@ -5017,6 +5062,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/achats/reception/ligne-suppression/creer", {
             "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
             "quantite": args.get("quantite"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_reception_ligne_modifier_simuler":
+        return _post("/api/bacchus/achats/reception/ligne-modifier/simuler", {
+            "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
+            "nouvelle_quantite": _req(args, "nouvelle_quantite"), "quantite": args.get("quantite")})
+    if tool == "lba_achats_reception_ligne_modifier_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/reception/ligne-modifier/creer", {
+            "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
+            "nouvelle_quantite": _req(args, "nouvelle_quantite"), "quantite": args.get("quantite"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lignes_non_imputees":
         return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
