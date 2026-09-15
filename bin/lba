@@ -1975,7 +1975,12 @@ TOOLS = [
                          "ivan.diril — 403 sinon. ref_externe TRONQUÉ à 100 caractères côté ce tool "
                          "(colonne PrismaSoft limitée) — mets l'information la plus importante en "
                          "PREMIER (ex. le client/motif), le surplus est coupé silencieusement, pas "
-                         "une erreur. POST /api/bacchus/pieces-vente/prix-negocie/creer."),
+                         "une erreur. `commentaire` (optionnel) va dans le champ commentaire NATIF "
+                         "de la pièce (commentaireCommande, max 255 car., tronqué silencieusement "
+                         "au-delà) — c'est LÀ qu'écrire le contexte lisible, JAMAIS dans ref_externe. "
+                         "`libelle_statut` (optionnel) : un des libellés de lba_commande_statuts, posé "
+                         "directement à la création (400 si non applicable à l'état \"Commande\"). "
+                         "POST /api/bacchus/pieces-vente/prix-negocie/creer."),
         "inputSchema": {"type": "object",
             "required": ["code_client", "ref_externe", "lignes", "confirm"], "properties": {
             "code_client": {"type": "string"},
@@ -1985,6 +1990,13 @@ TOOLS = [
                                              "plus importante en PREMIER (ex. code_client puis motif "
                                              "court), n'écris PAS une phrase complète ici"},
             "origine_commande": {"type": "string"},
+            "commentaire": {"type": "string", "maxLength": 255,
+                             "description": "commentaire NATIF de la pièce (commentaireCommande) — "
+                                             "LE champ pour du texte libre lisible, contrairement à "
+                                             "ref_externe. Tronqué silencieusement à 255 caractères."},
+            "libelle_statut": {"type": "string",
+                                "description": "un des libellés de lba_commande_statuts — appeler ce "
+                                                "tool AVANT pour connaître les valeurs valides"},
             "lignes": {"type": "array", "items": {"type": "object",
                 "required": ["code_article", "quantite"],
                 "properties": {
@@ -5235,9 +5247,17 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         # compose souvent un résumé descriptif complet en ref_externe, la
         # troncature reste lisible/exploitable, jamais bloquante.
         ref_externe = _req(args, "ref_externe")[:100]
+        # commentaire tronqué à 255 caractères (2026-09-15, msg_ref=de97bcb55cec)
+        # — même doctrine que ref_externe : commentaireCommande est un
+        # varchar(255) côté PrismaSoft, tronquer ici plutôt que faire
+        # échouer l'appel.
+        commentaire = args.get("commentaire")
+        if commentaire is not None:
+            commentaire = commentaire[:255]
         return _post("/api/bacchus/pieces-vente/prix-negocie/creer", {
             "code_client": _req(args, "code_client"), "ref_externe": ref_externe,
             "origine_commande": args.get("origine_commande"),
+            "commentaire": commentaire, "libelle_statut": args.get("libelle_statut"),
             "lignes": _req(args, "lignes"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_tarifs_client_simuler":
