@@ -709,6 +709,38 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_investissements_recherche_globale",
+        "description": ("Lecture DuckDB (PAS SQL Server live, zéro appel réseau côté PrismaSoft) — "
+                         "recherche PORTEFEUILLE ENTIER dans les contrats d'investissement matériel "
+                         "(mise à disposition — colonne à bière, groupe de froid, machine à café, "
+                         "store/enseigne, moulin à café...), tous clients d'un coup. RÉFLEXE : utilise "
+                         "CE tool (pas lba_client_investissements en boucle client par client) dès "
+                         "qu'on te demande une question TRANSVERSE type \"quels clients actifs ont une "
+                         "machine à café ?\", \"quels contrats arrivent à échéance ce trimestre ?\", "
+                         "\"combien de colonnes à bière chez nos clients CHR ?\" — lba_client_"
+                         "investissements ne lit qu'UN client à la fois, boucler dessus sur 300-450 "
+                         "clients serait lent et coûteux. `q_materiel` : mots-clés LIKE sur la "
+                         "désignation réelle de l'article (ex 'CAFE', 'COLONNE', 'FROID', 'STORE', "
+                         "'ENSEIGNE', 'MOULIN', 'PRESSION') — PAS une taxonomie contrôlée, les "
+                         "désignations varient : ne présente jamais le résultat comme garanti "
+                         "exhaustif à 100%, signale la limite si l'utilisateur semble s'y fier. "
+                         "`en_cours_uniquement` (défaut true) = isRendu pas encore rendu ET "
+                         "dateFinPrevu encore future ; passe à false pour voir aussi les contrats "
+                         "clôturés/échus. `echeance_de`/`echeance_a` filtrent sur dateFinPrevu "
+                         "indépendamment de en_cours_uniquement (les deux se combinent). GET "
+                         "/api/bacchus/client/investissements/recherche."),
+        "inputSchema": {"type": "object", "properties": {
+            "q_materiel": {"type": "string", "description": "mots-clés LIKE désignation article, ex 'CAFE'"},
+            "is_actif": {"type": "boolean", "description": "défaut true — client actif uniquement"},
+            "famille": {"type": "string", "description": "ex 'CHR', '3EME MARCHE'"},
+            "rep_code": {"type": "string", "description": "code représentant secteur, ex 'DIRILA'"},
+            "en_cours_uniquement": {"type": "boolean", "description": "défaut true"},
+            "echeance_de": {"type": "string", "description": "YYYY-MM-DD"},
+            "echeance_a": {"type": "string", "description": "YYYY-MM-DD"},
+            "limit": {"type": "integer", "description": "défaut 200, max 1000"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
         "name": "lba_rentabilite_produits",
         "description": "Rentabilité produits de l'année, filtrable/paginée — GET /api/bacchus/rentabilite/produits.",
         "inputSchema": {"type": "object", "required": ["annee"], "properties": {
@@ -812,6 +844,43 @@ TOOLS = [
             "has_email": {"type": "boolean", "description": "true = uniquement les fiches avec email renseigné, false = uniquement sans email"},
             "limit": {"type": "integer", "description": "défaut 100, max 1000"},
             "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_anciens_clients_filtre",
+        "description": ("AJOUT 2026-09-13 (brief Damien via LEAD) — rubrique 'Anciens clients' du "
+                         "panel Prospection, canal DISTINCT du tunnel de sourcing (lba_clients_filtre "
+                         "reste inchangé). Liste les clients PRISMA isActif=false (toujours forcé, pas "
+                         "de paramètre is_actif ici) avec leur donnée métier LBA complète — GET "
+                         "/api/bacchus/clients/anciens. Champs retournés : tiers_id, code, "
+                         "raison_sociale, nom (nom d'établissement, distinct de raison_sociale), siret, "
+                         "famille, sousfamille, date_creation_societe (champ PRISMA natif, PAS Sirene), "
+                         "adresse (texte libre), code_postal, ville (résolue en LIVE en bulk côté "
+                         "backend pour toute la page, peut être null si aucune adresse renseignée), "
+                         "contact_nom, contact_prenom, contact_telephone, contact_email, "
+                         "date_creation_lba, date_cloture_lba, derniere_commande, statut_relance "
+                         "(a_relancer/contacte/relance_envoyee/reconquis/perdu_definitif, défaut "
+                         "a_relancer)."),
+        "inputSchema": {"type": "object", "properties": {
+            "famille": {"type": "string", "description": "exact, insensible casse, ex CHR"},
+            "sousfamille": {"type": "string", "description": "exact, insensible casse"},
+            "statut": {"type": "string", "description": "a_relancer/contacte/relance_envoyee/reconquis/perdu_definitif"},
+            "q": {"type": "string", "description": "recherche texte code/raison sociale/nom établissement"},
+            "limit": {"type": "integer", "description": "défaut 100, max 1000"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
+        "name": "lba_anciens_clients_statut_maj",
+        "description": ("AJOUT 2026-09-13 (brief Damien via LEAD) — fait avancer (ou revient sur) le "
+                         "statut de relance d'un ancien client dans la liste 'Anciens clients' du panel "
+                         "Prospection — PATCH /api/bacchus/clients/anciens/{tiers_id}/statut. ÉCRITURE "
+                         "guardée, idempotente (rejoue la même valeur sans effet). Toujours PROPOSER le "
+                         "changement de statut en conversation et obtenir un accord explicite de "
+                         "l'utilisateur avant d'appeler — jamais un enchaînement automatique/silencieux "
+                         "(même doctrine que lba_referentiel_famille_affecter). Réservé au mandat "
+                         "lba-seat-direction (tier Direction) — pas whitelisté pour un seat employé."),
+        "inputSchema": {"type": "object", "required": ["tiers_id", "statut"], "properties": {
+            "tiers_id": {"type": "integer"},
+            "statut": {"type": "string", "description": "a_relancer/contacte/relance_envoyee/reconquis/perdu_definitif"}}},
     },
     {
         "name": "lba_tdc_kpis",
@@ -4711,6 +4780,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                 "numero_serie": l.get("numero_serie"), "is_rendu": l.get("is_rendu"),
             } for l in lignes]}
         return _post(f"/api/bacchus/client/{code}/investissements", payload, headers)
+    if tool == "lba_investissements_recherche_globale":
+        return _get("/api/bacchus/client/investissements/recherche", {
+            "q_materiel": args.get("q_materiel"), "is_actif": args.get("is_actif"),
+            "famille": args.get("famille"), "rep_code": args.get("rep_code"),
+            "en_cours_uniquement": args.get("en_cours_uniquement"),
+            "echeance_de": args.get("echeance_de"), "echeance_a": args.get("echeance_a"),
+            "limit": args.get("limit", 200), "offset": args.get("offset", 0)}, headers)
     if tool == "lba_litige_motifs":
         return _get("/api/bacchus/client/litiges/motifs", {})
     if tool == "lba_client_litiges":
@@ -4777,6 +4853,15 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "is_actif": args.get("is_actif"), "q": args.get("q"),
             "has_email": args.get("has_email"),
             "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_anciens_clients_filtre":
+        return _get("/api/bacchus/clients/anciens", {
+            "famille": args.get("famille"), "sousfamille": args.get("sousfamille"),
+            "statut": args.get("statut"), "q": args.get("q"),
+            "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_anciens_clients_statut_maj":
+        tiers_id = _req(args, "tiers_id")
+        return _patch(f"/api/bacchus/clients/anciens/{_seg(tiers_id)}/statut", {
+            "statut": _req(args, "statut")})
     if tool == "lba_tdc_kpis":
         return _get("/api/bacchus/rentabilite/tdc-kpis", {
             "granularite": args.get("granularite"), "periode_ref": args.get("periode_ref"),
