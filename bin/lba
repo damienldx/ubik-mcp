@@ -1972,7 +1972,10 @@ TOOLS = [
                          "lba_piece_vente_prix_negocie_simuler AVANT et présenté le résultat à "
                          "l'utilisateur — n'appeler qu'APRÈS confirmation explicite sur les lignes "
                          "et prix affichés. confirm=true REQUIS. Réservé direction/backoffice/"
-                         "ivan.diril — 403 sinon. POST /api/bacchus/pieces-vente/prix-negocie/creer."),
+                         "ivan.diril — 403 sinon. ref_externe TRONQUÉ à 100 caractères côté ce tool "
+                         "(colonne PrismaSoft limitée) — mets l'information la plus importante en "
+                         "PREMIER (ex. le client/motif), le surplus est coupé silencieusement, pas "
+                         "une erreur. POST /api/bacchus/pieces-vente/prix-negocie/creer."),
         "inputSchema": {"type": "object",
             "required": ["code_client", "ref_externe", "lignes", "confirm"], "properties": {
             "code_client": {"type": "string"}, "ref_externe": {"type": "string"},
@@ -5217,8 +5220,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "code_client": _req(args, "code_client"), "lignes": _req(args, "lignes")})
     if tool == "lba_piece_vente_prix_negocie_creer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
+        # ref_externe tronqué à 100 caractères (2026-09-15, incident Damien
+        # client NBM/2545, msg_ref=8e17e213469b) : PrismaGestionCo_commande.
+        # interoperabiliteReferenceExterneCmdClient est un varchar(100) —
+        # côté prisma-api create_piece_vente_prix_negocie refuse désormais
+        # explicitement (400) un ref_externe trop long plutôt que de crasher
+        # (500), mais Damien a tranché : mieux vaut tronquer proprement ICI
+        # (le tool que Bacchus appelle) que faire échouer l'appel — Bacchus
+        # compose souvent un résumé descriptif complet en ref_externe, la
+        # troncature reste lisible/exploitable, jamais bloquante.
+        ref_externe = _req(args, "ref_externe")[:100]
         return _post("/api/bacchus/pieces-vente/prix-negocie/creer", {
-            "code_client": _req(args, "code_client"), "ref_externe": _req(args, "ref_externe"),
+            "code_client": _req(args, "code_client"), "ref_externe": ref_externe,
             "origine_commande": args.get("origine_commande"),
             "lignes": _req(args, "lignes"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
