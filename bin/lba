@@ -1991,7 +1991,9 @@ TOOLS = [
                                              "court), n'écris PAS une phrase complète ici"},
             "origine_commande": {"type": "string"},
             "commentaire": {"type": "string", "maxLength": 255,
-                             "description": "commentaire NATIF de la pièce (commentaireCommande) — "
+                             "description": "commentaire NATIF de la pièce (commentaireCommande, "
+                                             "champ d'en-tête) ET ajouté comme LIGNE visible dans le "
+                                             "corps de la pièce (même convention que sur les avoirs) — "
                                              "LE champ pour du texte libre lisible, contrairement à "
                                              "ref_externe. Tronqué silencieusement à 255 caractères."},
             "libelle_statut": {"type": "string",
