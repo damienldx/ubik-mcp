@@ -103,6 +103,10 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # 2026-09-16, préparation CODIR) — POST /api/bacchus/direction/slides/*,
     # Depends(current_user) réel (même store privé devis_db que ci-dessus).
     "lba_direction_slide_ajouter", "lba_direction_slide_modifier", "lba_direction_slide_export",
+    "lba_direction_slide_charte",  # AJOUT — contenu statique mais protégé par
+    # alignement avec lba_reunion_template (même cas d'usage, déjà protégé) +
+    # évite d'exposer sans filtre un endpoint qui lit/encode des fichiers
+    # disque à chaque appel (remarque Orion, ledger l_1da3c08aa3).
     # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
     # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
     "lba_whatsapp_envoyer",
@@ -3793,18 +3797,31 @@ TOOLS = [
     },
     # ── Slides PowerPoint sur le TEMPLATE LBA officiel (brief Damien
     # 2026-09-16, préparation CODIR pôle Développement/direction commerciale) —
-    # RÉVISION même jour (retour terrain, test live Damien) : la 1ère version
-    # clonait 4 slides-types d'un .pptx figé et remplissait des champs texte
-    # à l'aveugle (bug texte blanc-sur-blanc, zéro intelligence de mise en
-    # page constatés). Nouvelle version : Bacchus COMPOSE lui-même le HTML/CSS
-    # complet de la slide (charte LBA via lba_reunion_template), le backend le
-    # rend en PNG (Chrome headless) et l'incruste plein cadre dans le pptx —
-    # Bacchus PEUT ENSUITE VOIR le rendu réel (preview_path retourné, à lire
-    # avec le tool `Read` natif/vision) avant de continuer. Backend
-    # plan/bacchus_direction_slides_tools.py (repo LBA-DESKTOP), même store
-    # privé "Mes Documents" (devis_db) que lba_document_generer_*.
-    # Flux ITÉRATIF : ajouter (créer OU compléter un document_id existant),
-    # modifier (RE-render et remplace une slide déjà présente), export.
+    # RÉVISION 2 (même jour, 2 retours terrain successifs) : la 1ère version
+    # clonait 4 slides-types d'un .pptx figé (bug texte blanc-sur-blanc, zéro
+    # intelligence de mise en page). 2e version (HTML libre + lba_reunion_
+    # template) réglait ces 2 points MAIS produisait un design "corporate
+    # générique" plausible qui ne reprenait pas l'identité du VRAI template
+    # PowerPoint fourni par Damien (lba_reunion_template est un kit différent,
+    # construit pour un autre panneau). Fix : lba_direction_slide_charte sert
+    # maintenant des SQUELETTES HTML LITTÉRAUX (couleurs/géométrie/logos du
+    # vrai template, jamais redevinés) que Bacchus adapte au lieu de
+    # réinventer. Backend plan/bacchus_direction_slides_tools.py (repo
+    # LBA-DESKTOP), même store privé "Mes Documents" (devis_db) que
+    # lba_document_generer_*. Flux ITÉRATIF : ajouter (créer OU compléter un
+    # document_id existant), modifier (RE-render et remplace une slide déjà
+    # présente), export.
+    {
+        "name": "lba_direction_slide_charte",
+        "description": ("[LECTURE] Squelettes HTML LITTÉRAUX du vrai template PowerPoint LBA "
+                         "(couleurs exactes, logos déjà inlinés en base64) — GET /api/bacchus/"
+                         "direction/slides/charte. À APPELER EN PREMIER, avant tout "
+                         "lba_direction_slide_ajouter : partir de l'un des 4 squelettes retournés "
+                         "(1_couverture, 2_section, 3_message_cle, 4_contenu) et adapter le texte "
+                         "entre {{...}}, PAS réinventer la mise en page/les couleurs depuis zéro. "
+                         "Aucune authentification requise (contenu statique)."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
     {
         "name": "lba_direction_slide_ajouter",
         "description": ("✅ TOOL PAR DÉFAUT pour TOUTE présentation LBA (CODIR, comité de direction, "
@@ -4943,6 +4960,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "dossier_id": args.get("dossier_id")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _post("/api/bacchus/document/generer_xlsx", payload, headers)
+    if tool == "lba_direction_slide_charte":
+        return _get("/api/bacchus/direction/slides/charte", {}, headers)
     if tool == "lba_direction_slide_ajouter":
         raw = {"html": _req(args, "html"), "titre": _req(args, "titre"),
                "document_id": args.get("document_id"), "doc_type": args.get("doc_type"),
