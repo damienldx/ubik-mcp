@@ -816,6 +816,47 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_kpi_articles_dormants",
+        "description": ("Articles dormants (jours depuis derniere vente), scope 'client' (necessite "
+                         "code_client) ou 'portefeuille' entier. GET /api/bacchus/kpi/articles-dormants. "
+                         "AXE DIFFERENT du panel Produits Dormants existant (celui-la traite le STOCK "
+                         "entrepot / risque peremption DLUO-DLC, pas la relation commerciale) -- ici c'est "
+                         "'quel article ce client (ou le portefeuille) n'a plus achete depuis N jours'. "
+                         "Limite d'affichage par defaut 20 (les plus dormants en premier)."),
+        "inputSchema": {"type": "object", "properties": {
+            "scope": {"type": "string", "enum": ["client", "portefeuille"], "description": "defaut portefeuille"},
+            "code_client": {"type": "string", "description": "requis si scope=client"},
+            "limit": {"type": "integer", "description": "defaut 20, max 100"}}},
+    },
+    {
+        "name": "lba_kpi_articles_marge_faible",
+        "description": ("Articles vendus a marge faible (taux_marque < 25%, seuil deja arbitre pour le "
+                         "panel Tarifs, reutilise ici sur les ventes REELLES d'une annee). GET "
+                         "/api/bacchus/kpi/articles-marge-faible. Tries par CA decroissant (l'article le "
+                         "plus impactant en premier -- gros volume a marge ridicule ou negative en tete)."),
+        "inputSchema": {"type": "object", "required": ["annee"], "properties": {
+            "annee": {"type": "integer"},
+            "limit": {"type": "integer", "description": "defaut 50, max 200"},
+            "offset": {"type": "integer", "description": "defaut 0"}}},
+    },
+    {
+        "name": "lba_kpi_clients_sous_references",
+        "description": ("Clients dont la commande recurrente porte sur peu de references (moyenne "
+                         "d'articles distincts par commande recente < seuil_articles, defaut 10) PLUS le "
+                         "DN consolide lifetime (nb references distinctes jamais achetees, tout historique "
+                         "-- vision globale du referencement reel chez ce client). GET "
+                         "/api/bacchus/kpi/clients-sous-references. Trie croissant (le moins diversifie en "
+                         "premier). LIMITE CONNUE : certains comptes clients sont en realite des "
+                         "fournisseurs/brasseurs (achat occasionnel type echantillon) -- pas filtre "
+                         "automatiquement, a ecarter au cas par cas si le nom l'indique."),
+        "inputSchema": {"type": "object", "properties": {
+            "jours_fenetre": {"type": "integer", "description": "defaut 180"},
+            "min_commandes": {"type": "integer", "description": "defaut 3"},
+            "seuil_articles": {"type": "integer", "description": "defaut 10"},
+            "limit": {"type": "integer", "description": "defaut 50, max 200"},
+            "offset": {"type": "integer", "description": "defaut 0"}}},
+    },
+    {
         "name": "lba_mad_rentabilite",
         "description": ("Rentabilite des contrats MAD (Mise A Disposition, materiel prete au client) "
                          "EN COURS uniquement -- GET /api/bacchus/mad/rentabilite. Valorisation = MARGE "
@@ -4985,6 +5026,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "date_ouverture_from": _req(args, "date_ouverture_from"),
             "date_ouverture_to": _req(args, "date_ouverture_to"),
             "nb_mois": args.get("nb_mois", 12), "code_client": args.get("code_client"),
+            "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
+    if tool == "lba_kpi_articles_dormants":
+        return _get("/api/bacchus/kpi/articles-dormants", {
+            "scope": args.get("scope", "portefeuille"), "code_client": args.get("code_client"),
+            "limit": args.get("limit", 20)})
+    if tool == "lba_kpi_articles_marge_faible":
+        return _get("/api/bacchus/kpi/articles-marge-faible", {
+            "annee": _req(args, "annee"), "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
+    if tool == "lba_kpi_clients_sous_references":
+        return _get("/api/bacchus/kpi/clients-sous-references", {
+            "jours_fenetre": args.get("jours_fenetre", 180), "min_commandes": args.get("min_commandes", 3),
+            "seuil_articles": args.get("seuil_articles", 10),
             "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
     if tool == "lba_mad_rentabilite":
         return _get("/api/bacchus/mad/rentabilite", {
