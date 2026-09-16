@@ -3705,7 +3705,13 @@ TOOLS = [
     # uniquement, cf bandeau backend) — pas de garde confirmed_by_user ici.
     {
         "name": "lba_document_generer_pptx",
-        "description": ("[ÉCRITURE] Génère une présentation PowerPoint (.pptx) à partir du contenu "
+        "description": ("⚠️ NE PAS utiliser pour une présentation LBA (CODIR, direction, image de "
+                         "marque) — utiliser lba_direction_slide_ajouter à la place (template "
+                         "PowerPoint officiel LBA : logo, couleurs, mise en page pro). Ce tool-ci "
+                         "génère un pptx GÉNÉRIQUE sans aucun habillage (thème PowerPoint par défaut, "
+                         "juste titre+puces plates) — réservé aux documents internes/bruts où "
+                         "l'apparence n'a aucune importance. "
+                         "[ÉCRITURE] Génère une présentation PowerPoint (.pptx) à partir du contenu "
                          "composé par Bacchus (page de garde + diapositives titre/puces, dans "
                          "l'ordre) et la dépose dans 'Mes Documents' (origine='agent') — POST "
                          "/api/bacchus/document/generer_pptx. Consultable ensuite via lba_devis_liste "
@@ -3794,20 +3800,32 @@ TOOLS = [
     # modifier (édite une slide déjà présente), export (métadonnées).
     {
         "name": "lba_direction_slide_ajouter",
-        "description": ("[ÉCRITURE] Ajoute une slide (clonée depuis le TEMPLATE PowerPoint officiel "
+        "description": ("✅ TOOL PAR DÉFAUT pour TOUTE présentation LBA (CODIR, comité de direction, "
+                         "réunion externe, tout support présenté avec l'image de marque LBA) — PAS "
+                         "lba_document_generer_pptx (générique, sans logo ni couleurs). "
+                         "[ÉCRITURE] Ajoute une slide (clonée depuis le TEMPLATE PowerPoint officiel "
                          "LBA — fond/logo/habillage préservés) à une présentation en cours, ou en crée "
-                         "une nouvelle si document_id absent. 4 types : 1=couverture (fond navy plein "
-                         "écran + logo, pour la 1ère slide en général), 2=titre de section/sommaire "
-                         "(logo + ligne séparatrice), 3=message clé/citation (fond blanc, titre+sous-"
-                         "titre centrés), 4=contenu titré (titre + accroche + puces/tableau libres). "
+                         "une nouvelle si document_id absent. Choisis le type selon le RÔLE de la "
+                         "slide dans le fil de la présentation (réflexion de mise en page attendue, "
+                         "pas un remplissage mécanique) : 1=couverture (fond navy plein écran + logo, "
+                         "TOUJOURS la 1ère slide), 2=titre de section/sommaire (ouvre une nouvelle "
+                         "partie — un CODIR de plusieurs sujets doit avoir un sommaire puis une "
+                         "slide de section par sujet), 3=message clé/citation (UN seul chiffre ou une "
+                         "seule phrase forte à retenir — jamais de liste de puces dessus, sinon "
+                         "utiliser le type 4), 4=contenu titré (détail/données : accroche courte en "
+                         "haut, PUIS soit des puces (3-6 lignes max, une idée par ligne — jamais un "
+                         "paragraphe collé), soit un tableau (jamais les deux en même temps sur une "
+                         "slide dense), jamais plus d'un bloc de contenu par slide). Une présentation "
+                         "typique alterne couverture → sommaire → (section + 1-3 slides contenu) par "
+                         "sujet → message clé de clôture — ne pas empiler que des slides type 4. "
                          "POST /api/bacchus/direction/slides/ajouter. Dépose/complète dans 'Mes "
                          "Documents' (origine='agent'), aucun envoi externe."),
         "inputSchema": {"type": "object", "required": ["type", "titre"], "properties": {
-            "type": {"type": "integer", "description": "1=couverture, 2=titre de section, 3=message clé, 4=contenu titré"},
-            "titre": {"type": "string", "description": "titre de la slide (ou de la présentation si 1ère slide)"},
-            "sous_titre": {"type": "string", "description": "sous-titre / accroche (types 1, 2, 3, 4)"},
-            "puces": {"type": "array", "description": "lignes de texte / puces (types 2, 4)", "items": {"type": "string"}},
-            "tableau": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type 4 uniquement)",
+            "type": {"type": "integer", "description": "1=couverture (1ère slide), 2=titre de section/sommaire, 3=message clé (UN seul chiffre/phrase, sans puces), 4=contenu titré (détail)"},
+            "titre": {"type": "string", "description": "titre de la slide (ou de la présentation si 1ère slide) — court, jamais une phrase complète"},
+            "sous_titre": {"type": "string", "description": "sous-titre / accroche (types 1, 2, 3, 4) — 1 phrase courte, jamais un paragraphe"},
+            "puces": {"type": "array", "description": "lignes courtes (types 2, 4) — 3 à 6 MAX, une idée par ligne, jamais un paragraphe entier en une seule ligne", "items": {"type": "string"}},
+            "tableau": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type 4 uniquement) — n'utiliser QUE si puces est vide sur cette slide (un seul bloc de contenu par slide)",
                         "items": {"type": "array", "items": {"type": "string"}}},
             "document_id": {"type": "string", "description": "document existant à compléter (absent = nouvelle présentation)"},
             "doc_type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document'), 1ère slide seulement"},
