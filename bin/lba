@@ -797,6 +797,25 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_nouveaux_clients_suivi",
+        "description": ("Suivi mensuel des nouveaux clients depuis leur ouverture — volumes réalisés "
+                         "(CA/quantité) ET DN cumulée (nombre de RÉFÉRENCES ARTICLE distinctes achetées, "
+                         "PAS la famille). GET /api/bacchus/nouveaux-clients/suivi. Cohorte = clients "
+                         "ouverts (date d'ouverture LBA) entre date_ouverture_from et date_ouverture_to. "
+                         "Retourne une courbe cohorte (moyenne par mois depuis ouverture, jamais tronquée) "
+                         "— le signal pour savoir si les nouveaux clients montent en volume/diversifient "
+                         "globalement — PLUS le détail par client (paginé, filtrable à un client via "
+                         "code_client pour un drill-down). Un client dont ca/qte retombent à 0 plusieurs "
+                         "mois après l'ouverture est un signal de décrochage précoce à faire remonter."),
+        "inputSchema": {"type": "object", "required": ["date_ouverture_from", "date_ouverture_to"], "properties": {
+            "date_ouverture_from": {"type": "string", "description": "YYYY-MM-DD, borne incluse"},
+            "date_ouverture_to": {"type": "string", "description": "YYYY-MM-DD, borne incluse"},
+            "nb_mois": {"type": "integer", "description": "nb de mois suivis depuis l'ouverture, défaut 12, max 36"},
+            "code_client": {"type": "string", "description": "optionnel, scope à UN client (code exact)"},
+            "limit": {"type": "integer", "description": "défaut 50, max 200"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
+    },
+    {
         "name": "lba_rupture_stock_synthese",
         "description": ("Manque à gagner (CA PERDU, pas la marge) sur ruptures de stock — articles "
                          "commandés jamais préparés/livrés, sur commandes CLÔTURÉES uniquement (etat "
@@ -4944,6 +4963,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/rentabilite/clients", {
             "annee": _req(args, "annee"), "representant": args.get("representant"),
             "q": args.get("q"), "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
+    if tool == "lba_nouveaux_clients_suivi":
+        return _get("/api/bacchus/nouveaux-clients/suivi", {
+            "date_ouverture_from": _req(args, "date_ouverture_from"),
+            "date_ouverture_to": _req(args, "date_ouverture_to"),
+            "nb_mois": args.get("nb_mois", 12), "code_client": args.get("code_client"),
+            "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
     if tool == "lba_rupture_stock_synthese":
         return _get("/api/bacchus/rupture/synthese", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
