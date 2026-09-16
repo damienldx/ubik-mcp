@@ -99,6 +99,10 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # ci-dessus), même mécanisme ticket-exchange que lba_devis_composer/creer.
     "lba_document_generer_pptx", "lba_document_generer_docx", "lba_document_generer_xlsx",
     "lba_document_generer_pdf",
+    # ── Slides PowerPoint sur le TEMPLATE LBA officiel (brief Damien
+    # 2026-09-16, préparation CODIR) — POST /api/bacchus/direction/slides/*,
+    # Depends(current_user) réel (même store privé devis_db que ci-dessus).
+    "lba_direction_slide_ajouter", "lba_direction_slide_modifier", "lba_direction_slide_export",
     # ── Gate d'envoi WhatsApp sortant (carte t_710b1c78d3, plan_425ab05c,
     # mission #2 — suite mission #1 backend LBA-DESKTOP déjà livrée) ────────
     "lba_whatsapp_envoyer",
@@ -3779,6 +3783,62 @@ TOOLS = [
             "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, si pertinent"},
             "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination"}}},
     },
+    # ── Slides PowerPoint sur le TEMPLATE LBA officiel (brief Damien
+    # 2026-09-16, préparation CODIR pôle Développement/direction commerciale) —
+    # contrairement à lba_document_generer_pptx (aucun template imposé),
+    # Bacchus travaille ici directement sur le vrai fichier .pptx fourni par
+    # Damien (4 types de slides : couverture/section/message-clé/contenu).
+    # Backend plan/bacchus_direction_slides_tools.py (repo LBA-DESKTOP), même
+    # store privé "Mes Documents" (devis_db) que lba_document_generer_*.
+    # Flux ITÉRATIF : ajouter (créer OU compléter un document_id existant),
+    # modifier (édite une slide déjà présente), export (métadonnées).
+    {
+        "name": "lba_direction_slide_ajouter",
+        "description": ("[ÉCRITURE] Ajoute une slide (clonée depuis le TEMPLATE PowerPoint officiel "
+                         "LBA — fond/logo/habillage préservés) à une présentation en cours, ou en crée "
+                         "une nouvelle si document_id absent. 4 types : 1=couverture (fond navy plein "
+                         "écran + logo, pour la 1ère slide en général), 2=titre de section/sommaire "
+                         "(logo + ligne séparatrice), 3=message clé/citation (fond blanc, titre+sous-"
+                         "titre centrés), 4=contenu titré (titre + accroche + puces/tableau libres). "
+                         "POST /api/bacchus/direction/slides/ajouter. Dépose/complète dans 'Mes "
+                         "Documents' (origine='agent'), aucun envoi externe."),
+        "inputSchema": {"type": "object", "required": ["type", "titre"], "properties": {
+            "type": {"type": "integer", "description": "1=couverture, 2=titre de section, 3=message clé, 4=contenu titré"},
+            "titre": {"type": "string", "description": "titre de la slide (ou de la présentation si 1ère slide)"},
+            "sous_titre": {"type": "string", "description": "sous-titre / accroche (types 1, 2, 3, 4)"},
+            "puces": {"type": "array", "description": "lignes de texte / puces (types 2, 4)", "items": {"type": "string"}},
+            "tableau": {"type": "array", "description": "lignes du tableau, 1ère ligne = en-tête (type 4 uniquement)",
+                        "items": {"type": "array", "items": {"type": "string"}}},
+            "document_id": {"type": "string", "description": "document existant à compléter (absent = nouvelle présentation)"},
+            "doc_type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document'), 1ère slide seulement"},
+            "client_code": {"type": "string", "description": "code client PrismaSoft à rattacher, 1ère slide seulement"},
+            "dossier_id": {"type": "string", "description": "sous-dossier 'Mes Documents' de destination, 1ère slide seulement"}}},
+    },
+    {
+        "name": "lba_direction_slide_modifier",
+        "description": ("[ÉCRITURE] Modifie le contenu d'une slide déjà présente dans une présentation "
+                         "(titre/sous-titre/puces/tableau) — POST /api/bacchus/direction/slides/"
+                         "modifier. slide_index 0-based, dans l'ordre des slides RÉELLEMENT ajoutées "
+                         "(pas les 4 slides-modèles du template, qui n'apparaissent jamais dans le "
+                         "document généré)."),
+        "inputSchema": {"type": "object", "required": ["document_id", "slide_index"], "properties": {
+            "document_id": {"type": "string", "description": "document pptx à modifier"},
+            "slide_index": {"type": "integer", "description": "index de la slide à modifier (0 = 1ère slide ajoutée)"},
+            "titre": {"type": "string", "description": "nouveau titre (si fourni)"},
+            "sous_titre": {"type": "string", "description": "nouveau sous-titre / accroche (si fourni)"},
+            "puces": {"type": "array", "description": "nouvelles puces (remplace les existantes, si fourni)", "items": {"type": "string"}},
+            "tableau": {"type": "array", "description": "nouveau tableau (si fourni)",
+                        "items": {"type": "array", "items": {"type": "string"}}}}},
+    },
+    {
+        "name": "lba_direction_slide_export",
+        "description": ("[LECTURE] Métadonnées d'une présentation pptx en cours (titre, nombre de "
+                         "slides, dernière mise à jour) — GET /api/bacchus/direction/slides/"
+                         "{document_id}. Le fichier lui-même est consultable via lba_devis_liste/lire "
+                         "(panel 'Mes Documents'), pas de nouveau téléchargement ici."),
+        "inputSchema": {"type": "object", "required": ["document_id"], "properties": {
+            "document_id": {"type": "string", "description": "document pptx"}}},
+    },
     # ── LBA MEMORY (plan écrit 2026-08-04, demande explicite Damien) — mémoire
     # long terme CONSCIENTE (Bacchus décide quoi retenir/rappeler, jamais une
     # ingestion automatique de toute la conversation), store isolé
@@ -4870,6 +4930,23 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "dossier_id": args.get("dossier_id")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _post("/api/bacchus/document/generer_xlsx", payload, headers)
+    if tool == "lba_direction_slide_ajouter":
+        raw = {"type": _req(args, "type"), "titre": _req(args, "titre"),
+               "sous_titre": args.get("sous_titre"), "puces": args.get("puces"),
+               "tableau": args.get("tableau"), "document_id": args.get("document_id"),
+               "doc_type": args.get("doc_type"), "client_code": args.get("client_code"),
+               "dossier_id": args.get("dossier_id")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/direction/slides/ajouter", payload, headers)
+    if tool == "lba_direction_slide_modifier":
+        raw = {"document_id": _req(args, "document_id"), "slide_index": _req(args, "slide_index"),
+               "titre": args.get("titre"), "sous_titre": args.get("sous_titre"),
+               "puces": args.get("puces"), "tableau": args.get("tableau")}
+        payload = {k: v for k, v in raw.items() if v is not None}
+        return _post("/api/bacchus/direction/slides/modifier", payload, headers)
+    if tool == "lba_direction_slide_export":
+        document_id = _seg(_req(args, "document_id"))
+        return _get(f"/api/bacchus/direction/slides/{document_id}", {}, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
