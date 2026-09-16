@@ -816,6 +816,23 @@ TOOLS = [
             "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
+        "name": "lba_mad_rentabilite",
+        "description": ("Rentabilite des contrats MAD (Mise A Disposition, materiel prete au client) "
+                         "EN COURS uniquement -- GET /api/bacchus/mad/rentabilite. Valorisation = MARGE "
+                         "reelle depuis la mise a disposition (PAS le CA -- c'est la marge qui paye "
+                         "l'amortissement). Metrique cle : mois_amortissement (au rythme de marge "
+                         "mensuelle moyenne actuel, combien de mois pour rentabiliser la valeur investie ; "
+                         "null = jamais amorti au rythme actuel, cas le plus problematique, toujours en "
+                         "tete du classement). Retourne un agregat par_representant (nb clients jamais "
+                         "amortis, valeur investie totale, marge totale -- jamais tronque) PLUS le detail "
+                         "par client (pire cas d'abord, filtrable a un representant via rep_code, paginable). "
+                         "Aucun seuil rentable/non-rentable impose -- c'est a toi/Damien de juger le classement."),
+        "inputSchema": {"type": "object", "properties": {
+            "rep_code": {"type": "string", "description": "optionnel, scope a UN representant (code court, ex DIRILA)"},
+            "limit": {"type": "integer", "description": "defaut 50, max 200"},
+            "offset": {"type": "integer", "description": "defaut 0"}}},
+    },
+    {
         "name": "lba_rupture_stock_synthese",
         "description": ("Manque à gagner (CA PERDU, pas la marge) sur ruptures de stock — articles "
                          "commandés jamais préparés/livrés, sur commandes CLÔTURÉES uniquement (etat "
@@ -4968,6 +4985,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "date_ouverture_from": _req(args, "date_ouverture_from"),
             "date_ouverture_to": _req(args, "date_ouverture_to"),
             "nb_mois": args.get("nb_mois", 12), "code_client": args.get("code_client"),
+            "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
+    if tool == "lba_mad_rentabilite":
+        return _get("/api/bacchus/mad/rentabilite", {
+            "rep_code": args.get("rep_code"),
             "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
     if tool == "lba_rupture_stock_synthese":
         return _get("/api/bacchus/rupture/synthese", {
