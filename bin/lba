@@ -3814,12 +3814,12 @@ TOOLS = [
     {
         "name": "lba_direction_slide_charte",
         "description": ("[LECTURE] Squelettes HTML LITTÉRAUX du vrai template PowerPoint LBA "
-                         "(couleurs exactes, logos déjà inlinés en base64) — GET /api/bacchus/"
-                         "direction/slides/charte. À APPELER EN PREMIER, avant tout "
-                         "lba_direction_slide_ajouter : partir de l'un des 4 squelettes retournés "
-                         "(1_couverture, 2_section, 3_message_cle, 4_contenu) et adapter le texte "
-                         "entre {{...}}, PAS réinventer la mise en page/les couleurs depuis zéro. "
-                         "Aucune authentification requise (contenu statique)."),
+                         "(version finale, format 4:3) — couleurs exactes, logos déjà inlinés en "
+                         "base64 — GET /api/bacchus/direction/slides/charte. À APPELER EN PREMIER, "
+                         "avant tout lba_direction_slide_ajouter : partir de l'un des 3 squelettes "
+                         "retournés (1_couverture = page de garde, 2_section = partie/sommaire, "
+                         "3_contenu = traitement d'une partie du sommaire) et adapter le texte entre "
+                         "{{...}}, PAS réinventer la mise en page/les couleurs depuis zéro."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -3828,9 +3828,11 @@ TOOLS = [
                          "réunion externe, tout support présenté avec l'image de marque LBA) — PAS "
                          "lba_document_generer_pptx (générique, sans logo ni couleurs). "
                          "[ÉCRITURE] Bacchus COMPOSE lui-même le HTML/CSS complet d'UNE slide "
-                         "(1280x720px, 16:9) — récupérer la charte officielle LBA (couleurs "
-                         "--lba-marine/--lba-rouge/--lba-or, classes .slide/.cover/.kpi-row/.card) via "
-                         "lba_reunion_template AVANT de composer, pour une identité visuelle cohérente. "
+                         "(960x720px, 4:3) — récupérer les squelettes du VRAI template LBA via "
+                         "lba_direction_slide_charte AVANT de composer, et partir de l'un des 3 "
+                         "(adapter le texte, PAS réinventer la mise en page/les couleurs) — PAS "
+                         "lba_reunion_template (kit différent, pour un autre panneau, ne correspond "
+                         "pas à ce template). "
                          "Réfléchir la mise en page comme une vraie page web (hiérarchie visuelle, "
                          "contraste texte/fond, espacement) — PAS un remplissage mécanique de champs. "
                          "Le backend rend ce HTML en PNG et l'ajoute comme nouvelle slide (ou en crée "
@@ -3841,7 +3843,7 @@ TOOLS = [
                          "l'équilibre de la composition. Dépose/complète dans 'Mes Documents' "
                          "(origine='agent'), aucun envoi externe."),
         "inputSchema": {"type": "object", "required": ["html", "titre"], "properties": {
-            "html": {"type": "string", "description": "document HTML autonome (doctype+head+body, CSS inline) d'une slide, dimensionné exactement 1280x720px"},
+            "html": {"type": "string", "description": "document HTML autonome (doctype+head+body, CSS inline) d'une slide, dimensionné exactement 960x720px (4:3)"},
             "titre": {"type": "string", "description": "titre de la présentation (métadonnée 'Mes Documents', 1ère slide seulement)"},
             "document_id": {"type": "string", "description": "document existant à compléter (absent = nouvelle présentation)"},
             "doc_type": {"type": "string", "description": "type de document côté 'Mes Documents' (défaut 'document'), 1ère slide seulement"},
