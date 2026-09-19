@@ -656,7 +656,23 @@ server.tool(
       } else {
         db.prepare("INSERT INTO context (key, content, created_at, updated_at) VALUES (?, ?, ?, ?)").run(key, content, now, now);
       }
-      return ok({ saved: true, key, name: args.name, domain: args.domain, replaced: !!existing });
+      // Embed synchronously so the skill is searchable immediately — previously
+      // only the one-shot startup seed (seedVectorsIfEmpty) populated skill_vectors,
+      // meaning any skill added after process start stayed invisible to semantic
+      // search until the MCP server was restarted. Fixed 2026-09-19.
+      let embedded = false;
+      try {
+        const text = embeddableTextFor(key, content);
+        if (text) {
+          const vec = await embedText(text);
+          if (vec) {
+            db.prepare("INSERT OR REPLACE INTO skill_vectors (key, vec) VALUES (?, ?)")
+              .run(key, Buffer.from(vec.buffer));
+            embedded = true;
+          }
+        }
+      } catch { /* non-fatal: skill still saved, just not embedded yet */ }
+      return ok({ saved: true, key, name: args.name, domain: args.domain, replaced: !!existing, embedded });
     } catch (err) { return fail(err); }
   },
 );
