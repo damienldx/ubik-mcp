@@ -1297,7 +1297,7 @@
     "shamir_article_recherche": {
       "situation": "Chercher un article Shamir par désignation ou code",
       "cli": "shamir shamir_article_recherche --args '{\"q\":\"<terme>\",\"limit\":20}'",
-      "note": "product.template Tryton, code stable PRISMA-ART-<id>, pas de prix (aucune company configurée)"
+      "note": "product.template Tryton, code stable LBA-<id>, pas de prix (aucune company configurée)"
     },
     "shamir_article_detail": {
       "situation": "Détail d'un article Shamir déjà identifié (id Tryton connu)",
@@ -1339,7 +1339,7 @@
     },
     "shamir_vente_creer": {
       "situation": "Creer une NOUVELLE vente Tryton (ecriture vivante, pas historique PrismaSoft) -- SEULEMENT sur confirmation utilisateur. Retour/avoir (ex. consigne rendue) = quantity negative",
-      "cli": "shamir shamir_vente_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"PRISMA-ART-<id>\",\"quantity\":6}]}'"
+      "cli": "shamir shamir_vente_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"LBA-<id>\",\"quantity\":6}]}'"
     },
     "shamir_vente_detail": {
       "situation": "Detail d une vente Tryton (lignes, expedition, facture liees)",
@@ -1372,6 +1372,11 @@
     "shamir_crm_contacts_recherche": {
       "situation": "Contacts commerciaux d un client, ou recherche par nom",
       "cli": "shamir shamir_crm_contacts_recherche --args '{\"client_code\":\"PRISMA-<id>\"}'"
+    },
+    "shamir_planning_appel_recherche": {
+      "situation": "Journal de vente / planning d appel du jour -- quels clients contacter pour leur commande, avec tournee et etat d appel natif PRISMA",
+      "cli": "shamir shamir_planning_appel_recherche --args '{\"date\":\"YYYY-MM-DD\"}'",
+      "note": "Lecture seule DuckDB (PrismaGestionCo_appelTelevente) -- pas d ecriture de note d appel (ecrirait dans PrismaSoft live, hors doctrine Shamir)."
     },
     "shamir_document_liste": {
       "situation": "Lister les documents joints d une ressource Shamir (party/vente/achat)",
@@ -1463,7 +1468,7 @@
     },
     "shamir_achat_creer": {
       "situation": "Creer un NOUVEL achat fournisseur Tryton (ecriture vivante) -- SEULEMENT sur confirmation utilisateur, unit_price requis par ligne",
-      "cli": "shamir shamir_achat_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"PRISMA-ART-<id>\",\"quantity\":10,\"unit_price\":1.75}]}'"
+      "cli": "shamir shamir_achat_creer --args '{\"party_code\":\"PRISMA-<id>\",\"lines\":[{\"article_code\":\"LBA-<id>\",\"quantity\":10,\"unit_price\":1.75}]}'"
     },
     "shamir_achat_detail": {
       "situation": "Detail d'un achat Tryton (lignes, reception, facture)",

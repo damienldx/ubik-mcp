@@ -154,7 +154,7 @@ TOOLS = [
     {
         "name": "shamir_article_recherche",
         "description": ("Recherche un article (product.template Tryton) par désignation ou code — "
-                         "GET /api/articles. Casse-insensible, substring. Code stable PRISMA-ART-<id> = "
+                         "GET /api/articles. Casse-insensible, substring. Code stable LBA-<id> = "
                          "provenance LBA/PrismaSoft (client test, 832 articles importés). Retourne aussi "
                          "category (famille comptable PCG), uom, cost_price, list_price, salable, quantity (stock reel en Storage Zone)."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
@@ -441,6 +441,23 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 200"}}},
     },
     {
+        "name": "shamir_planning_appel_recherche",
+        "description": ("Journal de vente / planning d'appel du jour — clients à contacter pour "
+                         "leur commande, avec tournée assignée, horaire d'appel habituel et état "
+                         "d'appel NATIF PRISMA (~8 valeurs : \"1 - Appel\", \"2 - Rappel\", "
+                         "\"3 - Rappel demain\", \"4 - Traitée commercial\", \"5 - Pas de commande\", "
+                         "\"6 - En cours\", \"7 - Commande\", \"8 - Préparation\") — GET "
+                         "/api/planning-appel. Lecture seule, snapshot DuckDB PrismaSoft "
+                         "(PrismaGestionCo_appelTelevente, module Télévente natif). Jour de semaine "
+                         "dérivé de `date` côté serveur. Distinct de shamir_crm_evenements_recherche "
+                         "(RDV/négociations) : ceci est le planning d'appel Télévente proprement dit."),
+        "inputSchema": {"type": "object", "required": ["date"], "properties": {
+            "date": {"type": "string", "description": "YYYY-MM-DD"},
+            "client_code": {"type": "string", "description": "code PRISMA-<id>, filtre sur un seul client"},
+            "etat": {"type": "string", "description": "filtre exact sur l'état natif PRISMA (ex. '7 - Commande')"},
+            "limit": {"type": "integer", "description": "défaut 200, max 500"}}},
+    },
+    {
         "name": "shamir_vente_creer",
         "description": ("Crée une NOUVELLE vente Tryton (sale.sale) en brouillon — POST /api/ventes. "
                          "ÉCRITURE — nécessite confirmation explicite de l'utilisateur avant appel. "
@@ -452,7 +469,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["party_code", "lines"], "properties": {
             "party_code": {"type": "string", "description": "code PRISMA-<id> du client"},
             "lines": {"type": "array", "items": {"type": "object", "properties": {
-                "article_code": {"type": "string", "description": "code PRISMA-ART-<id>"},
+                "article_code": {"type": "string", "description": "code LBA-<id>"},
                 "quantity": {"type": "number"}}}}}},
     },
     {
@@ -512,7 +529,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["party_code", "lines"], "properties": {
             "party_code": {"type": "string", "description": "code PRISMA-<id> du fournisseur"},
             "lines": {"type": "array", "items": {"type": "object", "properties": {
-                "article_code": {"type": "string", "description": "code PRISMA-ART-<id>"},
+                "article_code": {"type": "string", "description": "code LBA-<id>"},
                 "quantity": {"type": "number"},
                 "unit_price": {"type": "number", "description": "prix d'achat unitaire HT, requis"}}}}}},
     },
@@ -691,6 +708,10 @@ def _exec(tool: str, args: dict):
     if tool == "shamir_crm_contacts_recherche":
         return _get("/api/crm/contacts", {
             "client_code": args.get("client_code"), "q": args.get("q"), "limit": args.get("limit", 20)})
+    if tool == "shamir_planning_appel_recherche":
+        return _get("/api/planning-appel", {
+            "date": _req(args, "date"), "client_code": args.get("client_code"),
+            "etat": args.get("etat"), "limit": args.get("limit", 200)})
     if tool == "shamir_vente_creer":
         return _post("/api/ventes", {
             "party_code": _req(args, "party_code"), "lines": _req(args, "lines")})
