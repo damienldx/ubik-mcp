@@ -2087,13 +2087,23 @@ TOOLS = [
                          "groupés par famille (hors consignes, divers, taxe parafiscale), au prix NET "
                          "de CE client (tarif personnalisé, sinon sa grille), avec degré, contenance, "
                          "droit d'accise / taxe soda, vignette, tarif HT D.A.I et consigne. PDF par "
-                         "défaut ; formats=['pdf','xlsx','csv'] au choix. POST "
+                         "défaut ; formats=['pdf','xlsx','csv'] au choix. SÉLECTION D'ARTICLES : "
+                         "codes_articles (liste de codes) et/ou num_piece (devis ou commande DE CE "
+                         "client — reprend ses articles) restreignent le tarif à ces articles (même "
+                         "prix, même mise en page) ; absents = catalogue complet. Rien n'est écrit "
+                         "dans PrismaSoft (les cases cochées natives du client ne sont pas "
+                         "modifiées). La réponse liste les articles demandés non retenus (inactifs, "
+                         "sans tarif, famille exclue). POST "
                          "/api/bacchus/tarif-client/generer."),
         "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
             "code_client": {"type": "string"},
             "formats": {"type": "array", "items": {"type": "string", "enum": ["pdf", "xlsx", "csv"]},
                         "description": "défaut ['pdf']"},
             "dossier_id": {"type": "string", "description": "dossier 'Mes Documents' (optionnel)"},
+            "codes_articles": {"type": "array", "items": {"type": "string"},
+                               "description": "restreint le tarif à ces codes articles"},
+            "num_piece": {"type": "integer",
+                          "description": "n° de devis ou commande du client : tarif limité à ses articles"},
         }},
     },
     # Remises d'un devis/commande -> fiche client (2026-09-25, brief Damien,
@@ -5556,7 +5566,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_tarif_client_generer":
         return _post("/api/bacchus/tarif-client/generer", {
             "code_client": str(_req(args, "code_client")),
-            "formats": args.get("formats") or ["pdf"], "dossier_id": args.get("dossier_id")},
+            "formats": args.get("formats") or ["pdf"], "dossier_id": args.get("dossier_id"),
+            "codes_articles": args.get("codes_articles"), "num_piece": args.get("num_piece")},
             timeout=120)
     if tool == "lba_piece_remises_vers_fiche_simuler":
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/simuler", {

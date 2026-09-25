@@ -30,9 +30,9 @@ _loader.exec_module(lba_cli)
 # Session obligatoire (2026-09-25) : _exec mint désormais un JWT pour TOUT
 # tool. Hors tests dédiés au ticket-exchange (qui remplacent eux-mêmes
 # _mint_cli_session_jwt), aucun appel réseau : mint factice + cache désactivé
-# (sinon un JWT mis en cache fuirait d'un test à l'autre).
+# (sinon un JWT mis en cache — y compris un vrai JWT d'un appel live récent — fuirait dans les tests).
 lba_cli._mint_cli_session_jwt = lambda agent_id: "test-jwt"
-lba_cli._JWT_CACHE_TTL_SEC = -1
+lba_cli._cached_session_jwt = lambda agent_id: lba_cli._mint_cli_session_jwt(agent_id)
 
 
 class CapturedGet(Exception):
