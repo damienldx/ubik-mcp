@@ -2090,7 +2090,9 @@ TOOLS = [
                          "la réponse liste les candidats. TOUJOURS appeler en PREMIER, puis présenter à "
                          "l'utilisateur : destinataires, copie, pièce jointe, objet, un MESSAGE "
                          "D'ACCOMPAGNEMENT rédigé par toi (toujours, jamais un mail vide) et la signature "
-                         "proposée, en lui demandant de valider ou corriger la signature. POST "
+                         "proposée, en lui demandant de valider ou corriger la signature. PRÉFÉRER la "
+                         "signature Outlook réelle de l'utilisateur quand signature_outlook.disponible "
+                         "(aperçu fourni, logo inclus) — la montrer et la faire valider. POST "
                          "/api/bacchus/document-envoi/preparer."),
         "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
             "code_client": {"type": "string"},
@@ -2108,14 +2110,17 @@ TOOLS = [
                          "aux collaborateurs internes. N'appeler qu'APRÈS lba_document_envoyer_client_"
                          "preparer ET validation EXPLICITE par l'utilisateur de : destinataires, copie, "
                          "objet, message d'accompagnement, signature, pièce jointe. `message` = le texte "
-                         "d'accompagnement SANS signature ; `signature` = la signature validée. "
+                         "d'accompagnement SANS signature ; signature_outlook=true pour la signature "
+                         "Outlook réelle de l'utilisateur (logo inclus, recommandé), sinon `signature` = "
+                         "la signature texte validée. "
                          "confirmed_by_user=true obligatoire et doit refléter une validation réelle "
                          "obtenue juste avant. POST /api/bacchus/document-envoi/envoyer."),
         "inputSchema": {"type": "object",
-            "required": ["code_client", "document_id", "objet", "message", "signature", "confirmed_by_user"],
+            "required": ["code_client", "document_id", "objet", "message", "confirmed_by_user"],
             "properties": {
             "code_client": {"type": "string"}, "document_id": {"type": "string"},
             "objet": {"type": "string"}, "message": {"type": "string"}, "signature": {"type": "string"},
+            "signature_outlook": {"type": "boolean", "description": "signature Outlook réelle (recommandé)"},
             "copie": {"type": "array", "items": {"type": "string"}},
             "confirmed_by_user": {"type": "boolean"},
         }},
@@ -5615,7 +5620,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/document-envoi/envoyer", {
             "code_client": str(_req(args, "code_client")), "document_id": _req(args, "document_id"),
             "objet": _req(args, "objet"), "message": _req(args, "message"),
-            "signature": _req(args, "signature"), "copie": args.get("copie") or [],
+            "signature": args.get("signature"), "signature_outlook": args.get("signature_outlook") is True,
+            "copie": args.get("copie") or [],
             "confirmed_by_user": args.get("confirmed_by_user") is True}, timeout=60)
     if tool == "lba_tarif_client_generer":
         return _post("/api/bacchus/tarif-client/generer", {
