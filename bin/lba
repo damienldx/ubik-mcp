@@ -4226,7 +4226,11 @@ TOOLS = [
                          "marge par kg réellement pratiqués sur l'article le plus proche de "
                          "`produit_specifique`. `duree_engagement` future = règle contractuelle par "
                          "nature × état neuf/occasion (cf `durees_engagement_disponibles` du "
-                         "snapshot). Retourne `a_confirmer` : points restants à vérifier avec "
+                         "snapshot). NOUVEAU CLIENT (aucun historique, y compris un client créé le "
+                         "jour même — identité lue EN DIRECT dans PrismaSoft, pas besoin d'attendre "
+                         "la synchro) : colonne passé à zéro, futur café = volume cible × prix net "
+                         "du tarif du client sur `produit_specifique` (marge au prix d'achat live). "
+                         "Retourne `a_confirmer` : points restants à vérifier avec "
                          "l'utilisateur (ex: adresse jamais renseignée) — TOUJOURS les relayer avant "
                          "de considérer la demande terminée, ne jamais les passer sous silence. "
                          "POST /api/bacchus/investissement/generer."),
