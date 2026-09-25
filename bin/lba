@@ -344,13 +344,41 @@ def _mint_cli_session_jwt(agent_id: str) -> str:
     return resp["jwt"]
 
 
+# Session obligatoire sur TOUT /api/* côté backend (2026-09-25, ordre Damien,
+# arb_982536ed4a — auth/session_guard.py LBA-DESKTOP) : chaque tool envoie
+# désormais un JWT de session scopé au titulaire du seat, plus seulement les
+# tools Graph/Todo. _AUTH_REQUIRED_TOOLS reste la liste historique mais n'est
+# plus un filtre. Le JWT (TTL 120s) est mis en cache ~90s par agent_id pour
+# éviter un ticket-exchange à chaque appel.
+_JWT_CACHE_TTL_SEC = 90
+_DEFAULT_HEADERS: dict = {}
+
+
+def _jwt_cache_path(agent_id: str) -> str:
+    d = f"/tmp/lba-cli-jwt-{os.getuid()}"
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    return os.path.join(d, "".join(c if c.isalnum() or c in "-_" else "_" for c in agent_id))
+
+
+def _cached_session_jwt(agent_id: str) -> str:
+    path = _jwt_cache_path(agent_id)
+    try:
+        with open(path) as f:
+            cached = json.load(f)
+        if cached.get("exp", 0) > time.time():
+            return cached["jwt"]
+    except (OSError, ValueError, KeyError):
+        pass
+    jwt_token = _mint_cli_session_jwt(agent_id)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"jwt": jwt_token, "exp": time.time() + _JWT_CACHE_TTL_SEC}, f)
+    return jwt_token
+
+
 def _auth_headers(tool: str, agent_id: str | None) -> dict:
-    """Header Authorization: Bearer <jwt> pour les tools Graph/Todo
-    uniquement (whitelist _AUTH_REQUIRED_TOOLS) — les 18 tools DATA
-    n'appellent jamais cette fonction, zéro régression sur leur flux."""
-    if tool not in _AUTH_REQUIRED_TOOLS:
-        return {}
-    jwt_token = _mint_cli_session_jwt(_resolve_agent_id(agent_id))
+    """Header Authorization: Bearer <jwt de session du seat> — tous tools."""
+    jwt_token = _cached_session_jwt(_resolve_agent_id(agent_id))
     return {"Authorization": f"Bearer {jwt_token}"}
 
 
@@ -359,7 +387,7 @@ def _get(path: str, params: dict, headers: dict | None = None, timeout: int = 30
     url = f"{BASE}{path}"
     if q:
         url += "?" + urlencode(q)
-    req = urllib.request.Request(url, method="GET", headers=headers or {})
+    req = urllib.request.Request(url, method="GET", headers={**_DEFAULT_HEADERS, **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode()
@@ -391,7 +419,7 @@ def _delete(path: str, headers: dict | None = None) -> str:
 def _write(path: str, payload: dict, method: str, headers: dict | None = None, timeout: int = 30) -> str:
     url = f"{BASE}{path}"
     body = json.dumps(payload).encode()
-    hdrs = {"Content-Type": "application/json", **(headers or {})}
+    hdrs = {"Content-Type": "application/json", **_DEFAULT_HEADERS, **(headers or {})}
     req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -4428,7 +4456,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "pas de valeur par défaut, pas d'automatisme. Aucune requête HTTP émise "
             "(refus AVANT le ticket-exchange, zéro effet de bord)."
         )
+    global _DEFAULT_HEADERS
     headers = _auth_headers(tool, agent_id)
+    _DEFAULT_HEADERS = headers
     if tool == "lba_mail_liste":
         return _get("/api/bacchus/mail/liste", {
             "top": args.get("top", 25), "page_token": args.get("page_token")}, headers)

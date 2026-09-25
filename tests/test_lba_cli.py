@@ -27,6 +27,13 @@ spec = importlib.util.spec_from_loader("lba_cli", _loader)
 lba_cli = importlib.util.module_from_spec(spec)
 _loader.exec_module(lba_cli)
 
+# Session obligatoire (2026-09-25) : _exec mint désormais un JWT pour TOUT
+# tool. Hors tests dédiés au ticket-exchange (qui remplacent eux-mêmes
+# _mint_cli_session_jwt), aucun appel réseau : mint factice + cache désactivé
+# (sinon un JWT mis en cache fuirait d'un test à l'autre).
+lba_cli._mint_cli_session_jwt = lambda agent_id: "test-jwt"
+lba_cli._JWT_CACHE_TTL_SEC = -1
+
 
 class CapturedGet(Exception):
     """Utilisé pour court-circuiter _get et récupérer (path, params) sans HTTP."""

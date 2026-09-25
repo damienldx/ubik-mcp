@@ -13,10 +13,26 @@
  * one upstream and reach the whole arsenal.
  */
 
+import * as fs from "node:fs";
 import { z } from "zod";
 import { createMcpServer, runServer } from "../lib/server.js";
 
 const LBA_BASE = process.env.LBA_BACKEND_URL || "http://127.0.0.1:8504";
+
+// Session obligatoire sur /api/* côté LBA (2026-09-25) : /api/tools/* est un
+// appel service-à-service sans utilisateur -> clé interne (X-Internal-Key).
+// Chemin opérateur absolu : un slot fleet a un $HOME différent.
+const LBA_INTERNAL_KEY_FILE =
+  process.env.LBA_INTERNAL_API_KEY_FILE || "/home/damienldx/.config/lba-desktop/internal_api_key";
+
+function internalKeyHeader(): Record<string, string> {
+  try {
+    const key = (process.env.LBA_INTERNAL_API_KEY || fs.readFileSync(LBA_INTERNAL_KEY_FILE, "utf8")).trim();
+    return key ? { "X-Internal-Key": key } : {};
+  } catch {
+    return {};
+  }
+}
 
 type Schema = {
   name: string;
@@ -72,7 +88,7 @@ async function callBackend(name: string, args: Record<string, unknown>): Promise
   const url = `${LBA_BASE}/api/tools/${name}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...internalKeyHeader() },
     body: JSON.stringify(args ?? {}),
   });
   const text = await res.text();
