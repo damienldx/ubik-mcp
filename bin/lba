@@ -266,7 +266,8 @@ _AUTH_REQUIRED_TOOLS = frozenset({
 # qui shortcut la confirmation) — sinon _exec refuse d'appeler le backend AVANT
 # même de construire la requête HTTP. Cf test_lba_auth_required_tools.py pour
 # le verrou de régression sur cette garde.
-_CONFIRMATION_REQUIRED_TOOLS = frozenset({"lba_devis_envoyer", "lba_direction_proposition_repondre"})
+_CONFIRMATION_REQUIRED_TOOLS = frozenset({"lba_devis_envoyer", "lba_direction_proposition_repondre",
+                                          "lba_document_envoyer_client"})
 
 _CLI_SESSION_SECRET_PATH = os.environ.get(
     "LBA_CLI_SESSION_SECRET_PATH", "/home/damienldx/.lba-desktop/cli-session.secret"
@@ -2076,6 +2077,49 @@ TOOLS = [
     # par ligne. Cf docstring bacchus_piece_vente_prix_negocie_tools.py
     # (LBA-DESKTOP). Étage TOUJOURS "Commande" (scope v1, arbitrage LEAD
     # final confirmé par Ivan 2026-09-09 — Devis descopé en t_9e528bf67a).
+    # Envoi d'un document "Mes Documents" au client (2026-09-25, brief Damien),
+    # cf bacchus_document_envoi_tools.py (LBA-DESKTOP).
+    {
+        "name": "lba_document_envoyer_client_preparer",
+        "description": ("Lecture pure — PRÉPARE l'envoi par mail d'un document de 'Mes Documents' (ou de "
+                         "ses dossiers) à un CLIENT, depuis la boîte Outlook de l'utilisateur : "
+                         "destinataires = email(s) de la fiche principale du client (PRISMA), copie = "
+                         "collaborateurs internes demandés par l'utilisateur (email ou nom, ex. 'andre "
+                         "diril'), pièce jointe, objet proposé, SIGNATURE PROPOSÉE. document_id OU "
+                         "recherche_document (mots du titre) — si plusieurs documents correspondent, "
+                         "la réponse liste les candidats. TOUJOURS appeler en PREMIER, puis présenter à "
+                         "l'utilisateur : destinataires, copie, pièce jointe, objet, un MESSAGE "
+                         "D'ACCOMPAGNEMENT rédigé par toi (toujours, jamais un mail vide) et la signature "
+                         "proposée, en lui demandant de valider ou corriger la signature. POST "
+                         "/api/bacchus/document-envoi/preparer."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string"},
+            "document_id": {"type": "string"},
+            "recherche_document": {"type": "string", "description": "mots du titre si document_id inconnu"},
+            "copie": {"type": "array", "items": {"type": "string"},
+                      "description": "collaborateurs en copie (email interne ou nom), seulement si demandé"},
+        }},
+    },
+    {
+        "name": "lba_document_envoyer_client",
+        "description": ("[ÉCRITURE — ENVOI RÉEL D'UN MAIL EXTERNE] Envoie le document au client depuis la "
+                         "boîte Outlook de l'utilisateur (copie dans ses Éléments envoyés). Destinataires "
+                         "relus sur la fiche client côté serveur (jamais fournis par toi) ; copie limitée "
+                         "aux collaborateurs internes. N'appeler qu'APRÈS lba_document_envoyer_client_"
+                         "preparer ET validation EXPLICITE par l'utilisateur de : destinataires, copie, "
+                         "objet, message d'accompagnement, signature, pièce jointe. `message` = le texte "
+                         "d'accompagnement SANS signature ; `signature` = la signature validée. "
+                         "confirmed_by_user=true obligatoire et doit refléter une validation réelle "
+                         "obtenue juste avant. POST /api/bacchus/document-envoi/envoyer."),
+        "inputSchema": {"type": "object",
+            "required": ["code_client", "document_id", "objet", "message", "signature", "confirmed_by_user"],
+            "properties": {
+            "code_client": {"type": "string"}, "document_id": {"type": "string"},
+            "objet": {"type": "string"}, "message": {"type": "string"}, "signature": {"type": "string"},
+            "copie": {"type": "array", "items": {"type": "string"}},
+            "confirmed_by_user": {"type": "boolean"},
+        }},
+    },
     # Tarif complet d'un client (2026-09-25, brief Damien) — reproduction du
     # "Catalogue client V3" PrismaSoft, cf bacchus_tarif_client_tools.py.
     {
@@ -5563,6 +5607,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/avoirs/batch/creer", {
             "corrections": _req(args, "corrections"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_document_envoyer_client_preparer":
+        return _post("/api/bacchus/document-envoi/preparer", {
+            "code_client": str(_req(args, "code_client")), "document_id": args.get("document_id"),
+            "recherche_document": args.get("recherche_document"), "copie": args.get("copie") or []})
+    if tool == "lba_document_envoyer_client":
+        return _post("/api/bacchus/document-envoi/envoyer", {
+            "code_client": str(_req(args, "code_client")), "document_id": _req(args, "document_id"),
+            "objet": _req(args, "objet"), "message": _req(args, "message"),
+            "signature": _req(args, "signature"), "copie": args.get("copie") or [],
+            "confirmed_by_user": args.get("confirmed_by_user") is True}, timeout=60)
     if tool == "lba_tarif_client_generer":
         return _post("/api/bacchus/tarif-client/generer", {
             "code_client": str(_req(args, "code_client")),
