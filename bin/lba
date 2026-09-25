@@ -2076,6 +2076,26 @@ TOOLS = [
     # par ligne. Cf docstring bacchus_piece_vente_prix_negocie_tools.py
     # (LBA-DESKTOP). Étage TOUJOURS "Commande" (scope v1, arbitrage LEAD
     # final confirmé par Ivan 2026-09-09 — Devis descopé en t_9e528bf67a).
+    # Tarif complet d'un client (2026-09-25, brief Damien) — reproduction du
+    # "Catalogue client V3" PrismaSoft, cf bacchus_tarif_client_tools.py.
+    {
+        "name": "lba_tarif_client_generer",
+        "description": ("[ÉCRITURE — génère un fichier] Génère le TARIF COMPLET d'un client — le même "
+                         "document que PrismaSoft imprime via fiche client > onglet Client > Tarif "
+                         "personnalisé > Catalogue client complet (modèle 'Catalogue client V3') — et le "
+                         "dépose dans 'Mes Documents' de l'utilisateur. Tous les articles actifs "
+                         "groupés par famille (hors consignes, divers, taxe parafiscale), au prix NET "
+                         "de CE client (tarif personnalisé, sinon sa grille), avec degré, contenance, "
+                         "droit d'accise / taxe soda, vignette, tarif HT D.A.I et consigne. PDF par "
+                         "défaut ; formats=['pdf','xlsx','csv'] au choix. POST "
+                         "/api/bacchus/tarif-client/generer."),
+        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
+            "code_client": {"type": "string"},
+            "formats": {"type": "array", "items": {"type": "string", "enum": ["pdf", "xlsx", "csv"]},
+                        "description": "défaut ['pdf']"},
+            "dossier_id": {"type": "string", "description": "dossier 'Mes Documents' (optionnel)"},
+        }},
+    },
     # Remises d'un devis/commande -> fiche client (2026-09-25, brief Damien,
     # direction). Cf bacchus_piece_remises_fiche_tools.py (LBA-DESKTOP).
     {
@@ -5533,6 +5553,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/avoirs/batch/creer", {
             "corrections": _req(args, "corrections"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_tarif_client_generer":
+        return _post("/api/bacchus/tarif-client/generer", {
+            "code_client": str(_req(args, "code_client")),
+            "formats": args.get("formats") or ["pdf"], "dossier_id": args.get("dossier_id")},
+            timeout=120)
     if tool == "lba_piece_remises_vers_fiche_simuler":
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/simuler", {
             "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client"))},

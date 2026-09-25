@@ -643,7 +643,8 @@ class TestCliSurface(unittest.TestCase):
         # Damien — remises d'un devis/commande calées dans la fiche client).
         # Compteur resynchronisé sur la surface réelle (était déjà en retard :
         # 269 tools réels avant cet ajout, assertion figée à 229) = 271.
-        self.assertEqual(len(tools), 271)
+        # + lba_tarif_client_generer (2026-09-25) = 272.
+        self.assertEqual(len(tools), 272)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
