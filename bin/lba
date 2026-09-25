@@ -64,6 +64,7 @@ BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
 # Whitelist POSITIVE : seuls ces noms déclenchent le ticket-exchange —
 # les 18 tools DATA de Caton restent inchangés, zéro session requise.
 _AUTH_REQUIRED_TOOLS = frozenset({
+    "lba_piece_remises_vers_fiche_simuler", "lba_piece_remises_vers_fiche_appliquer",
     "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer", "lba_mail_marquer",
     "lba_mail_pieces_jointes_lister", "lba_mail_piece_jointe_telecharger",
     "lba_mail_dossiers_lister", "lba_mail_rechercher",
@@ -2047,6 +2048,43 @@ TOOLS = [
     # par ligne. Cf docstring bacchus_piece_vente_prix_negocie_tools.py
     # (LBA-DESKTOP). Étage TOUJOURS "Commande" (scope v1, arbitrage LEAD
     # final confirmé par Ivan 2026-09-09 — Devis descopé en t_9e528bf67a).
+    # Remises d'un devis/commande -> fiche client (2026-09-25, brief Damien,
+    # direction). Cf bacchus_piece_remises_fiche_tools.py (LBA-DESKTOP).
+    {
+        "name": "lba_piece_remises_vers_fiche_simuler",
+        "description": ("Lecture pure — à partir d'un DEVIS ou d'une COMMANDE PrismaSoft (état "
+                         "Devis/Commande uniquement) d'un client, liste ce qui serait calé dans sa "
+                         "fiche (tarifs personnalisés, tarif_client) : pour chaque ligne article, "
+                         "remise du devis vs remise actuelle de la fiche, statut creer / modifier / "
+                         "identique / ignore (aucune remise) / erreur (prix unitaire modifié à la "
+                         "main, remise3/4, article en double avec remises différentes). Lignes "
+                         "rattachées (caisses, taxes) ignorées. num_piece = numéro de devis OU de "
+                         "commande — code_client OBLIGATOIRE (numDevis et numCommande sont deux "
+                         "numérotations distinctes qui se chevauchent). TOUJOURS appeler en PREMIER "
+                         "et présenter le tableau à l'utilisateur. POST "
+                         "/api/bacchus/pieces-vente/remises-vers-fiche/simuler."),
+        "inputSchema": {"type": "object", "required": ["num_piece", "code_client"], "properties": {
+            "num_piece": {"type": "integer", "description": "numéro du devis ou de la commande"},
+            "code_client": {"type": "string"},
+        }},
+    },
+    {
+        "name": "lba_piece_remises_vers_fiche_appliquer",
+        "description": ("ÉCRITURE — cale dans la fiche client (tarif_client) toutes les remises "
+                         "creer/modifier du devis/de la commande, en UNE transaction (tout ou rien ; "
+                         "refusé si une ligne est en erreur). Recalculé depuis la pièce côté serveur, "
+                         "jamais depuis des valeurs fournies. Un prix fixe existant sur un article "
+                         "modifié est retiré au profit de la remise. Réservé direction — 403 sinon. "
+                         "TOUJOURS après lba_piece_remises_vers_fiche_simuler présenté à "
+                         "l'utilisateur et confirmation explicite. confirm=true REQUIS. POST "
+                         "/api/bacchus/pieces-vente/remises-vers-fiche/appliquer."),
+        "inputSchema": {"type": "object", "required": ["num_piece", "code_client", "confirm"],
+            "properties": {
+            "num_piece": {"type": "integer"},
+            "code_client": {"type": "string"},
+            "confirm": {"type": "boolean"},
+        }},
+    },
     {
         "name": "lba_piece_vente_prix_negocie_simuler",
         "description": ("Lecture pure — dry-run de création d'une piece de vente NATIVE "
@@ -5465,6 +5503,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/avoirs/batch/creer", {
             "corrections": _req(args, "corrections"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_piece_remises_vers_fiche_simuler":
+        return _post("/api/bacchus/pieces-vente/remises-vers-fiche/simuler", {
+            "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client"))},
+            headers)
+    if tool == "lba_piece_remises_vers_fiche_appliquer":
+        return _post("/api/bacchus/pieces-vente/remises-vers-fiche/appliquer", {
+            "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client")),
+            "confirm": bool(_req(args, "confirm"))}, headers)
     if tool == "lba_piece_vente_prix_negocie_simuler":
         return _post("/api/bacchus/pieces-vente/prix-negocie/simuler", {
             "code_client": _req(args, "code_client"), "lignes": _req(args, "lignes")})

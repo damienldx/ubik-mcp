@@ -632,7 +632,11 @@ class TestCliSurface(unittest.TestCase):
         # (t_fcef8eac92, plan_b3838858, mission 4/4 — création d'une piece de
         # vente native avec prix négocié, backend
         # bacchus_piece_vente_prix_negocie_tools.py déjà en prod) = 229.
-        self.assertEqual(len(tools), 229)
+        # + lba_piece_remises_vers_fiche_simuler/appliquer (2026-09-25, brief
+        # Damien — remises d'un devis/commande calées dans la fiche client).
+        # Compteur resynchronisé sur la surface réelle (était déjà en retard :
+        # 269 tools réels avant cet ajout, assertion figée à 229) = 271.
+        self.assertEqual(len(tools), 271)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
