@@ -4193,6 +4193,121 @@ TOOLS = [
             "filename": {"type": "string", "description": "optionnel — nom d'archivage, défaut nom du fichier source"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
+    # ── LBA DRIVE (2026-09-26, ordre Damien) — deux espaces : `public` (Drive
+    # LBA partagé, même racine que lba_dossier_*) et `perso` (drive PRIVÉ du
+    # titulaire du seat, dérivé côté serveur de son identité — jamais celui
+    # d'un autre). Endpoints /api/me/drive/* (plan/lba_drive_api.py),
+    # authentifiés par le JWT du seat. Même drive que le parcours « drive » du
+    # hub solutions-lba : ce que Bacchus range, l'utilisateur le voit.
+    {
+        "name": "lba_drive_liste",
+        "description": ("Lecture pure — contenu d'un dossier du LBA Drive (sous-dossiers puis fichiers, "
+                         "taille, date). `espace` public (Drive commun) ou perso (drive privé de "
+                         "l'utilisateur). Sans `path`, liste la racine. GET /api/me/drive/ls."),
+        "inputSchema": {"type": "object", "required": ["espace"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "dossier relatif, défaut racine"}}},
+    },
+    {
+        "name": "lba_drive_arbre",
+        "description": ("Lecture pure — arborescence (dossiers + fichiers) d'un espace du LBA Drive "
+                         "jusqu'à `max_depth` niveaux, pour une vue d'ensemble avant d'organiser. "
+                         "GET /api/me/drive/tree."),
+        "inputSchema": {"type": "object", "required": ["espace"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "dossier de départ, défaut racine"},
+            "max_depth": {"type": "integer", "description": "défaut 3"}}},
+    },
+    {
+        "name": "lba_drive_lire",
+        "description": ("Lecture pure — CONTENU TEXTE d'un fichier du LBA Drive (PDF, Word, Excel, "
+                         "PowerPoint, image par OCR, texte). `path` = chemin relatif exact obtenu via "
+                         "lba_drive_liste/arbre/rechercher. GET /api/me/drive/read."),
+        "inputSchema": {"type": "object", "required": ["espace", "path"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "chemin relatif exact du fichier"},
+            "max_chars": {"type": "integer", "description": "défaut 20000"}}},
+    },
+    {
+        "name": "lba_drive_rechercher",
+        "description": ("Lecture pure — recherche SÉMANTIQUE dans le contenu des fichiers du LBA Drive, "
+                         "quand l'utilisateur ne donne pas le chemin exact. `espace` = public, perso "
+                         "ou tous (défaut tous : son drive privé + le drive commun ; chaque résultat "
+                         "porte son espace). POST /api/me/drive/search."),
+        "inputSchema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"},
+            "espace": {"type": "string", "enum": ["public", "perso", "tous"], "description": "défaut tous"},
+            "limit": {"type": "integer", "description": "défaut 8"},
+            "path_prefix": {"type": "string", "description": "optionnel — restreint à un sous-dossier"}}},
+    },
+    {
+        "name": "lba_drive_dossier_creer",
+        "description": ("[ÉCRITURE] Crée un dossier (et ses parents) dans le LBA Drive, ex. "
+                         "« Clients/Brasserie Meteor/Contrats ». 409 s'il existe déjà. "
+                         "POST /api/me/drive/mkdir."),
+        "inputSchema": {"type": "object", "required": ["espace", "path"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "chemin relatif du dossier à créer"}}},
+    },
+    {
+        "name": "lba_drive_ecrire",
+        "description": ("[ÉCRITURE] Crée un contenu texte (compte rendu, note, synthèse, liste, CSV, "
+                         "page HTML) dans un dossier EXISTANT du LBA Drive. `filename` avec extension "
+                         ".md, .txt, .csv, .html ou .json (défaut .md). 409 si le nom existe déjà, "
+                         "sauf overwrite=true (remplace — à confirmer avec l'utilisateur). Pour un "
+                         "Word/Excel/PDF mis en page, générer d'abord via lba_document_generer_* puis "
+                         "le ranger avec lba_drive_archiver. POST /api/me/drive/write."),
+        "inputSchema": {"type": "object", "required": ["espace", "filename", "contenu"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "dossier existant, défaut racine"},
+            "filename": {"type": "string", "description": "nom du fichier, ex. compte-rendu-visite.md"},
+            "contenu": {"type": "string"},
+            "overwrite": {"type": "boolean", "description": "défaut false"}}},
+    },
+    {
+        "name": "lba_drive_renommer",
+        "description": ("[ÉCRITURE] Renomme un fichier ou dossier du LBA Drive (`new_name` = nom seul, "
+                         "garder l'extension d'un fichier). POST /api/me/drive/rename."),
+        "inputSchema": {"type": "object", "required": ["espace", "src", "new_name"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "src": {"type": "string", "description": "chemin relatif actuel"},
+            "new_name": {"type": "string"}}},
+    },
+    {
+        "name": "lba_drive_deplacer",
+        "description": ("[ÉCRITURE] Déplace un fichier ou dossier dans un autre dossier (`dst`, existant), "
+                         "y compris d'un espace à l'autre avec `dst_espace` : perso -> public = "
+                         "PARTAGER avec tous les collaborateurs (à confirmer avec l'utilisateur), "
+                         "public -> perso = le retirer du drive commun. POST /api/me/drive/move."),
+        "inputSchema": {"type": "object", "required": ["espace", "src"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "src": {"type": "string", "description": "chemin relatif de l'élément à déplacer"},
+            "dst": {"type": "string", "description": "dossier de destination, défaut racine"},
+            "dst_espace": {"type": "string", "enum": ["public", "perso"], "description": "espace de destination, défaut le même"}}},
+    },
+    {
+        "name": "lba_drive_supprimer",
+        "description": ("[ÉCRITURE, destructif] Supprime définitivement un fichier ou un dossier (avec "
+                         "tout son contenu) du LBA Drive — aucune corbeille. Confirmation EXPLICITE de "
+                         "l'utilisateur obligatoire avant l'appel, en citant ce qui sera supprimé. "
+                         "DELETE /api/me/drive/rm."),
+        "inputSchema": {"type": "object", "required": ["espace", "path"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "path": {"type": "string", "description": "chemin relatif à supprimer"}}},
+    },
+    {
+        "name": "lba_drive_archiver",
+        "description": ("[ÉCRITURE] Range dans le LBA Drive un fichier DÉJÀ sur le serveur : pièce jointe "
+                         "du chat (chemin du marqueur « [fichier joint: ...] »), pièce jointe mail/Teams/"
+                         "WhatsApp téléchargée (lba_mail_piece_jointe_telecharger, etc.) ou document "
+                         "généré. `path` = dossier existant. Tout autre chemin est refusé (403). "
+                         "POST /api/me/drive/archiver."),
+        "inputSchema": {"type": "object", "required": ["espace", "local_path"], "properties": {
+            "espace": {"type": "string", "enum": ["public", "perso"], "description": "public = Drive LBA partagé par tous les collaborateurs ; perso = drive PRIVÉ de l'utilisateur de ce seat (lui seul le voit)"},
+            "local_path": {"type": "string", "description": "chemin serveur du fichier à ranger"},
+            "path": {"type": "string", "description": "dossier de destination existant, défaut racine"},
+            "filename": {"type": "string", "description": "optionnel — nom de rangement"}}},
+    },
     {
         "name": "lba_investissement_snapshot",
         "description": ("Lecture pure — agrège TOUT ce qu'il faut pour remplir la matrice de "
@@ -5748,6 +5863,38 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/lba-docs/note", {
             "path": _req(args, "path"), "filename": _req(args, "filename"),
             "contenu": _req(args, "contenu"), "agent_id": agent_id})
+    if tool == "lba_drive_liste":
+        return _get("/api/me/drive/ls", {"espace": _req(args, "espace"), "path": args.get("path", ".")}, headers)
+    if tool == "lba_drive_arbre":
+        return _get("/api/me/drive/tree", {"espace": _req(args, "espace"), "path": args.get("path", "."),
+                                           "max_depth": args.get("max_depth", 3)}, headers)
+    if tool == "lba_drive_lire":
+        return _get("/api/me/drive/read", {"espace": _req(args, "espace"), "path": _req(args, "path"),
+                                           "max_chars": args.get("max_chars", 20000)}, headers)
+    if tool == "lba_drive_rechercher":
+        return _post("/api/me/drive/search", {
+            "query": _req(args, "query"), "espace": args.get("espace", "tous"),
+            "limit": args.get("limit", 8), "path_prefix": args.get("path_prefix")}, headers)
+    if tool == "lba_drive_dossier_creer":
+        return _post("/api/me/drive/mkdir", {"espace": _req(args, "espace"), "path": _req(args, "path")}, headers)
+    if tool == "lba_drive_ecrire":
+        return _post("/api/me/drive/write", {
+            "espace": _req(args, "espace"), "path": args.get("path", "."), "filename": _req(args, "filename"),
+            "contenu": _req(args, "contenu"), "overwrite": bool(args.get("overwrite", False))}, headers)
+    if tool == "lba_drive_renommer":
+        return _post("/api/me/drive/rename", {
+            "espace": _req(args, "espace"), "src": _req(args, "src"), "new_name": _req(args, "new_name")}, headers)
+    if tool == "lba_drive_deplacer":
+        return _post("/api/me/drive/move", {
+            "espace": _req(args, "espace"), "src": _req(args, "src"), "dst": args.get("dst", "."),
+            "dst_espace": args.get("dst_espace")}, headers)
+    if tool == "lba_drive_supprimer":
+        q = urlencode({"espace": _req(args, "espace"), "path": _req(args, "path")})
+        return _delete(f"/api/me/drive/rm?{q}", headers)
+    if tool == "lba_drive_archiver":
+        return _post("/api/me/drive/archiver", {
+            "espace": _req(args, "espace"), "local_path": _req(args, "local_path"),
+            "path": args.get("path", "."), "filename": args.get("filename")}, headers)
     if tool == "lba_investissement_snapshot":
         return _get("/api/bacchus/investissement/snapshot", {"code": _req(args, "code")})
     if tool == "lba_investissement_generer":
