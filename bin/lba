@@ -1687,6 +1687,45 @@ TOOLS = [
                 "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
             }},
     },
+    # Purge des paniers abandonnés (plan_97dd3168, carte t_e8ec634019, brief Ivan
+    # Diril) — pièces de vente état=Commande / numéro NULL / origine 'open' qui
+    # polluent le besoin GPAO. Mécanisme d'enregistrement VÉRIFIÉ (liste manuelle
+    # + dispatch manuel) avant rédaction de ces entrées et du prompt Bacchus.
+    {
+        "name": "lba_paniers_abandonnes_simuler",
+        "description": ("Lecture pure — identifie les paniers abandonnés purgeables (pièces de "
+                         "vente état=Commande, numéro NULL, origine 'open', sans écriture "
+                         "comptable/BP/BL/facture/réservation de stock) dont la dernière activité "
+                         "date d'au moins `anciennete_jours` (min 7, défaut 90). `ids` valide une "
+                         "sélection précise (les non éligibles sont listés dans `refusees`). SANS "
+                         "RIEN ÉCRIRE. TOUJOURS appeler EN PREMIER et présenter la liste à "
+                         "l'utilisateur. POST /api/bacchus/achats/paniers-abandonnes/simuler."),
+        "inputSchema": {"type": "object", "properties": {
+            "ids": {"type": "array", "items": {"type": "integer"}, "description": "optionnel — ids de pièces à valider"},
+            "anciennete_jours": {"type": "integer", "description": "défaut 90, minimum 7"},
+            "client_inactif_seulement": {"type": "boolean", "description": "restreint aux clients isActif=false"},
+            "plafond": {"type": "integer", "description": "défaut 50, max 200"},
+        }},
+    },
+    {
+        "name": "lba_paniers_abandonnes_purger",
+        "description": ("ÉCRITURE DESTRUCTIVE ET IRRÉVERSIBLE — supprime les paniers abandonnés "
+                         "`ids` (tout-ou-rien, relecture en connexion neuve). `ids` EXPLICITES "
+                         "issus de lba_paniers_abandonnes_simuler (jamais de purge globale). "
+                         "TOUJOURS avoir appelé le simuler AVANT et présenté la liste exacte — "
+                         "n'appeler qu'APRÈS confirmation explicite. confirm=true REQUIS. Réservé "
+                         "direction/backoffice/achats-logistique — 403 sinon ; désactivé côté "
+                         "serveur tant que le flag dédié n'est pas activé. POST /api/bacchus/"
+                         "achats/paniers-abandonnes/purger."),
+        "inputSchema": {"type": "object", "required": ["ids", "confirm"], "properties": {
+            "ids": {"type": "array", "items": {"type": "integer"}},
+            "anciennete_jours": {"type": "integer"},
+            "client_inactif_seulement": {"type": "boolean"},
+            "plafond": {"type": "integer"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     {
         "name": "lba_achats_bl_lignes_non_imputees",
         "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
@@ -5636,6 +5675,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/achats/reception/ligne-modifier/creer", {
             "numero_piece": _req(args, "numero_piece"), "code_article": _req(args, "code_article"),
             "nouvelle_quantite": _req(args, "nouvelle_quantite"), "quantite": args.get("quantite"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_paniers_abandonnes_simuler":
+        return _post("/api/bacchus/achats/paniers-abandonnes/simuler", {
+            "ids": args.get("ids"), "anciennete_jours": args.get("anciennete_jours", 90),
+            "client_inactif_seulement": bool(args.get("client_inactif_seulement", False)),
+            "plafond": args.get("plafond", 50)})
+    if tool == "lba_paniers_abandonnes_purger":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/paniers-abandonnes/purger", {
+            "ids": _req(args, "ids"), "anciennete_jours": args.get("anciennete_jours", 90),
+            "client_inactif_seulement": bool(args.get("client_inactif_seulement", False)),
+            "plafond": args.get("plafond", 50),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lignes_non_imputees":
         return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
