@@ -645,7 +645,9 @@ class TestCliSurface(unittest.TestCase):
         # 269 tools réels avant cet ajout, assertion figée à 229) = 271.
         # + lba_tarif_client_generer (2026-09-25) = 272.
         # + lba_document_envoyer_client_preparer/lba_document_envoyer_client = 274.
-        self.assertEqual(len(tools), 274)
+        # DRIFT PRÉ-EXISTANT (2026-10-03) : la surface réelle sur HEAD était déjà 284
+        # (lba_drive_* etc., jamais comptés ici) ; 284 + lba_visites_synthese = 285.
+        self.assertEqual(len(tools), 285)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -944,6 +946,55 @@ class TestAchatsBlImporterLignesSousLignes(unittest.TestCase):
         cap = ctx.exception
         self.assertEqual(cap.payload["lignes_facturees"], lignes_facturees)
         self.assertNotIn("sous_lignes", cap.payload["lignes_facturees"][0])
+
+
+class TestVisitesSynthese(unittest.TestCase):
+    """lba_visites_synthese : 4 piliers en parallèle, même fenêtre, échec isolé."""
+
+    def setUp(self):
+        self._orig_get = lba_cli._get
+        self.calls = []
+
+    def tearDown(self):
+        lba_cli._get = self._orig_get
+
+    def _install(self, failing=None):
+        def fake_get(path, params, headers=None, timeout=30):
+            self.calls.append((path, params))
+            if failing and failing in path:
+                raise lba_cli.LbaCliError("HTTP 500")
+            return json.dumps({"path": path})
+        lba_cli._get = fake_get
+
+    def test_defaults_30_days_and_short_limit_on_all_pillars(self):
+        self._install()
+        out = json.loads(lba_cli._exec("lba_visites_synthese", {}))
+        self.assertEqual(len(self.calls), 4)
+        by_path = dict(self.calls)
+        for path in ("/api/me/evenements/kpis", "/api/me/evenements/qualite-ciblage",
+                     "/api/me/evenements/value-key"):
+            self.assertEqual(by_path[path]["days_back"], 30)
+        self.assertEqual(by_path["/api/me/clients-gagnes-perdus"]["limit"], 10)
+        self.assertEqual(out["erreurs"], {})
+        self.assertEqual(out["periode"], {"days_back": 30})
+        for k in ("couverture", "ciblage", "valeur_creee", "conquete"):
+            self.assertIsNotNone(out[k])
+
+    def test_explicit_args_are_forwarded(self):
+        self._install()
+        lba_cli._exec("lba_visites_synthese", {"days_back": 90, "rep_code": "X", "limit": 5})
+        by_path = dict(self.calls)
+        self.assertEqual(by_path["/api/me/evenements/kpis"]["days_back"], 90)
+        self.assertEqual(by_path["/api/me/evenements/kpis"]["rep_code"], "X")
+        self.assertEqual(by_path["/api/me/clients-gagnes-perdus"]["limit"], 5)
+
+    def test_one_pillar_failure_does_not_block_others(self):
+        self._install(failing="value-key")
+        out = json.loads(lba_cli._exec("lba_visites_synthese", {}))
+        self.assertIsNone(out["valeur_creee"])
+        self.assertIn("valeur_creee", out["erreurs"])
+        self.assertIsNotNone(out["couverture"])
+        self.assertIsNotNone(out["conquete"])
 
 
 if __name__ == "__main__":
