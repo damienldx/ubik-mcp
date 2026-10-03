@@ -980,6 +980,13 @@ class TestVisitesSynthese(unittest.TestCase):
         for k in ("couverture", "ciblage", "valeur_creee", "conquete"):
             self.assertIsNotNone(out[k])
 
+    def test_top_non_visites_forwarded_to_ciblage_only(self):
+        self._install()
+        lba_cli._exec("lba_visites_synthese", {"top_non_visites": 3})
+        by_path = dict(self.calls)
+        self.assertEqual(by_path["/api/me/evenements/qualite-ciblage"]["top_non_visites"], 3)
+        self.assertNotIn("top_non_visites", by_path["/api/me/evenements/kpis"])
+
     def test_explicit_args_are_forwarded(self):
         self._install()
         lba_cli._exec("lba_visites_synthese", {"days_back": 90, "rep_code": "X", "limit": 5})

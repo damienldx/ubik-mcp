@@ -3478,12 +3478,16 @@ TOOLS = [
         "name": "lba_visites_qualite_ciblage",
         "description": ("Ciblage CA portefeuille : les visites portent-elles sur les clients qui "
                          "pèsent le plus dans le CA ? Buckets A/B/C — GET /api/me/evenements/qualite-ciblage. "
+                         "Renvoie aussi les gros clients À VISITER : `a_non_visites` (groupe A sans visite sur la période, "
+                         "avec nom, CA 12 mois, part du CA, triés par CA décroissant), `nb_a_non_visites` (total "
+                         "réel) et `b_non_visites_top` (groupe B, 5 max). "
                          "2ème des 4 piliers d'une synthèse 'KPI de visites' complète (cf lba_visites_kpis)."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "days_back": {"type": "integer", "description": "optionnel, défaut 365 côté backend"},
-            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"}}},
+            "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
+            "top_non_visites": {"type": "integer", "description": "optionnel, défaut 10 côté backend (cap de la liste a_non_visites, 0-50)"}}},
     },
     {
         "name": "lba_visites_value_key",
@@ -3555,7 +3559,8 @@ TOOLS = [
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel, prime sur days_back)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
-            "limit": {"type": "integer", "description": "optionnel, défaut 10 (cap des listes gagnés/perdus par catégorie)"}}},
+            "limit": {"type": "integer", "description": "optionnel, défaut 10 (cap des listes gagnés/perdus par catégorie)"},
+            "top_non_visites": {"type": "integer", "description": "optionnel, défaut 10 (cap de la liste des gros clients A non visités)"}}},
     },
     {
         "name": "lba_representants_agenda",
@@ -5114,7 +5119,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_visites_qualite_ciblage":
         return _get("/api/me/evenements/qualite-ciblage", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),
-            "days_back": args.get("days_back"), "rep_code": args.get("rep_code")}, headers)
+            "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
+            "top_non_visites": args.get("top_non_visites")}, headers)
     if tool == "lba_visites_value_key":
         return _get("/api/me/evenements/value-key", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),
@@ -5134,7 +5140,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                   "rep_code": args.get("rep_code")}
         jobs = {
             "couverture": ("/api/me/evenements/kpis", dict(window)),
-            "ciblage": ("/api/me/evenements/qualite-ciblage", dict(window)),
+            "ciblage": ("/api/me/evenements/qualite-ciblage",
+                        {**window, "top_non_visites": args.get("top_non_visites")}),
             "valeur_creee": ("/api/me/evenements/value-key", dict(window)),
             "conquete": ("/api/me/clients-gagnes-perdus", {
                 "rep_code": args.get("rep_code"),
