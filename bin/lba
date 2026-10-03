@@ -3590,7 +3590,8 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "rep_id": {"type": "integer", "description": "optionnel — admin/bureau seulement pour filtrer un rep précis ; jamais nécessaire pour un commercial (déjà son propre planning par défaut)"},
             "date_from": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut début du mois courant)"},
-            "date_to": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut fin du mois courant)"}}},
+            "date_to": {"type": "string", "description": "YYYY-MM-DD (optionnel, défaut fin du mois courant)"},
+            "week": {"type": "string", "description": "optionnel — 'courante' | 'prochaine' | 'precedente' | 'YYYY-WW' : le SERVEUR calcule lundi→dimanche (aucune date à calculer) et renvoie `semaine` + `jours` (7 jours, jours vides inclus, RDV triés par heure). Prime sur date_from/date_to."}}},
     },
     # ── Devis conversationnel (t_eafa2f3ea0, 2026-08-29, carte "Faire un devis")
     # — génère les MÊMES devis (PDF/HTML/XLSX/CSV) que le panel Simulateur, via
@@ -5180,7 +5181,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_planning_current":
         return _get("/api/planning/current", {
             "rep_id": args.get("rep_id"), "date_from": args.get("date_from"),
-            "date_to": args.get("date_to")}, headers)
+            "date_to": args.get("date_to"), "week": args.get("week")}, headers)
     if tool == "lba_devis_article_prix":
         return _get("/api/me/devis/article-prix", {
             "code_article": _req(args, "code_article"), "client_code": _req(args, "client_code"),
