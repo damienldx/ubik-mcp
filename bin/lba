@@ -1730,8 +1730,8 @@ TOOLS = [
         "name": "lba_pr_null_simuler",
         "description": ("Lecture pure — garde-fou PR NULL (bug natif PrismaSoft : ligne ajoutée à un "
                          "devis existant avec prixRevientUnitaire vide => PR, M% et M€ vides). Liste, "
-                         "PAR PIÈCE, les lignes de pièces RÉCENTES non comptabilisées (Devis/Commande/"
-                         "Préparation, <= `anciennete_jours`, défaut 90) à PR NULL, avec la valeur de "
+                         "PAR PIÈCE, les lignes de pièces non comptabilisées (Devis SANS limite d'âge ; "
+                         "Commande/Préparation <= `anciennete_jours`, défaut 90) à PR NULL, avec la valeur de "
                          "comblement proposée (PAMP, sinon dernier PR de l'article). Les lignes dont "
                          "l'article n'a aucun PR source sont REFUSÉES et remontées (jamais de PR "
                          "inventé). SANS RIEN ÉCRIRE. TOUJOURS appeler EN PREMIER. POST /api/bacchus/"
@@ -1739,7 +1739,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "ids": {"type": "array", "items": {"type": "integer"}, "description": "optionnel — ids de LIGNES à valider"},
             "plafond": {"type": "integer", "description": "défaut 50, max 200"},
-            "anciennete_jours": {"type": "integer", "description": "défaut 90, max 365"},
+            "anciennete_jours": {"type": "integer", "description": "défaut 90, max 365 — ne borne PAS les Devis"},
         }},
     },
     {
