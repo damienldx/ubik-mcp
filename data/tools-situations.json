@@ -1754,6 +1754,11 @@
       "situation": "Utilisateur veut corriger la rubrique ou le commentaire d'un document deja attache a un tiers — ECRITURE",
       "cli": "lba lba_tiers_document_modifier --args '{\"tiers_id\":<id>,\"id_document\":<id>,\"commentaire\":\"...\"}'",
       "note": "Ne touche jamais le binaire ni le nom de fichier -- pour remplacer un fichier, ré-attacher via lba_tiers_document_attacher. Au moins un champ (type ou commentaire) requis."
+    },
+    "lba_recherche_universelle": {
+      "situation": "Utilisateur cherche un client ou prospect à partir d'un email, téléphone/mobile, nom de contact, adresse ou SIRET (pas un nom de société)",
+      "cli": "lba lba_recherche_universelle --args '{\"q\":\"<email|tél|contact|adresse|siret>\"}'",
+      "note": "Couvre actifs, inactifs et prospects ; lire matched_on et statut. total=0 = absent de PRISMA. Pour une visite, utiliser crmSocieteId (jamais tiers_id)."
     }
   }
 }

@@ -1184,6 +1184,26 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 20, max 50"}}},
     },
     {
+        "name": "lba_recherche_universelle",
+        "description": ("Recherche UNIVERSELLE client/prospect multi-critère — GET /api/bacchus/recherche/"
+                         "universelle. Retrouve une fiche à partir d'un EMAIL, d'un TÉLÉPHONE/MOBILE, d'un "
+                         "NOM ou PRÉNOM de contact, d'une ADRESSE/code postal, d'un SIRET/TVA ou d'une raison "
+                         "sociale (là où lba_recherche_client/lba_clients_filtre.q ne couvrent que code/raison "
+                         "sociale). Couvre tiers ET contacts CRM, clients actifs ET inactifs ET prospects. "
+                         "'Contient', insensible casse/accents ; téléphones comparés sur les chiffres (+33=0). "
+                         "Retour : une ligne par fiche avec statut (actif/inactif), type (client/prospect), "
+                         "tiers_id, crmSocieteId, et matched_on = liste des champs qui ont matché "
+                         "(champ + valeur + contact) — utile si plusieurs fiches partagent un numéro. "
+                         "total=0 => aucune fiche PRISMA ne porte cette valeur (confirmation fiable d'absence). "
+                         "Lecture seule."),
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {
+            "q": {"type": "string", "description": "min 3 caractères : email, téléphone, nom, adresse, SIRET…"},
+            "champs": {"type": "string", "description": "optionnel, CSV de groupes (email, telephone, contact, adresse, siret, societe) ou de champs ; omis = tous"},
+            "statut": {"type": "string", "enum": ["tous", "actif", "inactif"], "description": "défaut tous"},
+            "type": {"type": "string", "enum": ["tous", "client", "prospect"], "description": "défaut tous"},
+            "limit": {"type": "integer", "description": "défaut 50, max 200"}}},
+    },
+    {
         "name": "lba_clients_par_ville",
         "description": ("Recherche clients par ville/commune (adresse résolue, pas la raison "
                          "sociale) — GET /api/bacchus/recherche/client_par_ville. Comble un trou "
@@ -5646,6 +5666,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_recherche_client":
         return _get("/api/bacchus/recherche/client", {
             "q": _req(args, "q"), "limit": args.get("limit", 20)})
+    if tool == "lba_recherche_universelle":
+        return _get("/api/bacchus/recherche/universelle", {
+            "q": _req(args, "q"), "champs": args.get("champs"),
+            "statut": args.get("statut", "tous"), "type": args.get("type", "tous"),
+            "limit": args.get("limit", 50)})
     if tool == "lba_clients_par_ville":
         return _get("/api/bacchus/recherche/client_par_ville", {
             "ville": _req(args, "ville"), "is_actif": args.get("is_actif", True),
