@@ -49,6 +49,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -4761,7 +4762,118 @@ TOOLS = [
 _TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
 
+
+# ── Filtre de tier par seat (2026-10-15, ordre Damien) ─────────────────────
+# Constat : la séparation employé / direction n'existait QUE dans le CLAUDE.md
+# (prompt) — le seat de Fanta (employé) obtenait lba_couts_net_reel, hors de sa
+# whitelist, sans aucun refus côté CLI ni serveur. Ce filtre applique les
+# mandats RÉELLEMENT équipés sur la carte du seat appelant : outil autorisé =
+# union, sur les mandats de la carte, de (tools_whitelist − tools_blacklist DU
+# MÊME mandat). Un add-on (ex. lba-direction) ajoute des outils sans être
+# bloqué par la blacklist de la base.
+# Portée : seats LBA seulement (véhicules 22fcf4a5 portail, 281cc61f hub) dont
+# la carte porte un mandat « lba-seat* ». Opérateur, agents fleet et seats
+# sans mandat lba-seat : inchangés. Un seat hub cumule sa carte et celle du
+# seat portail du même slot (greffe des mandats sans dupliquer les cartes).
+# Échec fermé : carte/manifest illisible pour un seat LBA = refus explicite.
+# Limite assumée : barrière de CLI. Elle ne protège pas d'un seat qui aurait un
+# Bash libre et appellerait le backend directement (cas des seats portail en
+# bypassPermissions) ; la barrière côté serveur reste à faire.
+_PORTAL_VEHICLE = "22fcf4a5"
+_LBA_SEAT_VEHICLES = ("22fcf4a5", "281cc61f")
+_SEAT_RE = re.compile(r"^([0-9a-f]{8})-agent-(\d+)$")
+
+
+def _autopipes_dir() -> str:
+    return os.environ.get("LBA_AUTOPIPES_DIR", "/home/damienldx/.ubik-memory/autopipes")
+
+
+def _is_lba_seat(agent_id: str | None) -> bool:
+    m = _SEAT_RE.match(agent_id or "")
+    return bool(m) and m.group(1) in _LBA_SEAT_VEHICLES
+
+
+def _seat_mandate_ids(agent_id: str) -> list[str]:
+    """Mandats équipés (cart_<id>.json) du seat, + ceux du seat portail du
+    même slot pour un seat hub. [] si aucune carte lisible."""
+    m = _SEAT_RE.match(agent_id)
+    ids = [agent_id]
+    if m and m.group(1) != _PORTAL_VEHICLE:
+        ids.append(f"{_PORTAL_VEHICLE}-agent-{m.group(2)}")
+    mandates: list[str] = []
+    for cid in ids:
+        path = os.path.join(_autopipes_dir(), f"cart_{cid}.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                cart = json.load(f)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError) as e:
+            raise LbaCliError(f"carte du seat {cid} illisible ({e}) — refus par précaution") from e
+        for it in cart.get("items") or []:
+            if isinstance(it, dict) and it.get("type") == "mandat" and it.get("id") and it["id"] not in mandates:
+                mandates.append(it["id"])
+    return mandates
+
+
+def _mandate_tools(mandate_id: str) -> set[str]:
+    import yaml
+    path = os.path.join(_autopipes_dir(), "mandats", f"{mandate_id}.yaml")
+    try:
+        with open(path, encoding="utf-8") as f:
+            manifest = yaml.safe_load(f) or {}
+    except (OSError, ValueError) as e:
+        raise LbaCliError(f"manifest du mandat {mandate_id} illisible ({e}) — refus par précaution") from e
+    return set(manifest.get("tools_whitelist") or []) - set(manifest.get("tools_blacklist") or [])
+
+
+def _seat_allowed_tools(agent_id: str) -> tuple[set[str] | None, list[str]]:
+    """(outils autorisés, mandats) — (None, mandats) si le seat n'est pas
+    soumis au filtre (aucun mandat lba-seat* équipé)."""
+    mandates = _seat_mandate_ids(agent_id)
+    if not any(mid.startswith("lba-seat") for mid in mandates):
+        return None, mandates
+    allowed: set[str] = set()
+    for mid in mandates:
+        allowed |= _mandate_tools(mid)
+    return allowed, mandates
+
+
+def _caller_agent_id() -> str | None:
+    return os.environ.get("UBIK_AGENT_ID") or os.environ.get("RELAY_AGENT_ID")
+
+
+def _enforce_tool_tier(tool: str, args: dict, agent_id: str | None) -> None:
+    caller = _caller_agent_id()
+    if not _is_lba_seat(caller):
+        return
+    effective = agent_id or (args or {}).get("agent_id") or caller
+    if effective != caller:
+        raise LbaCliError(
+            f"{tool} refusé : ce seat ({caller}) ne peut pas agir sous l'identité d'un autre seat ({effective})."
+        )
+    allowed, mandates = _seat_allowed_tools(caller)
+    if allowed is not None and tool not in allowed:
+        raise LbaCliError(
+            f"{tool} refusé : cet outil n'est pas dans le périmètre des mandats de ce seat "
+            f"({', '.join(mandates)}). Aucune requête émise."
+        )
+
+
+
+def _visible_tools() -> list:
+    """Outils que le seat appelant a le droit d'utiliser (tous pour un appelant
+    hors seats LBA). Partagé par --list et lba_capacites_rechercher : un
+    employé ne doit pas découvrir les noms des outils de la direction."""
+    caller = _caller_agent_id()
+    if not _is_lba_seat(caller):
+        return TOOLS
+    allowed, _ = _seat_allowed_tools(caller)
+    return TOOLS if allowed is None else [t for t in TOOLS if t["name"] in allowed]
+
+
 def _exec(tool: str, args: dict, agent_id: str | None = None):
+    _enforce_tool_tier(tool, args, agent_id)
     if tool in _CONFIRMATION_REQUIRED_TOOLS and args.get("confirmed_by_user") is not True:
         raise LbaCliError(
             f"{tool} refusé : confirmed_by_user doit valoir true, et doit refléter une "
@@ -6189,10 +6301,10 @@ def _capacites_rechercher(query: str, limit: int) -> str:
     q_folded = _fold(query)
     q_tokens = [t for t in q_folded.split() if len(t) > 2]
     if not q_tokens:
-        return json.dumps({"query": query, "total_tools_disponibles": len(TOOLS), "matches": [],
+        return json.dumps({"query": query, "total_tools_disponibles": len(_visible_tools()), "matches": [],
                             "note": "requête vide ou trop courte pour chercher."}, ensure_ascii=False)
     haystacks = [(t, _fold(t["name"] + " " + t.get("description", "")))
-                 for t in TOOLS if t["name"] != "lba_capacites_rechercher"]
+                 for t in _visible_tools() if t["name"] != "lba_capacites_rechercher"]
     n = len(haystacks)
     tok_stems = {tok: _stems(tok) for tok in q_tokens}
     doc_freq = {tok: sum(1 for _, hay in haystacks if any(s in hay for s in tok_stems[tok]))
@@ -6210,7 +6322,7 @@ def _capacites_rechercher(query: str, limit: int) -> str:
     top = scored[:max(1, limit)]
     return json.dumps({
         "query": query,
-        "total_tools_disponibles": len(TOOLS),
+        "total_tools_disponibles": len(haystacks),
         "matches": [{"name": t["name"], "description": t["description"]} for _, t in top],
         "note": ("Si un tool pertinent apparait ci-dessus, utilise-le — ne dis JAMAIS 'je ne peux "
                  "pas' pour une capacité listée ici. Si AUCUN match pertinent : la capacité "
@@ -6230,7 +6342,12 @@ def main():
     a = p.parse_args()
 
     if a.list or not a.tool:
-        print(json.dumps([{"name": t["name"], "description": t["description"]} for t in TOOLS],
+        try:
+            visible = _visible_tools()
+        except LbaCliError as e:
+            print(f"lba: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps([{"name": t["name"], "description": t["description"]} for t in visible],
                           indent=2, ensure_ascii=False))
         return
 
