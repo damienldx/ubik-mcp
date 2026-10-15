@@ -90,3 +90,48 @@ class TierFilter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HubReadOnly(unittest.TestCase):
+    """Les seats du vehicule hub ne peuvent pas ecrire via le CLI."""
+
+    def setUp(self):
+        self._env = os.environ.get("UBIK_AGENT_ID")
+        self.d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.d, "mandats"))
+        os.environ["LBA_AUTOPIPES_DIR"] = self.d
+        with open(os.path.join(self.d, "mandats", "lba-seat.yaml"), "w") as f:
+            yaml.safe_dump({"tools_whitelist": [t["name"] for t in lba.TOOLS]}, f)
+        for cid in ("22fcf4a5-agent-9", "281cc61f-agent-9"):
+            with open(os.path.join(self.d, f"cart_{cid}.json"), "w") as f:
+                json.dump({"items": [{"type": "mandat", "id": "lba-seat"}]}, f)
+
+    def tearDown(self):
+        os.environ.pop("LBA_AUTOPIPES_DIR", None)
+        os.environ.pop("UBIK_AGENT_ID", None) if self._env is None else os.environ.__setitem__("UBIK_AGENT_ID", self._env)
+
+    def enforce(self, seat, tool):
+        os.environ["UBIK_AGENT_ID"] = seat
+        lba._enforce_tool_tier(tool, {}, None)
+
+    def test_hub_refuse_les_ecritures(self):
+        for tool in ("lba_todo_task_create", "lba_avoir_creer", "lba_mail_envoyer", "lba_client_blocage",
+                     "lba_recouvrement_ecrire", "lba_paniers_abandonnes_purger", "lba_calendar_creer"):
+            with self.assertRaises(lba.LbaCliError, msg=tool):
+                self.enforce("281cc61f-agent-9", tool)
+
+    def test_hub_laisse_lectures_simulateurs_et_fichiers_locaux(self):
+        for tool in ("lba_recherche_client", "lba_avoir_simuler", "lba_mail_liste", "lba_relance_blocage_eligibles",
+                     "lba_document_envoyer_client_preparer", "lba_document_generer_pdf", "lba_memoire_save",
+                     "lba_capacites_rechercher", "lba_todo_tasks"):
+            self.enforce("281cc61f-agent-9", tool)
+
+    def test_portail_non_concerne(self):
+        self.enforce("22fcf4a5-agent-9", "lba_todo_task_create")
+
+    def test_liste_du_hub_sans_ecritures(self):
+        os.environ["UBIK_AGENT_ID"] = "281cc61f-agent-9"
+        names = {t["name"] for t in lba._visible_tools()}
+        self.assertNotIn("lba_avoir_creer", names)
+        self.assertIn("lba_avoir_simuler", names)
+        self.assertGreater(len(names), 150)

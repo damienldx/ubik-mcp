@@ -4852,6 +4852,11 @@ def _enforce_tool_tier(tool: str, args: dict, agent_id: str | None) -> None:
         raise LbaCliError(
             f"{tool} refusé : ce seat ({caller}) ne peut pas agir sous l'identité d'un autre seat ({effective})."
         )
+    if _is_hub_seat_caller(caller) and _hub_blocks(tool):
+        raise LbaCliError(
+            f"{tool} refusé : depuis le hub, les écritures passent par les artefacts (clic de l'utilisateur) "
+            "ou par le portail — jamais par ce CLI. Propose le parcours du catalogue ou invite à utiliser le portail."
+        )
     allowed, mandates = _seat_allowed_tools(caller)
     if allowed is not None and tool not in allowed:
         raise LbaCliError(
@@ -4859,6 +4864,44 @@ def _enforce_tool_tier(tool: str, args: dict, agent_id: str | None) -> None:
             f"({', '.join(mandates)}). Aucune requête émise."
         )
 
+
+
+# ── Hub en lecture seule (2026-10-15) ───────────────────────────────────────
+# Les seats du véhicule hub (281cc61f) ne peuvent pas écrire via le CLI : leurs
+# écritures passent par les artefacts (clic de l'utilisateur) ou par le portail.
+# Une consigne de prompt « demande confirmation » ne protège pas ; ce refus, si.
+# Détection : description marquée ÉCRITURE/ÉCRIT, ou nom d'action ; les
+# simulateurs et les outils « Lecture pure » ne sont jamais des écritures. Les
+# fichiers LOCAUX générés (documents, devis, tarif) et la mémoire consciente
+# restent permis : ils n'écrivent ni PrismaSoft ni Microsoft.
+_HUB_VEHICLE = "281cc61f"
+_WRITE_DESC_RX = re.compile(r"\[\s*(?:ÉCRITURE|ECRITURE)|^\W*(?:ÉCRITURE|ECRITURE|ÉCRIT)\b", re.I)
+_WRITE_NAME_RX = re.compile(
+    r"_(creer|appliquer|modifier|supprimer|purger|combler|envoyer|importer|affecter|repondre|ajouter|"
+    r"archiver|renommer|deplacer|ecrire|save|accepter|refuser|valider|attacher|corriger|activer|marquer|"
+    r"status|due|delete|demarrer|passer_client|soumettre|maj|mkdir|rm|rename|enrichir|create|request|note)(_|$)")
+_HUB_WRITE_EXEMPT = frozenset({
+    "lba_document_generer_pdf", "lba_document_generer_docx", "lba_document_generer_xlsx",
+    "lba_document_generer_pptx", "lba_devis_generer", "lba_tarif_client_generer", "lba_investissement_generer",
+    "lba_mail_piece_jointe_telecharger", "lba_whatsapp_piece_jointe_telecharger", "lba_memoire_save",
+})
+
+
+def _is_write_tool(name: str) -> bool:
+    t = _TOOLS_BY_NAME.get(name)
+    desc = (t or {}).get("description", "") if t else ""
+    if "simuler" in name or desc.lstrip().startswith("Lecture pure"):
+        return False
+    return bool(_WRITE_DESC_RX.search(desc) or _WRITE_NAME_RX.search(name))
+
+
+def _is_hub_seat_caller(agent_id: str | None) -> bool:
+    m = _SEAT_RE.match(agent_id or "")
+    return bool(m) and m.group(1) == _HUB_VEHICLE
+
+
+def _hub_blocks(name: str) -> bool:
+    return _is_write_tool(name) and name not in _HUB_WRITE_EXEMPT
 
 
 def _visible_tools() -> list:
@@ -4869,7 +4912,10 @@ def _visible_tools() -> list:
     if not _is_lba_seat(caller):
         return TOOLS
     allowed, _ = _seat_allowed_tools(caller)
-    return TOOLS if allowed is None else [t for t in TOOLS if t["name"] in allowed]
+    visible = TOOLS if allowed is None else [t for t in TOOLS if t["name"] in allowed]
+    if _is_hub_seat_caller(caller):
+        visible = [t for t in visible if not _hub_blocks(t["name"])]
+    return visible
 
 
 def _exec(tool: str, args: dict, agent_id: str | None = None):
