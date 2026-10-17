@@ -200,7 +200,12 @@ STDIO = {
     "google": _tsx("google.ts"), "microsoft": _tsx("microsoft.ts"),
     "whatsapp": _tsx("whatsapp.ts"),
     "lba-backend": _tsx("lba-backend.ts"),
-    "relay": ["python3", os.path.join(_REAL_HOME, "workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
+    # mcp_relay.py uses mcp.server.fastmcp (mcp 1.x). The user-site python3 now carries mcp 2.x
+    # (FastMCP renamed to MCPServer), so run it with the ubik-fleet venv (mcp 1.x) when present.
+    "relay": [
+        (os.path.join(_REAL_HOME, "workspace/ubik-fleet/.venv/bin/python")
+         if os.path.exists(os.path.join(_REAL_HOME, "workspace/ubik-fleet/.venv/bin/python")) else "python3"),
+        os.path.join(_REAL_HOME, "workspace/ubik-fleet/fleet/starters/mcp_relay.py")],
     # workspace namespace (2026-06-20, politique CLI Damien): expose qubik_record_usage +
     # qubik_suggest (STEP-0 feedback/auto-equip) au CLI apres le drop du MCP ubik cote worker.
     # cold-spawn par appel (agent_workspace_* y figurent aussi, Docker = infrequent, OK).
