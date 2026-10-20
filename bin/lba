@@ -1306,7 +1306,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["agent_id", "confirm"], "properties": {
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID si absent — doit être whitelisté côté serveur (403 sinon)"},
             "confirm": {"type": "boolean", "description": "doit valoir explicitement true — 400 sinon"},
-            "kpis": {"type": "string", "description": "défaut ca,marge,ca_ttc,commandes,pct_app,pct_gte10art,cashflow"},
+            "kpis": {"type": "string", "description": "défaut ca,marge,ca_ttc,commandes,pct_app,pct_gte10art,cashflow ; + clients (nombre de clients DISTINCTS facturés, par période — un article inactif est accepté ; pour un total exact sur une période utiliser granularite=ANNEE, ne pas additionner des mois)"},
             "rep": {"type": "integer", "description": "idPersonneRepresentant PRISMA — préférer rep_code"},
             "rep_code": {"type": "string"}, "famille": {"type": "string"}, "article": {"type": "string"},
             "granularite": {"type": "string", "description": "ANNEE|MOIS|SEMAINE|JOUR, défaut MOIS"},
