@@ -455,6 +455,20 @@ TOOLS = [
             "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
     },
     {
+        "name": "lba_sydney_historique",
+        "description": ("LECTURE. Cherche dans les anciennes TOURNÉES DE LIVRAISON réelles de PrismaSoft (fenêtre glissante jusqu'à 12 mois) pour fonder un avis "
+                         "sur les tournées de Sydney : GET /api/bacchus/logistique/historique-tournees. UN critère par appel : `client` (code : habitudes + "
+                         "dernières livraisons avec tournée, rang, chauffeur) · `clients` (2 à 8 codes : ont-ils déjà voyagé ensemble ? quand ?) · `tournee` "
+                         "(morceau du nom, ex. « PARIS OUEST » : chauffeurs, clients fréquents, dernières tournées avec l'ordre des arrêts) · `jour` (YYYY-MM-DD : "
+                         "toutes les tournées faites ce jour-là, arrêts nommés dans l'ordre) · `chauffeur` (morceau du nom : ses tournées, jours, clients) · "
+                         "`jour_semaine` (lundi..dimanche : les tournées habituelles de ce jour). Sans critère : statistiques. `mois` 1-12 (défaut 12), `limite` "
+                         "1-30 (défaut 8). Les codes clients sont ceux de l'écran Sydney."),
+        "inputSchema": {"type": "object", "properties": {
+            "client": {"type": "string"}, "clients": {"type": "array", "items": {"type": "string"}}, "tournee": {"type": "string"},
+            "jour": {"type": "string"}, "chauffeur": {"type": "string"}, "jour_semaine": {"type": "string"},
+            "mois": {"type": "integer"}, "limite": {"type": "integer"}}},
+    },
+    {
         "name": "lba_client_fiche_live",
         "description": ("Identité/statut/paramétrage d'un client en LECTURE LIVE (SQL Server direct, PAS "
                          "le snapshot DuckDB de lba_client_fiche) — GET /api/bacchus/client/{code}/fiche-live. "
@@ -5554,6 +5568,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+    if tool == "lba_sydney_historique":
+        cl = args.get("clients")
+        return _get("/api/bacchus/logistique/historique-tournees", {
+            "client": args.get("client"), "clients": ",".join(str(c) for c in cl) if isinstance(cl, list) else cl,
+            "tournee": args.get("tournee"), "jour": args.get("jour"), "chauffeur": args.get("chauffeur"),
+            "jour_semaine": args.get("jour_semaine"), "mois": args.get("mois"), "limite": args.get("limite")}, headers)
     if tool == "lba_client_fiche_live":
         code = _seg(_req(args, "code"))
         return _get(f"/api/bacchus/client/{code}/fiche-live", {})
