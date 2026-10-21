@@ -646,8 +646,8 @@ class TestCliSurface(unittest.TestCase):
         # + lba_tarif_client_generer (2026-09-25) = 272.
         # + lba_document_envoyer_client_preparer/lba_document_envoyer_client = 274.
         # DRIFT PRÉ-EXISTANT (2026-10-03) : la surface réelle sur HEAD était déjà 284
-        # (lba_drive_* etc., jamais comptés ici) ; 284 + lba_visites_synthese = 285.
-        self.assertEqual(len(tools), 285)
+        # (lba_drive_* etc., jamais comptés ici) ; 284 + lba_visites_synthese = 285 ; HEAD comptait déjà 291 (retard de 6) ; + 6 lba_promotion* = 297.
+        self.assertEqual(len(tools), 297)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

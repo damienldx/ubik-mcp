@@ -437,6 +437,24 @@ def _write(path: str, payload: dict, method: str, headers: dict | None = None, t
         raise LbaCliError(f"{method} {url} — injoignable ({e.reason})") from e
 
 
+def _promotion_corps(args: dict) -> dict:
+    """Corps d'une demande de création de promotion (identique pour simuler et créer : l'empreinte en dépend)."""
+    corps = {"ref_demande": _req(args, "ref_demande"), "libelle": _req(args, "libelle"),
+             "date_debut": _req(args, "date_debut"), "date_fin": _req(args, "date_fin"),
+             "articles": _req(args, "articles")}
+    for k in ("commentaire", "clients", "forcer"):
+        if args.get(k) is not None:
+            corps[k] = args[k]
+    return corps
+
+
+def _promotion_modification(args: dict) -> dict:
+    """Corps d'une modification de promotion (identique pour simuler et appliquer)."""
+    champs = ("libelle", "date_debut", "date_fin", "commentaire", "articles_upsert", "articles_retirer",
+              "clients_ajouter", "clients_activer", "clients_desactiver", "cloturer", "forcer")
+    return {k: args[k] for k in champs if args.get(k) is not None}
+
+
 def _req(args: dict, name: str):
     """Paramètre requis — erreur explicite plutôt qu'un KeyError opaque."""
     if name not in args or args[name] in (None, ""):
@@ -2297,6 +2315,114 @@ TOOLS = [
             "num_piece": {"type": "integer"},
             "code_client": {"type": "string"},
             "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_promotions_liste",
+        "description": ("Lecture pure — promotions PrismaSoft (id, libellé, dates, statut, nb d'articles, nb de "
+                         "clients actifs). statut = en_cours (défaut) | a_venir | terminees | toutes ; q filtre sur "
+                         "le libellé. GET /api/bacchus/promotions."),
+        "inputSchema": {"type": "object", "properties": {
+            "statut": {"type": "string", "enum": ["en_cours", "a_venir", "terminees", "toutes"]},
+            "q": {"type": "string"},
+        }},
+    },
+    {
+        "name": "lba_promotion_detail",
+        "description": ("Lecture pure — une promotion PrismaSoft : lignes article (type prix / pct / gratuit / mixte, "
+                         "pu_fixe, prix_colis_fixe, remise_pct, quantite_defaut + quantite_offert), dates, nombre de "
+                         "clients. GET /api/bacchus/promotions/{id}."),
+        "inputSchema": {"type": "object", "required": ["promotion_id"], "properties": {
+            "promotion_id": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_promotion_simuler",
+        "description": ("Lecture pure — dry-run de CRÉATION d'une promotion PrismaSoft. SANS RIEN ÉCRIRE. TOUJOURS "
+                         "appeler en PREMIER : renvoie les lignes résolues, le nombre de clients, `erreurs`, "
+                         "`avertissements` (chevauchement bloquant, deja_creee) et l'`empreinte` à rappeler à la "
+                         "création. POST /api/bacchus/promotions/simuler."),
+        "inputSchema": {"type": "object", "required": ["ref_demande", "libelle", "date_debut", "date_fin", "articles"],
+            "properties": {
+            "ref_demande": {"type": "string", "minLength": 6, "maxLength": 40,
+                             "description": "identifiant UNIQUE de la demande (ex. promo-rauch-20261102) : sert "
+                                             "d'idempotence ; le MÊME pour simuler puis créer"},
+            "libelle": {"type": "string", "maxLength": 200},
+            "date_debut": {"type": "string", "description": "AAAA-MM-JJ"},
+            "date_fin": {"type": "string", "description": "AAAA-MM-JJ, fin incluse"},
+            "commentaire": {"type": "string"},
+            "articles": {"type": "array", "items": {"type": "object", "required": ["code_article"], "properties": {
+                "code_article": {"type": "string"},
+                "id_unite_conversion": {"type": "integer",
+                                         "description": "requis si l'article a plusieurs conditionnements de vente"},
+                "type": {"type": "string", "enum": ["prix", "pct", "gratuit", "mixte"]},
+                "pu_fixe": {"type": "number", "description": "prix HT de l'UNITÉ de vente"},
+                "prix_ht_colis": {"type": "number", "description": "alternative à pu_fixe : prix HT du colis"},
+                "remise_pct": {"type": "number", "description": "pourcentage (12 = 12 %), > 0 et ≤ 90"},
+                "quantite_defaut": {"type": "integer", "description": "gratuité : achetez N"},
+                "quantite_offert": {"type": "integer", "description": "gratuité : M offerts"},
+                "qte_max_client": {"type": "integer"},
+                "commentaire": {"type": "string"},
+            }}},
+            "clients": {"type": "object", "properties": {
+                "mode": {"type": "string", "enum": ["tous_actifs", "actifs_avec_tarif", "codes"]},
+                "codes": {"type": "array", "items": {"type": "string"}}}},
+            "forcer": {"type": "boolean", "description": "passe outre un chevauchement — seulement si l'utilisateur "
+                                                          "l'a explicitement demandé"},
+        }},
+    },
+    {
+        "name": "lba_promotion_creer",
+        "description": ("ÉCRITURE — crée la promotion dans PrismaSoft. TOUJOURS avoir appelé "
+                         "lba_promotion_simuler AVANT, présenté le plan (articles, prix / remises, dates, nombre de "
+                         "clients, avertissements) et obtenu la confirmation EXPLICITE de l'utilisateur. Rappelle le "
+                         "MÊME corps que le simuler + `empreinte` renvoyée par lui + confirm=true. Réservé aux "
+                         "personnes autorisées (direction / backoffice) — refus explicite sinon. "
+                         "POST /api/bacchus/promotions/creer."),
+        "inputSchema": {"type": "object", "required": ["ref_demande", "libelle", "date_debut", "date_fin",
+                                                        "articles", "empreinte", "confirm"], "properties": {
+            "ref_demande": {"type": "string"}, "libelle": {"type": "string"},
+            "date_debut": {"type": "string"}, "date_fin": {"type": "string"}, "commentaire": {"type": "string"},
+            "articles": {"type": "array", "items": {"type": "object"}},
+            "clients": {"type": "object"}, "forcer": {"type": "boolean"},
+            "empreinte": {"type": "string", "description": "celle du dernier lba_promotion_simuler, corps identique"},
+            "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_promotion_modifier_simuler",
+        "description": ("Lecture pure — dry-run de MODIFICATION d'une promotion existante : libellé, dates, "
+                         "articles_upsert (ajout / changement de ligne), articles_retirer (seulement avant le début), "
+                         "clients_ajouter / clients_activer / clients_desactiver, cloturer=true. Renvoie erreurs, "
+                         "avertissements et `empreinte`. POST /api/bacchus/promotions/{id}/simuler."),
+        "inputSchema": {"type": "object", "required": ["promotion_id"], "properties": {
+            "promotion_id": {"type": "integer"},
+            "libelle": {"type": "string"}, "date_debut": {"type": "string"}, "date_fin": {"type": "string"},
+            "commentaire": {"type": "string"},
+            "articles_upsert": {"type": "array", "items": {"type": "object"}},
+            "articles_retirer": {"type": "array", "items": {"type": "string"}},
+            "clients_ajouter": {"type": "object"},
+            "clients_activer": {"type": "array", "items": {"type": "string"}},
+            "clients_desactiver": {"type": "array", "items": {"type": "string"}},
+            "cloturer": {"type": "boolean"}, "forcer": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_promotion_modifier",
+        "description": ("ÉCRITURE — applique la modification simulée (corps identique au "
+                         "lba_promotion_modifier_simuler + `empreinte` + confirm=true), APRÈS confirmation explicite "
+                         "de l'utilisateur sur le plan présenté. Clôturer = cloturer=true (la fin passe à la veille ; "
+                         "une promotion n'est JAMAIS supprimée). POST /api/bacchus/promotions/{id}/modifier."),
+        "inputSchema": {"type": "object", "required": ["promotion_id", "empreinte", "confirm"], "properties": {
+            "promotion_id": {"type": "integer"},
+            "libelle": {"type": "string"}, "date_debut": {"type": "string"}, "date_fin": {"type": "string"},
+            "commentaire": {"type": "string"},
+            "articles_upsert": {"type": "array", "items": {"type": "object"}},
+            "articles_retirer": {"type": "array", "items": {"type": "string"}},
+            "clients_ajouter": {"type": "object"},
+            "clients_activer": {"type": "array", "items": {"type": "string"}},
+            "clients_desactiver": {"type": "array", "items": {"type": "string"}},
+            "cloturer": {"type": "boolean"}, "forcer": {"type": "boolean"},
+            "empreinte": {"type": "string"}, "confirm": {"type": "boolean"},
         }},
     },
     {
@@ -6109,6 +6235,26 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/appliquer", {
             "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client")),
             "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_promotions_liste":
+        return _get("/api/bacchus/promotions", {"statut": args.get("statut") or "en_cours", "q": args.get("q") or None})
+    if tool == "lba_promotion_detail":
+        return _get(f"/api/bacchus/promotions/{int(_req(args, 'promotion_id'))}", {})
+    if tool == "lba_promotion_simuler":
+        return _post("/api/bacchus/promotions/simuler", _promotion_corps(args))
+    if tool == "lba_promotion_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/promotions/creer", {
+            **_promotion_corps(args), "empreinte": _req(args, "empreinte"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_promotion_modifier_simuler":
+        pid = int(_req(args, "promotion_id"))
+        return _post(f"/api/bacchus/promotions/{pid}/simuler", _promotion_modification(args))
+    if tool == "lba_promotion_modifier":
+        pid = int(_req(args, "promotion_id"))
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post(f"/api/bacchus/promotions/{pid}/modifier", {
+            **_promotion_modification(args), "empreinte": _req(args, "empreinte"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_piece_vente_prix_negocie_simuler":
         return _post("/api/bacchus/pieces-vente/prix-negocie/simuler", {
             "code_client": _req(args, "code_client"), "lignes": _req(args, "lignes")})
