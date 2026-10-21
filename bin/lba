@@ -2328,6 +2328,15 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_promotions_synthese",
+        "description": ("Lecture pure — artefact « Promotions en cours » : promotions en cours (avec leurs lignes), à "
+                         "venir, onglet Historique (promotions terminées) et contrôle des colis offerts manquants sur "
+                         "les pièces à l'état Commande. Le tableau est fabriqué par le serveur : n'écris que 2 ou 3 "
+                         "phrases. GET /api/bacchus/promotions/synthese."),
+        "inputSchema": {"type": "object", "properties": {
+            "historique": {"type": "integer", "description": "nombre de promotions terminées listées (30 par défaut)"}}},
+    },
+    {
         "name": "lba_promotion_detail",
         "description": ("Lecture pure — une promotion PrismaSoft : lignes article (type prix / pct / gratuit / mixte, "
                          "pu_fixe, prix_colis_fixe, remise_pct, quantite_defaut + quantite_offert), dates, nombre de "
@@ -6237,6 +6246,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "confirm": bool(_req(args, "confirm"))}, headers)
     if tool == "lba_promotions_liste":
         return _get("/api/bacchus/promotions", {"statut": args.get("statut") or "en_cours", "q": args.get("q") or None})
+    if tool == "lba_promotions_synthese":
+        return _get("/api/bacchus/promotions/synthese", {"historique": args.get("historique")})
     if tool == "lba_promotion_detail":
         return _get(f"/api/bacchus/promotions/{int(_req(args, 'promotion_id'))}", {})
     if tool == "lba_promotion_simuler":
