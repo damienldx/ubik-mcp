@@ -1111,6 +1111,43 @@ TOOLS = [
             "months": {"type": "string", "description": "CSV YYYY-MM — cumul multi-mois exact, prioritaire sur date_from/date_to si fourni"}}},
     },
     {
+        "name": "lba_dossier_catalogue",
+        "description": ("Bacchus équipé (2026-10-22) — liste des DOSSIERS SERVEUR interrogeables avec lba_dossier : clients en retard sur "
+                         "leur rythme d'achat, clients perdus (désactivés compris), impayés bloquants, marge qui fuit, tarifs échus, erreurs de "
+                         "prix, remises pied hors norme, prospect, passage en client, conditions, consigne client, pièces à traiter, écart de "
+                         "marge, avoirs liés — GET /api/bacchus/dossiers/catalogue. Lecture seule, limité au portefeuille de la personne."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lba_dossier",
+        "description": ("Bacchus équipé (2026-10-22) — calcule un dossier serveur CHIFFRÉ (tableau + résumé + notes sur les pièges de données) "
+                         "sur le portefeuille de la personne qui te parle, ou sur une liste de clients précise (`codes`, forcément DANS son "
+                         "portefeuille, sinon refus). À utiliser quand le dossier injecté par l'écran ne suffit pas : autre client, autre "
+                         "segment, autre question. GET /api/bacchus/dossiers/{nom}. Noms : cycle, perdus, bloquants, marge, tarifs, "
+                         "erreurs_prix, remises_pied, prospect, passage, conditions, consigne, pieces, ecart_marge, avoirs. "
+                         "`rep` (représentant) réservé admin/bureau."),
+        "inputSchema": {"type": "object", "required": ["nom"], "properties": {
+            "nom": {"type": "string", "description": "cycle | perdus | bloquants | marge | tarifs | erreurs_prix | remises_pied | prospect | passage | conditions | consigne | pieces | ecart_marge | avoirs"},
+            "codes": {"type": "string", "description": "CSV de codes clients (dans le portefeuille) — vide = tout le portefeuille"},
+            "rep": {"type": "string", "description": "code représentant — admin/bureau uniquement"}}},
+    },
+    {
+        "name": "lba_duckdb_schema",
+        "description": ("Bacchus équipé (2026-10-22) — tables et colonnes du snapshot DuckDB LBA + PIÈGES DE DONNÉES connus (dates en texte, avoirs, "
+                         "prospects, marge). À lire AVANT lba_duckdb_lire. GET /api/bacchus/duckdb/schema. RÉSERVÉ aux rôles admin et bureau "
+                         "(les autres : lba_dossier)."),
+        "inputSchema": {"type": "object", "properties": {"q": {"type": "string", "description": "mot à chercher dans les noms de table/colonne (ex. commande)"}}},
+    },
+    {
+        "name": "lba_duckdb_lire",
+        "description": ("Bacchus équipé (2026-10-22) — LECTURE libre du snapshot DuckDB : UNE instruction SELECT (ou WITH…SELECT), 200 lignes "
+                         "maximum, 20 s maximum, aucun accès fichier, journalisée. POST /api/bacchus/duckdb/lire. RÉSERVÉ aux rôles admin et "
+                         "bureau. Appeler lba_duckdb_schema d'abord ; n'invente aucun nom de table ou de colonne ; chiffre ce que tu avances."),
+        "inputSchema": {"type": "object", "required": ["sql"], "properties": {
+            "sql": {"type": "string", "description": "un SELECT ; dates en VARCHAR : try_cast(left(x,10) AS DATE)"},
+            "limite": {"type": "integer", "description": "défaut 50, max 200"}}},
+    },
+    {
         "name": "lba_ventes_pieces",
         "description": ("Liste paginée des pièces de vente (Devis/Commande/Preparation/Livraison/"
                          "Facture/Avoir) avec KPI agrégés (%app, %≥10 articles, %≥500€, CA, marge, "
@@ -5940,6 +5977,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/ventes/kpis-full", {
             "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to"),
             "months": args.get("months")})
+    if tool == "lba_dossier_catalogue":
+        return _get("/api/bacchus/dossiers/catalogue", {}, headers)
+    if tool == "lba_dossier":
+        return _get(f"/api/bacchus/dossiers/{_seg(_req(args, 'nom'))}", {"codes": args.get("codes"), "rep": args.get("rep")}, headers, timeout=90)
+    if tool == "lba_duckdb_schema":
+        return _get("/api/bacchus/duckdb/schema", {"q": args.get("q")}, headers)
+    if tool == "lba_duckdb_lire":
+        return _post("/api/bacchus/duckdb/lire", {"sql": _req(args, "sql"), "limite": args.get("limite", 50)}, headers, timeout=40)
     if tool == "lba_ventes_pieces":
         return _get("/api/bacchus/ventes/pieces", {
             "type": args.get("type"), "date_from": args.get("date_from"), "date_to": args.get("date_to"),
