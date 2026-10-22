@@ -23,21 +23,16 @@ repro.py` charge déjà `bin/ubik` de la même façon — pas de dépendance pyt
 dans ce repo (aucun .venv/pytest.ini ici), conventions asserts + sys.exit,
 exécutable directement (`python3 tests/test_lba_auth_required_tools.py`).
 
-3 garanties vérifiées :
-  1. _AUTH_REQUIRED_TOOLS == EXACTEMENT les 12 tools Graph/Todo (10 mission #3
-     + lba_mission_request/lba_todo_task_create mission #1 plan_91c9dfb4) —
-     ni plus (un futur tool DATA classé par erreur paierait un
-     ticket-exchange inutile), ni moins (un tool Graph/Todo oublié
-     appellerait :8504 SANS Authorization: Bearer -> 401 en silence).
-  2. Les 18 tools DATA de Caton (mission #2) ne sont JAMAIS dans cette
-     whitelist — la garantie "zéro régression" du brief, verrouillée.
-  3. _auth_headers() ne déclenche le ticket-exchange (_mint_cli_session_jwt)
-     QUE pour un tool de la whitelist — un tool DATA n'y touche jamais, même
-     indirectement (pas de lecture du secret, pas d'appel réseau).
+Contrat vérifié (mis à jour 2026-10-22) : depuis 2026-09-25 (arb_982536ed4a) la session est
+obligatoire sur TOUT /api/* ; _auth_headers() envoie le JWT de session du seat pour TOUT outil,
+DATA compris. _AUTH_REQUIRED_TOOLS reste la liste historique mais n'est plus un filtre (les anciens
+verrous « exactement 12 tools » et « un tool DATA ne touche jamais le ticket-exchange » sont retirés).
 """
 from __future__ import annotations
 
 import os
+
+import pytest
 import sys
 import types
 
@@ -57,172 +52,30 @@ def _load_lba():
     return mod
 
 
-# Les 10 tools Graph/Todo de CETTE mission — copie figée volontaire (pas un
-# import de la constante testée) : le test doit casser si _AUTH_REQUIRED_TOOLS
-# dérive, pas suivre silencieusement une édition non voulue.
-_EXPECTED_AUTH_REQUIRED = frozenset({
-    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre",
-    "lba_calendar_liste", "lba_calendar_creer",
-    "lba_teams_conversations", "lba_teams_repondre",
-    "lba_todo_lists", "lba_todo_tasks", "lba_todo_task_status",
-    "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
-    "lba_todo_task_due", "lba_visite_creer",
-    "lba_visites_liste", "lba_visite_modifier",
-    "lba_procedure_creer", "lba_procedure_mine", "lba_procedure_modifier",
-    "lba_procedure_supprimer", "lba_procedure_soumettre",
-    "lba_procedure_liste", "lba_procedure_themes",
-    "lba_reunion_template", "lba_reunion_creer", "lba_reunion_liste",
-    "lba_reunion_lire", "lba_reunion_modifier", "lba_reunion_supprimer",
-    "lba_reunion_dossier_creer", "lba_reunion_dossier_liste",
-    # ^ 2 lignes ajoutées 2026-07-30 (drift pré-existant hors mission plan_9a6dda04,
-    # trouvé en vérifiant l'état AVANT ma propre extension : ces 2 tools existent
-    # bien dans bin/lba._AUTH_REQUIRED_TOOLS depuis les sous-dossiers REUNION
-    # [2026-07-29] mais n'avaient jamais été ajoutés ici — 2 tests de ce fichier
-    # étaient rouges avant toute modification de ma part, cf ledger de mission).
-    # mission plan_9a6dda04 wave1 (2026-07-30) : panel "Mes Documents" / devis
-    # assistés Bacchus — /api/me/documents/* exige Depends(current_user) réel,
-    # même filtre strict auteur_email côté backend que les autres tools ici.
-    "lba_devis_composer", "lba_devis_creer", "lba_devis_liste",
-    "lba_devis_lire", "lba_devis_modifier", "lba_devis_supprimer",
-    "lba_devis_dossier_creer", "lba_devis_dossier_liste", "lba_devis_envoyer",
-    # carte t_710b1c78d3 (plan_425ab05c, mission #2) — gate d'envoi WhatsApp
-    # sortant, mirroir exact lba_mail_envoyer/lba_devis_envoyer : POST
-    # /api/bacchus/whatsapp/envoyer, Depends(current_user) réel côté backend
-    # (bacchus_whatsapp_envoyer.py, mission #1 LBA-DESKTOP déjà livrée).
-    "lba_whatsapp_envoyer",
-    # Généralisation multi-seat Direction (2026-08-30, LEAD 1to1) — les 4
-    # endpoints propositions/synthèse/connaissances scopés par current_user
-    # (LBA-DESKTOP/plan/direction_propositions_api.py,
-    # direction_connaissances_api.py) exigent le ticket-exchange pour que le
-    # backend résolve QUI demande, même mécanisme que lba_mail_envoyer/
-    # lba_calendar_creer ci-dessus.
-    "lba_direction_propositions_lister", "lba_direction_synthese_lire",
-    # lba_direction_proposition_creer (2026-08-31, correctif LEAD, cf ledger) —
-    # migré du champ déclaratif owner_email (silencieusement droppé côté CLI,
-    # jamais recoupé côté serveur) vers le même ticket-exchange que ses 2
-    # tools frères ci-dessus.
-    "lba_direction_proposition_creer",
-    # lba_direction_envois_attente (2026-09-06, carte t_d34e744fe6, gap
-    # remonté 2x avant ce sprint) — bacchus_direction_envois_attente a
-    # Depends(current_user) réel (scope niveau ORANGE personnel), même
-    # mécanisme ticket-exchange que ses tools direction frères ci-dessus.
-    # classifier_priorite/responsables/canaux du même lot n'ont AUCUN
-    # Depends(current_user) côté backend — jamais dans cette whitelist,
-    # cf _EXPECTED_DATA_TOOLS_NEVER_AUTH ci-dessous.
-    "lba_direction_envois_attente",
-    "lba_connaissances_rechercher", "lba_connaissances_ajouter",
-    # Mission "muscler la base SQL" (2026-08-30, LEAD 1to1) — recherche dans
-    # la base de connaissance unifiée FTS5 (LBA-DESKTOP/plan/
-    # direction_knowledge_api.py), même mécanisme current_user.
-    "lba_historique_rechercher",
-    # Ajout 2026-08-30 (même session) — reconstitue un fil précis en ordre
-    # chronologique (GET /api/direction/knowledge/fil), même mécanisme.
-    "lba_historique_fil_lire",
-    # Panneau CLIENT — référentiels + écriture guardée (mission #5,
-    # 2026-09-02, plan_1ef5a724) — GET/PATCH /api/bacchus/referentiel/*,
-    # Depends(current_user) réel côté bacchus_prospect_tools.py:
-    # router_referentiel (mission #6), même mécanisme que lba_prospect_creer.
-    "lba_referentiel_familles_client", "lba_referentiel_tarifs",
-    "lba_referentiel_famille_affecter", "lba_referentiel_secteur_tournee_affecter",
-    # Cluster COMPTE — blocage/déblocage, correction identité, activation
-    # (mission #7 plan Execution Bacchus/LBA, wave1, 2026-09-06) — POST
-    # /api/bacchus/prospects/{blocage,corriger-infos,activation}, même
-    # Depends(current_user) réel côté bacchus_prospect_tools.py que les
-    # tools référentiel ci-dessus. Ajouté ici pour ne pas creuser davantage
-    # la dérive préexistante déjà trackée par la carte t_450f559d5d (pas
-    # résolue par cette mission, hors scope).
-    "lba_client_blocage", "lba_prospect_corriger_infos", "lba_prospect_activation",
-})
-
-# Les 18 tools DATA de Caton (mission #2, commit 19c38ce) — jamais dans
-# _AUTH_REQUIRED_TOOLS, jamais un ticket-exchange déclenché pour eux.
-_EXPECTED_DATA_TOOLS_NEVER_AUTH = frozenset({
-    "lba_client_fiche", "lba_client_historique_visites",
-    "lba_client_recouvrement_statut", "lba_client_simulateur_prix",
-    "lba_client_extrait_compte", "lba_client_relance_preview",
-    "lba_rentabilite_produits", "lba_rentabilite_clients", "lba_tdc_kpis",
-    "lba_clients_sans_visites", "lba_produits_dormants", "lba_kpis_portefeuille",
-    "lba_dso_client", "lba_agenda_representants", "lba_portefeuille_liste",
-    "lba_recherche_client", "lba_analytics_explorer", "lba_rep_codes",
-    "lba_client_tarif", "lba_client_remises_negociees",
-    # mission #4 plan_c5ebf394 (2026-08-04) : cablage CLI de
-    # GET /api/bacchus/articles/liste (mission #1, aucun Depends(current_user)
-    # côté backend, même posture que les autres tools DATA ci-dessus).
-    "lba_articles_liste",
-    # mission #2 plan_c5ebf394 (2026-08-04) : cablage CLI de
-    # GET /api/bacchus/clients/filtre (aucun Depends(current_user) côté
-    # backend, même posture que lba_articles_liste ci-dessus).
-    "lba_clients_filtre",
-    # plan_9a274922 (2026-08-17) : cablage CLI de GET /api/bacchus/tarifs/
-    # audit-facturation (aucun Depends(current_user) côté backend, confirmé
-    # par test structurel côté LBA-DESKTOP — même posture que le reste des
-    # routes /simuler de bacchus_tarifs_tools.py).
-    "lba_audit_facturation",
-    # plan_d9a888da (2026-08-19, mission Phase 4) : cablage CLI des avoirs
-    # PrismaSoft (aucun Depends(current_user) côté backend, whitelist gérée
-    # par prisma-api/wrapper Bacchus eux-mêmes — même posture que
-    # lba_achats_reception_simuler/_creer, DATA/écriture métier, pas un
-    # tool Graph/Todo nécessitant le ticket-exchange de session).
-    "lba_avoir_simuler", "lba_avoir_creer",
-    # plan_a7c60f1c (2026-08-21, mission #4) : cablage CLI du flux Import BL
-    # (aucun Depends(current_user) côté backend LBA-DESKTOP, whitelist/
-    # confirm gérés par le wrapper Bacchus + prisma-api eux-mêmes — même
-    # posture que lba_avoir_simuler/_creer ci-dessus, DATA/écriture métier,
-    # pas un tool Graph/Todo).
-    "lba_achats_bl_lignes_non_imputees", "lba_achats_bl_resoudre_reference",
-    "lba_achats_bl_importer_lignes", "lba_achats_bl_tracer_resolution_forcee",
-    # plan_eb472683 (2026-08-21, mission #4 follow-up Import BL) : cablage
-    # CLI de modifier_entete_facture_fournisseur — meme posture que les 4
-    # tools lba_achats_bl_* ci-dessus (whitelist/confirm geres cote
-    # prisma-api + wrapper Bacchus, pas un tool Graph/Todo).
-    "lba_achats_bl_modifier_entete",
-    # plan_101221aa (2026-08-21, mission #3, volet 3) : cablage CLI de
-    # lire_entete_facture_fournisseur (lecture pure, aucun gate ni cote
-    # prisma-api ni cote wrapper Bacchus) — meme posture que les tools
-    # lba_achats_bl_* ci-dessus, pas un tool Graph/Todo.
-    "lba_achats_bl_lire_entete",
-    # plan_62b0cc3b/wave1 (2026-09-06, carte t_d34e744fe6) : lba_direction_
-    # classifier_priorite/responsables/canaux — bacchus_direction_tools.py,
-    # AUCUN Depends(current_user) côté backend (endpoints sans état
-    # personnel, cf docstring module) — contrairement à leur frère
-    # lba_direction_envois_attente (Depends(current_user) réel), classé
-    # dans _EXPECTED_AUTH_REQUIRED ci-dessus.
-    "lba_direction_classifier_priorite", "lba_direction_responsables",
-    "lba_direction_canaux",
-})
+@pytest.fixture(autouse=True)
+def _isolated_jwt_cache(monkeypatch):
+    """Le cache JWT (/tmp/lba-cli-jwt-<uid>, TTL 90 s) ne doit pas fuir entre tests ni entre lancements."""
+    import uuid
+    monkeypatch.setattr(os, "getuid", lambda: f"test-{uuid.uuid4().hex}")
+    yield
 
 
-def test_auth_required_tools_matches_exactly_the_12_graph_todo_tools():
+def test_every_tool_gets_session_jwt(monkeypatch):
+    """Contrat depuis 2026-09-25 (arb_982536ed4a, auth/session_guard.py) : session obligatoire sur
+    TOUT /api/*. Un outil DATA reçoit donc le même Bearer qu'un outil Graph ; _AUTH_REQUIRED_TOOLS
+    n'est plus un filtre."""
     lba = _load_lba()
-    assert lba._AUTH_REQUIRED_TOOLS == _EXPECTED_AUTH_REQUIRED, (
-        f"dérive détectée: {lba._AUTH_REQUIRED_TOOLS ^ _EXPECTED_AUTH_REQUIRED}"
-    )
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    for tool in ("lba_client_fiche", "lba_mail_liste", "lba_duckdb_lire"):
+        assert lba._auth_headers(tool, "22fcf4a5-agent-1") == {"Authorization": "Bearer fake.jwt.token"}, tool
 
 
-def test_all_18_data_tools_are_excluded_from_auth_required():
+def test_auth_required_tools_is_not_a_filter(monkeypatch):
     lba = _load_lba()
-    overlap = lba._AUTH_REQUIRED_TOOLS & _EXPECTED_DATA_TOOLS_NEVER_AUTH
-    assert not overlap, f"tool(s) DATA classé(s) à tort auth-required: {overlap}"
-
-
-def test_every_tool_name_is_registered_in_tools_list():
-    """Les 2 ensembles ci-dessus doivent couvrir EXACTEMENT TOOLS — un tool
-    ajouté plus tard sans mise à jour de ce test serait silencieusement
-    non-couvert (ni confirmé DATA, ni confirmé Graph/Todo)."""
-    lba = _load_lba()
-    all_names = {t["name"] for t in lba.TOOLS}
-    covered = _EXPECTED_AUTH_REQUIRED | _EXPECTED_DATA_TOOLS_NEVER_AUTH
-    assert all_names == covered, f"non couvert par ce test de verrou: {all_names ^ covered}"
-
-
-def test_auth_headers_skips_ticket_exchange_for_data_tool(monkeypatch):
-    lba = _load_lba()
-
-    def _boom(agent_id):
-        raise AssertionError("_mint_cli_session_jwt ne doit JAMAIS être appelé pour un tool DATA")
-
-    monkeypatch.setattr(lba, "_mint_cli_session_jwt", _boom)
-    assert lba._auth_headers("lba_client_fiche", None) == {}
+    minted = []
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: minted.append(agent_id) or "j")
+    assert "lba_client_fiche" not in lba._AUTH_REQUIRED_TOOLS
+    assert lba._auth_headers("lba_client_fiche", "a-1")["Authorization"] == "Bearer j" and minted == ["a-1"]
 
 
 def test_auth_headers_triggers_ticket_exchange_for_graph_tool(monkeypatch):
