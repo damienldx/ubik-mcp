@@ -66,7 +66,7 @@ BASE = os.environ.get("LBA_PLAN_BASE", "http://127.0.0.1:8504")
 # les 18 tools DATA de Caton restent inchangés, zéro session requise.
 _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_piece_remises_vers_fiche_simuler", "lba_piece_remises_vers_fiche_appliquer",
-    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer", "lba_mail_marquer",
+    "lba_mail_liste", "lba_mail_lire", "lba_mail_repondre", "lba_mail_envoyer", "lba_mail_brouillon_creer", "lba_mail_marquer",
     "lba_mail_pieces_jointes_lister", "lba_mail_piece_jointe_telecharger",
     "lba_mail_dossiers_lister", "lba_mail_rechercher",
     "lba_calendar_liste", "lba_calendar_creer",
@@ -2742,6 +2742,8 @@ TOOLS = [
         "name": "lba_mail_envoyer",
         "description": ("[ÉCRITURE] Compose et envoie un mail Outlook NEUF (pas un reply) — POST /api/bacchus/mail/envoyer. "
                          "Confirmation destinataire+sujet+contenu OBLIGATOIRE avant appel, aucun flux preview/confirm backend. "
+                         "N'utilise cet outil QUE si l'utilisateur demande EXPLICITEMENT d'envoyer ; pour « prépare / rédige / écris un mail » "
+                         "sans ordre d'envoi, utilise lba_mail_brouillon_creer (brouillon à relire). "
                          "attachments : DEUX façons de fournir le contenu, mutuellement exclusives par entrée — "
                          "`path` (AJOUT 2026-09-11, PRÉFÉRER pour un fichier déjà uploadé au chat via la barre de prompt, "
                          "chemin absolu tel que reçu dans le marqueur '[fichier joint: ...]' — le serveur lit et encode "
@@ -2765,6 +2767,26 @@ TOOLS = [
                                  "content_type": {"type": "string", "description": "optionnel, déduit de l'extension si path est utilisé"},
                                  "path": {"type": "string", "description": "chemin absolu d'un fichier déjà uploadé au chat — préféré, lu/encodé côté serveur"},
                                  "content_base64": {"type": "string", "description": "contenu déjà en base64, ex. pièce jointe WhatsApp"}}}}}},
+    },
+    {
+        "name": "lba_mail_brouillon_creer",
+        "description": ("[ÉCRITURE NON ENVOYÉE] Crée un BROUILLON Outlook (dossier Brouillons de l'utilisateur) SANS l'envoyer — POST /api/bacchus/mail/brouillon. "
+                         "À PRÉFÉRER à lba_mail_envoyer dès que l'utilisateur dit « prépare / écris / rédige / compose un mail » sans demander "
+                         "EXPLICITEMENT de l'envoyer : l'utilisateur relit le brouillon dans Outlook (ou l'artefact Messagerie) et l'envoie lui-même. "
+                         "N'utilise lba_mail_envoyer que sur demande explicite d'envoi immédiat. Mêmes champs que lba_mail_envoyer ; to/cc/subject/body "
+                         "peuvent rester vides (au moins un renseigné). attachments : `path` (fichier uploadé au chat via la barre de prompt, chemin "
+                         "absolu du marqueur '[fichier joint: ...]') OU `content_base64`, jamais les deux. Réponse : draft_id, web_link, envoye=false. "
+                         "Dis à l'utilisateur que le brouillon est prêt dans ses Brouillons (jamais « envoyé »)."),
+        "inputSchema": {"type": "object", "properties": {
+            "to": {"type": "string", "description": "destinataire(s), CSV d'emails (optionnel pour un brouillon)"},
+            "subject": {"type": "string"}, "body": {"type": "string"},
+            "cc": {"type": "string", "description": "optionnel, CSV d'emails"},
+            "is_html": {"type": "boolean", "description": "défaut false"},
+            "attachments": {"type": "array", "description": "optionnel — chaque entrée avec soit path soit content_base64",
+                             "items": {"type": "object", "properties": {
+                                 "name": {"type": "string"}, "content_type": {"type": "string"},
+                                 "path": {"type": "string", "description": "chemin absolu d'un fichier déjà uploadé au chat"},
+                                 "content_base64": {"type": "string"}}}}}},
     },
     {
         "name": "lba_email_generer_html",
@@ -5167,6 +5189,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_mail_envoyer":
         return _post("/api/bacchus/mail/envoyer", {
             "to": _req(args, "to"), "subject": _req(args, "subject"), "body": _req(args, "body"),
+            "cc": args.get("cc"), "is_html": args.get("is_html", False),
+            "attachments": args.get("attachments")}, headers)
+    if tool == "lba_mail_brouillon_creer":
+        return _post("/api/bacchus/mail/brouillon", {
+            "to": args.get("to"), "subject": args.get("subject"), "body": args.get("body"),
             "cc": args.get("cc"), "is_html": args.get("is_html", False),
             "attachments": args.get("attachments")}, headers)
     if tool == "lba_email_generer_html":

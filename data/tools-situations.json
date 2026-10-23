@@ -956,6 +956,11 @@
       "cli": "lba lba_mail_envoyer --args '{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}'",
       "note": "Aucun flux preview/confirm backend — la confirmation doit être obtenue AVANT l'appel. attachments (optionnel) en base64 fourni par l'appelant (pas un path serveur), limite ~3 Mo/message tous fichiers confondus."
     },
+    "lba_mail_brouillon_creer": {
+      "situation": "Utilisateur veut préparer / rédiger / composer un mail Outlook SANS l'envoyer (brouillon à relire) — ÉCRITURE NON ENVOYÉE, à préférer à lba_mail_envoyer sauf demande explicite d'envoi",
+      "cli": "lba lba_mail_brouillon_creer --args '{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}'",
+      "note": "Crée le brouillon dans les Brouillons de l'utilisateur (jamais envoyé). to peut être vide. attachments : path d'un fichier uploadé au chat ([fichier joint: ...]) ou content_base64. Annonce « brouillon prêt », jamais « envoyé »."
+    },
     "lba_mail_marquer": {
       "situation": "Utilisateur veut marquer/démarquer un mail Outlook \"à suivre\" (flag) — ÉCRITURE",
       "cli": "lba lba_mail_marquer --args '{\"message_id\":\"...\",\"status\":\"flagged\"}'",
