@@ -3686,7 +3686,7 @@ TOOLS = [
             "idRequete": {"type": "integer"},
             "datedebut": {"type": "string", "description": "ISO 8601 (optionnel)"},
             "datefin": {"type": "string", "description": "ISO 8601 (optionnel)"},
-            "observations": {"type": "string", "description": "optionnel"}}},
+            "observations": {"type": "string", "description": "optionnel — TEXTE DE MON ENTRÉE (le serveur ajoute lui-même « Prénom · date heure » en en-tête : ne JAMAIS écrire d'en-tête, de prénom ni de date dans le texte)"}}},
     },
     {
         "name": "lba_visites_liste",
@@ -3729,7 +3729,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["es_id"], "properties": {
             "es_id": {"type": "integer", "description": "PK CRM_EntreeSortie — cf lba_visites_liste"},
             "etat": {"type": "string", "description": "'Traité' | 'Non traité' | 'Annulé' (optionnel)"},
-            "observations": {"type": "string", "description": "compte rendu de visite (optionnel)"},
+            "observations": {"type": "string", "description": "compte rendu de visite (optionnel) = TEXTE DE MON ENTRÉE d'observation : le serveur en fait une entrée « Prénom · date heure » à mon nom, remplace MA dernière entrée (ou la crée) et PRÉSERVE les entrées des autres et les anciens textes sans auteur (lecture seule). Ne JAMAIS écrire d'en-tête/prénom/date dans le texte. Plafond 4000 caractères par entrée."},
             "libelle": {"type": "string", "description": "optionnel"},
             "type": {"type": "string", "description": "optionnel"},
             "sens": {"type": "string", "description": "optionnel"},
