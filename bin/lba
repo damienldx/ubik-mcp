@@ -1612,6 +1612,21 @@ TOOLS = [
             "code_article": {"type": "string"},
             "code_client": {"type": "string", "description": "optionnel — restreint le calcul à l'accord propre à ce client"}}},
     },
+    # ── Lecture générale d'une pièce jointe du chat, tout type de document (ordre Damien 2026-10-23).
+    {
+        "name": "lba_fichier_lire",
+        "description": ("Lecture pure — lit UNE pièce jointe du chat de TOUT TYPE et retourne son contenu en texte : PDF (calque texte), Word (.docx), "
+                         "Excel (.xlsx/.xlsm : feuilles, 300 lignes max chacune), PowerPoint (.pptx), texte (txt/md/csv/tsv/json/xml/log), HTML, e-mail "
+                         "(.eml). Appel unique borné, À UTILISER dès qu'une pièce jointe (marqueur `[fichier joint: /chemin/...]`) n'est PAS une image et "
+                         "PAS une facture à extraire (pour une facture PDF : lba_facture_lire). JAMAIS le tool Read générique sur un PDF/Word/Excel (il "
+                         "boucle ou renvoie du binaire). Images : la réponse t'indique d'utiliser Read (vision). PDF scanné sans texte : la réponse donne "
+                         "`pages_images` (PNG des 3 premières pages) à lire avec Read (vision). `tronque=true` = contenu coupé à max_chars (défaut 40 000, "
+                         "max 120 000) : le dire à l'utilisateur et proposer de cibler. Formats .doc/.xls/.ppt (anciens) : demander l'enregistrement en "
+                         "version récente ou en PDF. POST /api/bacchus/fichier/lire."),
+        "inputSchema": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "chemin absolu du fichier joint (répertoire chat-attachments), tel que reçu dans le marqueur"},
+            "max_chars": {"type": "integer", "description": "optionnel, 500 à 120000 (défaut 40000)"}}},
+    },
     # ── Lecture de facture jointe au chat (fix incident hang 180s du
     # 07/08/2026) — extraction bornée, un document à la fois, JAMAIS le tool
     # Read générique en boucle agentique libre sur le PDF.
@@ -6161,6 +6176,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_couts_net_reel":
         return _get(f"/api/bacchus/couts/net-reel/{_seg(_req(args, 'code_article'))}", {
             "code_client": args.get("code_client")})
+    if tool == "lba_fichier_lire":
+        return _post("/api/bacchus/fichier/lire", {"path": _req(args, "path"), **({"max_chars": args["max_chars"]} if args.get("max_chars") else {})}, timeout=60)
     if tool == "lba_facture_lire":
         # Timeout client généreux (90s, vs 30s par défaut) : extraction
         # LLM (run_agent_call côté backend), latence variable selon charge —

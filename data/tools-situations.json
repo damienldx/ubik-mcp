@@ -961,6 +961,11 @@
       "cli": "lba lba_mail_brouillon_creer --args '{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}'",
       "note": "Crée le brouillon dans les Brouillons de l'utilisateur (jamais envoyé). to peut être vide. attachments : path d'un fichier uploadé au chat ([fichier joint: ...]) ou content_base64. Annonce « brouillon prêt », jamais « envoyé »."
     },
+    "lba_fichier_lire": {
+      "situation": "Utilisateur a joint un DOCUMENT au chat (Word, Excel, PowerPoint, PDF, texte, CSV, HTML, e-mail .eml) et veut qu'on le lise / résume / en extraie des données — lecture pure",
+      "cli": "lba lba_fichier_lire --args '{\"path\":\"/chemin/du/marqueur\"}'",
+      "note": "path = chemin exact du marqueur [fichier joint: ...]. Jamais Read sur un PDF/Office. Images : Read (vision). Facture PDF à extraire : lba_facture_lire. PDF scanné : lire pages_images avec Read. tronque=true : le dire."
+    },
     "lba_mail_marquer": {
       "situation": "Utilisateur veut marquer/démarquer un mail Outlook \"à suivre\" (flag) — ÉCRITURE",
       "cli": "lba lba_mail_marquer --args '{\"message_id\":\"...\",\"status\":\"flagged\"}'",
