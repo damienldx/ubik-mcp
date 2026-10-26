@@ -1030,9 +1030,11 @@ TOOLS = [
                          "true = lot de clients actifs. Champs retournés : tiers_id (identifiant fiable, "
                          "préférer à code — code n'est PAS toujours unique), code, raison_sociale, "
                          "is_actif, famille, sousfamille, tarif_num, tarif_libelle, rep_code, email, "
-                         "telephone."),
+                         "telephone. VILLE : passe `ville` (ou utilise lba_clients_par_ville). 'Inactif' ici = compte "
+                         "PRISMA désactivé (is_actif=false) ; 'sans commande récente' = lba_clients_inactifs."),
         "inputSchema": {"type": "object", "properties": {
             "is_actif": {"type": "boolean"}, "famille": {"type": "string", "description": "exact, insensible casse, ex CHR"},
+            "ville": {"type": "string", "description": "filtre par ville/commune (adresse résolue) — ne se combine pas avec famille/tarif/has_email"},
             "sousfamille": {"type": "string", "description": "exact, insensible casse"},
             "tarif_num": {"type": "integer"},
             "tarif_libelle": {"type": "string", "description": "contains, insensible casse, ex ESSENTIELLE/CONFORT/PRESTIGE/AD"},
@@ -1050,9 +1052,11 @@ TOOLS = [
                          "pas passé client, cf lba_prospect_passer_client). Sert à sourcer un lot de "
                          "prospects à recontacter par mail, même doctrine que lba_clients_filtre "
                          "(is_actif=false + has_email=true = lot de prospects inactifs mailables). Champs "
-                         "retournés : tiers_id, code, raison_sociale, is_actif, email, telephone."),
+                         "retournés : tiers_id, code, raison_sociale, is_actif, email, telephone. VILLE : passe `ville` (ou "
+                         "utilise lba_clients_par_ville avec type=prospect)."),
         "inputSchema": {"type": "object", "properties": {
             "is_actif": {"type": "boolean"},
+            "ville": {"type": "string", "description": "filtre par ville/commune (adresse résolue) — ne se combine pas avec has_email"},
             "q": {"type": "string", "description": "recherche texte code/raison sociale"},
             "has_email": {"type": "boolean", "description": "true = uniquement les fiches avec email renseigné, false = uniquement sans email"},
             "limit": {"type": "integer", "description": "défaut 100, max 1000"},
@@ -1294,7 +1298,8 @@ TOOLS = [
                          "tiers_id, crmSocieteId, et matched_on = liste des champs qui ont matché "
                          "(champ + valeur + contact) — utile si plusieurs fiches partagent un numéro. "
                          "total=0 => aucune fiche PRISMA ne porte cette valeur (confirmation fiable d'absence). "
-                         "Lecture seule."),
+                         "Lecture seule. La VILLE seule ne matche pas ici : pour 'les clients de <ville>', "
+                         "utilise lba_clients_par_ville."),
         "inputSchema": {"type": "object", "required": ["q"], "properties": {
             "q": {"type": "string", "description": "min 3 caractères : email, téléphone, nom, adresse, SIRET…"},
             "champs": {"type": "string", "description": "optionnel, CSV de groupes (email, telephone, contact, adresse, siret, societe) ou de champs ; omis = tous"},
@@ -1304,17 +1309,21 @@ TOOLS = [
     },
     {
         "name": "lba_clients_par_ville",
-        "description": ("Recherche clients par ville/commune (adresse résolue, pas la raison "
-                         "sociale) — GET /api/bacchus/recherche/client_par_ville. Comble un trou "
-                         "de couverture géographique : lba_clients_filtre/lba_portefeuille_liste/"
-                         "lba_recherche_client ne filtrent que sur code/raison sociale/nom ou des "
-                         "attributs isActif/famille/tarif, jamais sur une adresse. Ville en LIKE "
-                         "(ex: 'Montreuil' matche 'MONTREUIL' et 'MONTREUIL-SOUS-BOIS'). "
-                         "is_actif=true par défaut."),
+        "description": ("Clients et/ou PROSPECTS d'une ville/commune (adresse résolue, pas la raison sociale) — GET "
+                         "/api/bacchus/recherche/client_par_ville. C'est LE bon outil dès qu'une demande porte sur une ville : "
+                         "lba_clients_filtre/lba_portefeuille_liste/lba_recherche_client ne filtrent jamais sur l'adresse. Ville en "
+                         "LIKE, tirets et espaces équivalents ('Fontenay sous Bois' = 'Fontenay-sous-Bois'), 'Paris' matche tous "
+                         "les arrondissements. type = client (défaut), prospect ou tous ; statut = actif (défaut), inactif ou tous "
+                         "('inactif' = compte PRISMA désactivé isActif=false, pas 'sans commande récente' : pour cela "
+                         "lba_clients_inactifs). Réponse paginée {total, limit, offset, returned, items} ; défaut 50 par page, "
+                         "continue avec offset si total > returned."),
         "inputSchema": {"type": "object", "required": ["ville"], "properties": {
             "ville": {"type": "string", "description": "min 2 caractères, ex: Montreuil"},
-            "is_actif": {"type": "boolean", "description": "défaut true"},
-            "limit": {"type": "integer", "description": "défaut 200, max 1000"}}},
+            "type": {"type": "string", "enum": ["client", "prospect", "tous"], "description": "défaut client"},
+            "statut": {"type": "string", "enum": ["actif", "inactif", "tous"], "description": "défaut actif"},
+            "q": {"type": "string", "description": "filtre facultatif sur code / raison sociale"},
+            "limit": {"type": "integer", "description": "défaut 50, max 1000"},
+            "offset": {"type": "integer", "description": "défaut 0"}}},
     },
     {
         "name": "lba_recherche_entreprises",
@@ -3157,7 +3166,8 @@ TOOLS = [
                          "indicateur financier (codes PersoField_Ressources) — GET /api/bacchus/"
                          "referentiel/infos-entreprise. TOUJOURS appeler avant lba_referentiel_"
                          "infos_entreprise_affecter pour ces 3 champs : les ids ne se devinent "
-                         "jamais."),
+                         "jamais. Renvoie ~8 Ko de listes de référence : ne pas l'appeler pour LIRE un client (pour compléter une "
+                         "fiche, lis la fiche et ses contacts)."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -3846,7 +3856,10 @@ TOOLS = [
                          "'client à relancer', ne pas les confondre ni les fusionner dans une même "
                          "réponse sauf demande explicite des deux angles. Enrichi de la date de dernière "
                          "commande et du CA de référence sur les 12 mois précédents (priorise les plus "
-                         "gros clients endormis)."),
+                         "gros clients endormis). ATTENTION au mot 'inactif' : ici = SANS COMMANDE sur N jours, compte "
+                         "toujours actif. Un compte PRISMA désactivé (isActif=false) = lba_clients_filtre is_actif=false ou "
+                         "lba_anciens_clients_filtre ; si la demande est ambiguë ('clients inactifs à prospecter/reconquérir'), "
+                         "prends le compte désactivé sans poser de question et dis ce que tu as retenu."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
@@ -6035,6 +6048,12 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "agent_id": agent_id, "code_article": _req(args, "code_article"),
             "items": _req(args, "items"), "confirm": bool(_req(args, "confirm"))})
     if tool == "lba_clients_filtre":
+        if args.get("ville"):
+            autres = [k for k in ("famille", "sousfamille", "tarif_num", "tarif_libelle", "has_email") if args.get(k) is not None]
+            if autres:
+                raise LbaCliError(f"lba_clients_filtre : ville ne se combine pas avec {autres} — utilise ville seule (+ is_actif, q), "
+                                  "ou retire ville. Aucune requête émise.")
+            return _clients_par_ville(args, "client", "tous")
         return _get("/api/bacchus/clients/filtre", {
             "is_actif": args.get("is_actif"), "famille": args.get("famille"),
             "sousfamille": args.get("sousfamille"), "tarif_num": args.get("tarif_num"),
@@ -6042,6 +6061,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "has_email": args.get("has_email"),
             "limit": args.get("limit", 100), "offset": args.get("offset", 0)})
     if tool == "lba_prospects_filtre":
+        if args.get("ville"):
+            if args.get("has_email") is not None:
+                raise LbaCliError("lba_prospects_filtre : ville ne se combine pas avec has_email — retire l'un des deux. Aucune requête émise.")
+            return _clients_par_ville(args, "prospect", "tous")
         return _get("/api/bacchus/prospects/filtre", {
             "is_actif": args.get("is_actif"), "q": args.get("q"),
             "has_email": args.get("has_email"),
@@ -6121,9 +6144,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "statut": args.get("statut", "tous"), "type": args.get("type", "tous"),
             "limit": args.get("limit", 50)})
     if tool == "lba_clients_par_ville":
-        return _get("/api/bacchus/recherche/client_par_ville", {
-            "ville": _req(args, "ville"), "is_actif": args.get("is_actif", True),
-            "limit": args.get("limit", 200)})
+        return _clients_par_ville(args, args.get("type", "client"))
     if tool == "lba_recherche_entreprises":
         return _get("/api/bacchus/recherche/entreprises", {
             "q": args.get("q"), "activite_principale": args.get("activite_principale"),
@@ -6695,9 +6716,52 @@ def _capacites_rechercher(query: str, limit: int) -> str:
     }, ensure_ascii=False)
 
 
+def _clients_par_ville(args: dict, type_tiers: str, defaut_statut: str = "actif"):
+    """Recherche par ville (prisma-api live). `statut` (actif|inactif|tous) ou, pour les outils *_filtre, `is_actif`
+    (true|false) ; à défaut `defaut_statut` ('actif' pour lba_clients_par_ville, 'tous' pour les *_filtre sans is_actif)."""
+    statut = args.get("statut")
+    if statut is None and args.get("is_actif") is not None:
+        statut = "actif" if args["is_actif"] else "inactif"
+    statut = statut or defaut_statut
+    if statut not in ("actif", "inactif", "tous"):
+        raise LbaCliError(f"statut invalide : {statut!r} (actif, inactif ou tous). Aucune requête émise.")
+    return _get("/api/bacchus/recherche/client_par_ville", {
+        "ville": _req(args, "ville"), "type": type_tiers,
+        "is_actif": {"actif": "true", "inactif": "false", "tous": "tous"}[statut],
+        "q": args.get("q"), "limit": args.get("limit", 50), "offset": args.get("offset", 0)})
+
+
 # Paramètres universels lus hors schéma (identité, confirmation) : jamais rejetés.
 _ARGS_HORS_SCHEMA = frozenset({"agent_id", "confirmed_by_user"})
 _ALIAS_VERS_Q = ("recherche", "search", "terme", "texte", "query")
+
+
+_SORTIE_MAX_CAR = 40_000
+
+
+def _borner_sortie(data) -> str:
+    """JSON lisible, borné à _SORTIE_MAX_CAR caractères : au-delà Claude Code range la sortie dans un fichier et le modèle
+    se met à écrire des scripts de découpage. Jamais de coupe silencieuse : la liste est raccourcie ligne entière par ligne
+    entière avec `tronque: true`, `restant` et la marche à suivre (offset/limit ou filtre plus sélectif)."""
+    texte = json.dumps(data, indent=2, ensure_ascii=False)
+    if len(texte) <= _SORTIE_MAX_CAR:
+        return texte
+    if isinstance(data, list):
+        cle, lignes, base = None, data, {"total": len(data)}
+    elif isinstance(data, dict) and isinstance(data.get("items"), list):
+        cle, lignes, base = "items", data["items"], {k: v for k, v in data.items() if k != "items"}
+    else:
+        return texte   # pas de liste à raccourcir : rendu intégral
+    gardees = len(lignes)
+    while gardees > 1:
+        gardees = max(1, gardees * 2 // 3)
+        sortie = dict(base, items=lignes[:gardees], tronque=True, retournees=gardees, restant=len(lignes) - gardees,
+                      note="Sortie trop volumineuse : liste raccourcie. Continue avec offset/limit ou ajoute un filtre plus sélectif "
+                           "(ville, statut, période) ; ne découpe pas à la main.")
+        texte = json.dumps(sortie, indent=2, ensure_ascii=False)
+        if len(texte) <= _SORTIE_MAX_CAR:
+            break
+    return texte
 
 
 def _normaliser_args(tool: str, args):
@@ -6769,7 +6833,7 @@ def main():
         sys.exit(1)
 
     try:
-        print(json.dumps(json.loads(raw), indent=2, ensure_ascii=False))
+        print(_borner_sortie(json.loads(raw)))
     except (json.JSONDecodeError, TypeError):
         print(raw)
 

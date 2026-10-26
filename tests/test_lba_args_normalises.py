@@ -17,9 +17,9 @@ class ArgsNormalises(unittest.TestCase):
 
     def test_parametre_inconnu_liste_les_parametres_valides(self):
         with self.assertRaises(lba.LbaCliError) as cm:
-            lba._normaliser_args("lba_prospects_filtre", {"ville": "Paris"})
+            lba._normaliser_args("lba_prospects_filtre", {"region": "Paris"})
         msg = str(cm.exception)
-        self.assertIn("'ville'", msg)
+        self.assertIn("'region'", msg)
         self.assertIn("q", msg)
         self.assertIn("Aucune requête émise", msg)
 
@@ -38,3 +38,45 @@ class ArgsNormalises(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VilleEtSortie(unittest.TestCase):
+    def setUp(self):
+        self.appels = []
+        self._sauve = (lba._get, lba._auth_headers, lba._enforce_tool_tier)
+        lba._get = lambda path, params=None, *a, **k: self.appels.append((path, params)) or "{}"
+        lba._auth_headers = lambda *a, **k: {}
+        lba._enforce_tool_tier = lambda *a, **k: None
+
+    def tearDown(self):
+        lba._get, lba._auth_headers, lba._enforce_tool_tier = self._sauve
+
+    def test_clients_filtre_avec_ville_delegue_a_la_recherche_par_ville(self):
+        lba._exec("lba_clients_filtre", {"ville": "Fontenay sous Bois", "is_actif": False})
+        path, p = self.appels[0]
+        self.assertEqual(path, "/api/bacchus/recherche/client_par_ville")
+        self.assertEqual((p["type"], p["is_actif"], p["limit"]), ("client", "false", 50))
+
+    def test_prospects_filtre_avec_ville_sans_statut_prend_tous(self):
+        lba._exec("lba_prospects_filtre", {"ville": "Paris"})
+        self.assertEqual((self.appels[0][1]["type"], self.appels[0][1]["is_actif"]), ("prospect", "tous"))
+
+    def test_clients_par_ville_defaut_actif_et_statut_inactif(self):
+        lba._exec("lba_clients_par_ville", {"ville": "Paris"})
+        lba._exec("lba_clients_par_ville", {"ville": "Paris", "statut": "inactif", "type": "tous"})
+        self.assertEqual(self.appels[0][1]["is_actif"], "true")
+        self.assertEqual((self.appels[1][1]["is_actif"], self.appels[1][1]["type"]), ("false", "tous"))
+
+    def test_ville_incompatible_avec_famille(self):
+        with self.assertRaises(lba.LbaCliError):
+            lba._exec("lba_clients_filtre", {"ville": "Paris", "famille": "CHR"})
+        self.assertEqual(self.appels, [])
+
+    def test_sortie_trop_grosse_raccourcie_explicitement(self):
+        gros = {"total": 900, "items": [{"i": i, "pad": "x" * 200} for i in range(900)]}
+        import json
+        sortie = json.loads(lba._borner_sortie(gros))
+        self.assertTrue(sortie["tronque"] and sortie["restant"] == 900 - sortie["retournees"] and "offset" in sortie["note"])
+        self.assertLessEqual(len(lba._borner_sortie(gros)), lba._SORTIE_MAX_CAR)
+        petit = {"total": 1, "items": [{"i": 1}]}
+        self.assertEqual(json.loads(lba._borner_sortie(petit)), petit)
