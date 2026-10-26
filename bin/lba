@@ -1327,8 +1327,10 @@ TOOLS = [
                          "LIKE, tirets et espaces équivalents ('Fontenay sous Bois' = 'Fontenay-sous-Bois'), 'Paris' matche tous "
                          "les arrondissements. type = client (défaut), prospect ou tous ; statut = actif (défaut), inactif ou tous "
                          "('inactif' = compte PRISMA désactivé isActif=false, pas 'sans commande récente' : pour cela "
-                         "lba_clients_inactifs). Réponse paginée {total, limit, offset, returned, items} ; défaut 50 par page, "
-                         "continue avec offset si total > returned."),
+                         "lba_clients_inactifs). Réponse paginée {total, limit, offset, returned, items} ; défaut 50 par page. "
+                         "LISTE VOLUMINEUSE (total > 50) : ne pagine pas tout et ne découpe pas à la main avec des scripts — "
+                         "donne le total, une répartition utile et les premières lignes, puis propose d'affiner (q, statut) "
+                         "ou d'ouvrir la carte qui porte la liste complète."),
         "inputSchema": {"type": "object", "required": ["ville"], "properties": {
             "ville": {"type": "string", "description": "min 2 caractères, ex: Montreuil"},
             "type": {"type": "string", "enum": ["client", "prospect", "tous"], "description": "défaut client"},
