@@ -55,6 +55,7 @@ import time
 import urllib.error
 import math
 import unicodedata
+from datetime import date, timedelta
 import urllib.request
 from hashlib import sha256
 from urllib.parse import quote, urlencode
@@ -472,9 +473,11 @@ TOOLS = [
         "description": ("Fiche complète d'un client (code, période) — GET /api/bacchus/client/{code}/fiche. "
                          "Inclut idReglementModeLibelle (label résolu du mode de règlement PRISMA, ex. "
                          "\"PRELEVEMENT\", en plus d'idReglementMode brut, ajouté 2026-09-03). "
-                         "N'inclut PAS l'adresse — utiliser lba_client_adresses."),
-        "inputSchema": {"type": "object", "required": ["code", "date_from", "date_to"], "properties": {
-            "code": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}},
+                         "N'inclut PAS l'adresse — utiliser lba_client_adresses. Les dates sont facultatives."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string"},
+            "date_from": {"type": "string", "description": "AAAA-MM-JJ, défaut : il y a 12 mois"},
+            "date_to": {"type": "string", "description": "AAAA-MM-JJ, défaut : aujourd'hui"}}},
     },
     {
         "name": "lba_sydney_historique",
@@ -5820,8 +5823,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get(f"/api/bacchus/direction/slides/{document_id}", {}, headers)
     if tool == "lba_client_fiche":
         code = _seg(_req(args, "code"))
-        return _get(f"/api/bacchus/client/{code}/fiche", {
-            "date_from": _req(args, "date_from"), "date_to": _req(args, "date_to")})
+        d_to = args.get("date_to") or date.today().isoformat()
+        d_from = args.get("date_from") or (date.today() - timedelta(days=365)).isoformat()
+        return _get(f"/api/bacchus/client/{code}/fiche", {"date_from": d_from, "date_to": d_to})
     if tool == "lba_sydney_historique":
         cl = args.get("clients")
         return _get("/api/bacchus/logistique/historique-tournees", {
@@ -6691,6 +6695,37 @@ def _capacites_rechercher(query: str, limit: int) -> str:
     }, ensure_ascii=False)
 
 
+# Paramètres universels lus hors schéma (identité, confirmation) : jamais rejetés.
+_ARGS_HORS_SCHEMA = frozenset({"agent_id", "confirmed_by_user"})
+_ALIAS_VERS_Q = ("recherche", "search", "terme", "texte", "query")
+
+
+def _normaliser_args(tool: str, args):
+    """Aligne les arguments sur le schéma de l'outil AVANT l'appel. Un paramètre inconnu était ignoré en silence (ex. `recherche`
+    au lieu de `q` : 100 résultats non filtrés, puis un `--schema` et une relance). Alias courants → nom exact ; tout autre
+    paramètre inconnu = erreur qui liste les paramètres valides (le modèle se corrige sans appeler --schema)."""
+    schema = (_TOOLS_BY_NAME.get(tool) or {}).get("inputSchema") or {}
+    props = schema.get("properties") or {}
+    if not isinstance(args, dict) or not props or schema.get("additionalProperties") is True:
+        return args
+    out, inconnus = dict(args), []
+    for k in list(out):
+        if k in props or k in _ARGS_HORS_SCHEMA:
+            continue
+        if k in _ALIAS_VERS_Q and "q" in props and "q" not in out:
+            out["q"] = out.pop(k)
+        elif k == "q" and "query" in props and "query" not in out:
+            out["query"] = out.pop(k)
+        else:
+            inconnus.append(k)
+    if inconnus:
+        requis = set(schema.get("required") or [])
+        valides = ", ".join(f"{n}{'*' if n in requis else ''}" for n in props)
+        raise LbaCliError(f"{tool} : paramètre(s) inconnu(s) {inconnus}. Paramètres valides (* = requis) : {valides}. "
+                          "Aucune requête émise.")
+    return out
+
+
 def main():
     p = argparse.ArgumentParser(prog="lba", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -6727,6 +6762,7 @@ def main():
         sys.exit(2)
 
     try:
+        args = _normaliser_args(a.tool, args)
         raw = _exec(a.tool, args, agent_id=a.agent_id)
     except LbaCliError as e:
         print(f"lba: {e}", file=sys.stderr)
