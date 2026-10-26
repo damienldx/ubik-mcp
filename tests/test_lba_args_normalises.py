@@ -80,3 +80,20 @@ class VilleEtSortie(unittest.TestCase):
         self.assertLessEqual(len(lba._borner_sortie(gros)), lba._SORTIE_MAX_CAR)
         petit = {"total": 1, "items": [{"i": 1}]}
         self.assertEqual(json.loads(lba._borner_sortie(petit)), petit)
+
+
+class ParcoursDetail(unittest.TestCase):
+    def test_outil_declare_et_lecture_pure(self):
+        t = lba._TOOLS_BY_NAME["lba_parcours_detail"]
+        self.assertEqual(set(t["inputSchema"]["properties"]), {"id", "q"})
+        self.assertFalse(lba._is_write_tool("lba_parcours_detail"))
+
+    def test_sans_id_ni_q_refuse_avant_tout_appel(self):
+        sauve = (lba._auth_headers, lba._enforce_tool_tier)
+        lba._auth_headers = lambda *a, **k: {}
+        lba._enforce_tool_tier = lambda *a, **k: None
+        try:
+            with self.assertRaises(lba.LbaCliError):
+                lba._exec("lba_parcours_detail", {})
+        finally:
+            lba._auth_headers, lba._enforce_tool_tier = sauve
