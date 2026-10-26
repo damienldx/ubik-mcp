@@ -2345,7 +2345,11 @@ TOOLS = [
                          "prix, même mise en page) ; absents = catalogue complet. Rien n'est écrit "
                          "dans PrismaSoft (les cases cochées natives du client ne sont pas "
                          "modifiées). La réponse liste les articles demandés non retenus (inactifs, "
-                         "sans tarif, famille exclue). POST "
+                         "sans tarif, famille exclue). OFFRE À UN PROSPECT SUR LES CONDITIONS D'UN "
+                         "CLIENT : code_client = le client SOURCE (ses prix), destinataire_nom + "
+                         "destinataire_code = le prospect (ex. P1381) ; le document est titré au nom du "
+                         "prospect et ne mentionne jamais le client source. Aucune affectation de "
+                         "tarif/remises au prospect n'est nécessaire (ni possible). POST "
                          "/api/bacchus/tarif-client/generer."),
         "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
             "code_client": {"type": "string"},
@@ -2356,6 +2360,8 @@ TOOLS = [
                                "description": "restreint le tarif à ces codes articles"},
             "num_piece": {"type": "integer",
                           "description": "n° de devis ou commande du client : tarif limité à ses articles"},
+            "destinataire_nom": {"type": "string", "description": "prospect destinataire (nom affiché sur le document)"},
+            "destinataire_code": {"type": "string", "description": "code du prospect affiché (ex. P1381)"},
         }},
     },
     # Remises d'un devis/commande -> fiche client (2026-09-25, brief Damien,
@@ -6353,7 +6359,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/tarif-client/generer", {
             "code_client": str(_req(args, "code_client")),
             "formats": args.get("formats") or ["pdf"], "dossier_id": args.get("dossier_id"),
-            "codes_articles": args.get("codes_articles"), "num_piece": args.get("num_piece")},
+            "codes_articles": args.get("codes_articles"), "num_piece": args.get("num_piece"),
+            "destinataire_nom": args.get("destinataire_nom"), "destinataire_code": args.get("destinataire_code")},
             timeout=120)
     if tool == "lba_piece_remises_vers_fiche_simuler":
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/simuler", {
