@@ -2346,13 +2346,16 @@ TOOLS = [
                          "dans PrismaSoft (les cases cochées natives du client ne sont pas "
                          "modifiées). La réponse liste les articles demandés non retenus (inactifs, "
                          "sans tarif, famille exclue). OFFRE À UN PROSPECT SUR LES CONDITIONS D'UN "
-                         "CLIENT : code_client = le client SOURCE (ses prix), destinataire_nom + "
+                         "CLIENT OU D'UNE GRILLE : code_client = le client SOURCE (ses prix + remises) "
+                         "OU num_tarif = une grille nommée (ex. 18 = AD2026, prix de la grille seule), "
+                         "au choix ; destinataire_nom + "
                          "destinataire_code = le prospect (ex. P1381) ; le document est titré au nom du "
                          "prospect et ne mentionne jamais le client source. Aucune affectation de "
                          "tarif/remises au prospect n'est nécessaire (ni possible). POST "
                          "/api/bacchus/tarif-client/generer."),
-        "inputSchema": {"type": "object", "required": ["code_client"], "properties": {
-            "code_client": {"type": "string"},
+        "inputSchema": {"type": "object", "properties": {
+            "code_client": {"type": "string", "description": "SOURCE des prix : un client (son tarif + ses remises). Exclusif avec num_tarif."},
+            "num_tarif": {"type": "integer", "description": "SOURCE des prix : une GRILLE nommée sans client (18 = AD2026, cf lba_tarifs_client_simuler). Exclusif avec code_client ; exige destinataire_nom/code."},
             "formats": {"type": "array", "items": {"type": "string", "enum": ["pdf", "xlsx", "csv"]},
                         "description": "défaut ['pdf']"},
             "dossier_id": {"type": "string", "description": "dossier 'Mes Documents' (optionnel)"},
@@ -6356,8 +6359,11 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "copie": args.get("copie") or [],
             "confirmed_by_user": args.get("confirmed_by_user") is True}, timeout=60)
     if tool == "lba_tarif_client_generer":
+        if bool(args.get("code_client")) == (args.get("num_tarif") is not None):
+            raise LbaCliError("lba_tarif_client_generer : indiquer soit code_client, soit num_tarif (pas les deux)")
         return _post("/api/bacchus/tarif-client/generer", {
-            "code_client": str(_req(args, "code_client")),
+            "code_client": str(args["code_client"]) if args.get("code_client") else None,
+            "num_tarif": int(args["num_tarif"]) if args.get("num_tarif") is not None else None,
             "formats": args.get("formats") or ["pdf"], "dossier_id": args.get("dossier_id"),
             "codes_articles": args.get("codes_articles"), "num_piece": args.get("num_piece"),
             "destinataire_nom": args.get("destinataire_nom"), "destinataire_code": args.get("destinataire_code")},
