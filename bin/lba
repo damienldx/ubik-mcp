@@ -2777,7 +2777,9 @@ TOOLS = [
                          "chemin absolu tel que reçu dans le marqueur '[fichier joint: ...]' — le serveur lit et encode "
                          "base64 lui-même, ne JAMAIS retaper le contenu en base64 pour ce cas) OU `content_base64` "
                          "(AJOUT 2026-08-31, contenu déjà en clair fourni par l'appelant, ex. pièce jointe WhatsApp reçue "
-                         "dans le fil). Taille cumulée vérifiée côté serveur avant envoi — limite Graph sendMail ~3 Mo "
+                         "dans le fil) OU `document_id` / `recherche_document` (un document de 'Mes Documents' de l'utilisateur, "
+                         "ex. le tarif PDF que tu viens de générer : utilise le document_id renvoyé par la génération, ou des mots "
+                         "de son titre — le serveur lit le fichier, tu n'as BESOIN d'aucun chemin). Taille cumulée vérifiée côté serveur avant envoi — limite Graph sendMail ~3 Mo "
                          "par message tous fichiers confondus, message d'erreur explicite si dépassée. "
                          "⚠️ USAGE ATTENDU inter-collaborateur (transmettre un document à un collègue/un client déjà en "
                          "relation active) — PAS pour une relance/prospection externe non sollicitée (risque spam/"
@@ -2794,6 +2796,8 @@ TOOLS = [
                                  "name": {"type": "string", "description": "requis avec content_base64 ; déduit du nom de fichier si path est utilisé et name omis"},
                                  "content_type": {"type": "string", "description": "optionnel, déduit de l'extension si path est utilisé"},
                                  "path": {"type": "string", "description": "chemin absolu d'un fichier déjà uploadé au chat — préféré, lu/encodé côté serveur"},
+                                 "document_id": {"type": "string", "description": "id d'un document de 'Mes Documents' (ex. tarif PDF généré) — exclusif de path/content_base64"},
+                                 "recherche_document": {"type": "string", "description": "mots du titre d'un document de 'Mes Documents' si l'id est inconnu (refusé si plusieurs candidats)"},
                                  "content_base64": {"type": "string", "description": "contenu déjà en base64, ex. pièce jointe WhatsApp"}}}}}},
     },
     {
@@ -2814,6 +2818,8 @@ TOOLS = [
                              "items": {"type": "object", "properties": {
                                  "name": {"type": "string"}, "content_type": {"type": "string"},
                                  "path": {"type": "string", "description": "chemin absolu d'un fichier déjà uploadé au chat"},
+                                 "document_id": {"type": "string", "description": "id d'un document de 'Mes Documents'"},
+                                 "recherche_document": {"type": "string", "description": "mots du titre d'un document de 'Mes Documents'"},
                                  "content_base64": {"type": "string"}}}}}},
     },
     {
