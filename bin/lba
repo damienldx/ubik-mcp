@@ -1308,6 +1308,18 @@ TOOLS = [
             "limit": {"type": "integer", "description": "défaut 50, max 200"}}},
     },
     {
+        "name": "lba_parcours_detail",
+        "description": ("Détail COMPLET (description + sens de chaque paramètre) d'un ou plusieurs parcours du catalogue des cartes du "
+                         "hub — GET /api/bacchus/hub/parcours/detail. Ton prompt ne décrit en détail que les parcours courants : "
+                         "pour les autres il ne donne qu'une ligne (id, libellé, NOMS des paramètres). Appelle cet outil AVANT de "
+                         "proposer une carte dont tu ne connais pas le sens exact d'un paramètre. `id` : un ou plusieurs ids "
+                         "séparés par des virgules ; `q` : recherche texte (id, libellé, description). Filtré par les droits de "
+                         "l'utilisateur. Lecture pure."),
+        "inputSchema": {"type": "object", "properties": {
+            "id": {"type": "string", "description": "id(s) de parcours, séparés par des virgules, ex: gestion-promotions,vitrine-promo"},
+            "q": {"type": "string", "description": "recherche texte si l'id n'est pas connu"}}},
+    },
+    {
         "name": "lba_clients_par_ville",
         "description": ("Clients et/ou PROSPECTS d'une ville/commune (adresse résolue, pas la raison sociale) — GET "
                          "/api/bacchus/recherche/client_par_ville. C'est LE bon outil dès qu'une demande porte sur une ville : "
@@ -6143,6 +6155,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "q": _req(args, "q"), "champs": args.get("champs"),
             "statut": args.get("statut", "tous"), "type": args.get("type", "tous"),
             "limit": args.get("limit", 50)})
+    if tool == "lba_parcours_detail":
+        if not (args.get("id") or args.get("q")):
+            raise LbaCliError("lba_parcours_detail : id ou q requis. Aucune requête émise.")
+        return _get("/api/bacchus/hub/parcours/detail", {"id": args.get("id"), "q": args.get("q")})
     if tool == "lba_clients_par_ville":
         return _clients_par_ville(args, args.get("type", "client"))
     if tool == "lba_recherche_entreprises":
