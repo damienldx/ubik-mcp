@@ -6752,6 +6752,7 @@ def _clients_par_ville(args: dict, type_tiers: str, defaut_statut: str = "actif"
 # Paramètres universels lus hors schéma (identité, confirmation) : jamais rejetés.
 _ARGS_HORS_SCHEMA = frozenset({"agent_id", "confirmed_by_user"})
 _ALIAS_VERS_Q = ("recherche", "search", "terme", "texte", "query")
+_ALIAS_VERS_CODE = ("client", "code_client", "codeClient", "client_code")
 
 
 _SORTIE_MAX_CAR = 40_000
@@ -6798,6 +6799,8 @@ def _normaliser_args(tool: str, args):
             out["q"] = out.pop(k)
         elif k == "q" and "query" in props and "query" not in out:
             out["query"] = out.pop(k)
+        elif k in _ALIAS_VERS_CODE and "code" in props and "code" not in out:
+            out["code"] = out.pop(k)   # constaté (batterie 2026-10-26) : 17 appels lba_client_fiche {"client": "…"} en rafale, tous refusés
         else:
             inconnus.append(k)
     if inconnus:
