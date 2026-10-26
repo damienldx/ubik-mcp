@@ -97,3 +97,14 @@ class ParcoursDetail(unittest.TestCase):
                 lba._exec("lba_parcours_detail", {})
         finally:
             lba._auth_headers, lba._enforce_tool_tier = sauve
+
+
+class AliasCode(unittest.TestCase):
+    def test_client_devient_code_quand_l_outil_attend_code(self):
+        self.assertEqual(lba._normaliser_args("lba_client_fiche", {"client": "1204"}), {"code": "1204"})
+        self.assertEqual(lba._normaliser_args("lba_client_fiche", {"code_client": "1204", "date_from": "2026-01-01"}),
+                         {"code": "1204", "date_from": "2026-01-01"})
+
+    def test_pas_d_alias_si_code_deja_present(self):
+        with self.assertRaises(lba.LbaCliError):
+            lba._normaliser_args("lba_client_fiche", {"client": "1", "code": "2"})
