@@ -3852,7 +3852,10 @@ TOOLS = [
     {
         "name": "lba_clients_sous_visites",
         "description": ("Clients du portefeuille NON visités depuis N jours, avec deltas CA/marge "
-                         "vs N-1 (plus grosse baisse en premier) — GET /api/me/clients-sous-visites."),
+                         "vs N-1 (plus grosse baisse en premier) — GET /api/me/clients-sous-visites. "
+                         "`regrouper_par` = ville | code_postal | departement ajoute la ville et le code postal de chaque client et une "
+                         "`repartition_geo` de TOUS les clients non visités (code_postal = arrondissement pour Paris) : c'est le moyen "
+                         "de répondre à « les clients à visiter par secteur / arrondissement / ville »."),
         "inputSchema": {"type": "object", "properties": {
             "period_start": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
             "period_end": {"type": "string", "description": "YYYY-MM-DD (optionnel)"},
@@ -3860,7 +3863,20 @@ TOOLS = [
             "rep_code": {"type": "string", "description": "optionnel — RBAC backend (admin/bureau)"},
             "not_visited_since_days": {"type": "integer", "description": "optionnel, défaut 30 côté backend (7-180)"},
             "limit": {"type": "integer", "description": "optionnel, défaut 200 côté backend (cap liste détaillée)"},
-            "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"}}},
+            "marque": {"type": "string", "description": "optionnel — filtre marque, ex: KIMBO"},
+            "regrouper_par": {"type": "string", "enum": ["ville", "code_postal", "departement"],
+                              "description": "optionnel — répartition géographique des clients non visités"}}},
+    },
+    {
+        "name": "lba_clients_resume",
+        "description": ("Résumé de PLUSIEURS clients en UN appel — GET /api/bacchus/clients/resume : identité, ville, code postal, "
+                         "famille, dernière commande, nombre de commandes et CA HT sur la fenêtre, représentant, email, téléphone. "
+                         "À utiliser dès qu'il faut lire plus de 3 clients (planning de visites, mail de relance, comparaison) au lieu "
+                         "d'appeler lba_client_fiche pour chacun. 60 codes au plus ; les codes introuvables (prospects, fautes de "
+                         "frappe) sont listés dans `introuvables`. Lecture pure."),
+        "inputSchema": {"type": "object", "required": ["codes"], "properties": {
+            "codes": {"type": "string", "description": "codes clients séparés par des virgules (une liste JSON est aussi acceptée), 60 au plus"},
+            "days": {"type": "integer", "description": "fenêtre du CA / des commandes, défaut 365 (1-1460)"}}},
     },
     {
         "name": "lba_clients_inactifs",
@@ -5641,7 +5657,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),
             "days_back": args.get("days_back"), "rep_code": args.get("rep_code"),
             "not_visited_since_days": args.get("not_visited_since_days"),
-            "limit": args.get("limit"), "marque": args.get("marque")}, headers)
+            "limit": args.get("limit"), "marque": args.get("marque"), "regrouper_par": args.get("regrouper_par")}, headers)
+    if tool == "lba_clients_resume":
+        codes = args.get("codes")
+        if isinstance(codes, list):
+            codes = ",".join(str(c).strip() for c in codes if str(c).strip())
+        if not codes:
+            raise LbaCliError("lba_clients_resume : codes requis (ex. \"1204,1044\"). Aucune requête émise.")
+        return _get("/api/bacchus/clients/resume", {"codes": codes, "days": args.get("days", 365)})
     if tool == "lba_visites_synthese":
         from concurrent.futures import ThreadPoolExecutor
         window = {"period_start": args.get("period_start"), "period_end": args.get("period_end"),
@@ -6753,6 +6776,10 @@ def _clients_par_ville(args: dict, type_tiers: str, defaut_statut: str = "actif"
 _ARGS_HORS_SCHEMA = frozenset({"agent_id", "confirmed_by_user"})
 _ALIAS_VERS_Q = ("recherche", "search", "terme", "texte", "query")
 _ALIAS_VERS_CODE = ("client", "code_client", "codeClient", "client_code")
+# Alias de dates (batterie de rejeu 2026-10-26 : lba_visites_liste appelé avec date_debut / date_fin, refusé) : vers period_* ou date_*
+# selon ce que l'outil déclare.
+_ALIAS_DEBUT = ("date_debut", "date_start", "debut", "start", "from", "date_from", "period_start")
+_ALIAS_FIN = ("date_fin", "date_end", "fin", "end", "to", "date_to", "period_end")
 
 
 _SORTIE_MAX_CAR = 40_000
@@ -6799,6 +6826,10 @@ def _normaliser_args(tool: str, args):
             out["q"] = out.pop(k)
         elif k == "q" and "query" in props and "query" not in out:
             out["query"] = out.pop(k)
+        elif k in _ALIAS_DEBUT and (cible := next((c for c in ("period_start", "date_from") if c in props and c != k and c not in out), None)):
+            out[cible] = out.pop(k)
+        elif k in _ALIAS_FIN and (cible := next((c for c in ("period_end", "date_to") if c in props and c != k and c not in out), None)):
+            out[cible] = out.pop(k)
         elif k in _ALIAS_VERS_CODE and "code" in props and "code" not in out:
             out["code"] = out.pop(k)   # constaté (batterie 2026-10-26) : 17 appels lba_client_fiche {"client": "…"} en rafale, tous refusés
         else:

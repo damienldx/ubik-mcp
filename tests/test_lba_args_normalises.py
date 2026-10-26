@@ -108,3 +108,32 @@ class AliasCode(unittest.TestCase):
     def test_pas_d_alias_si_code_deja_present(self):
         with self.assertRaises(lba.LbaCliError):
             lba._normaliser_args("lba_client_fiche", {"client": "1", "code": "2"})
+
+
+class AliasDatesEtResume(unittest.TestCase):
+    def test_date_debut_fin_vers_period(self):
+        self.assertEqual(lba._normaliser_args("lba_visites_liste", {"date_debut": "2026-10-23", "date_fin": "2026-10-23"}),
+                         {"period_start": "2026-10-23", "period_end": "2026-10-23"})
+
+    def test_period_vers_date_selon_l_outil(self):
+        self.assertEqual(lba._normaliser_args("lba_client_fiche", {"code": "1", "period_start": "2026-01-01", "date_fin": "2026-02-01"}),
+                         {"code": "1", "date_from": "2026-01-01", "date_to": "2026-02-01"})
+
+    def test_resume_declare_et_regrouper_par(self):
+        self.assertEqual(lba._TOOLS_BY_NAME["lba_clients_resume"]["inputSchema"]["required"], ["codes"])
+        self.assertIn("regrouper_par", lba._TOOLS_BY_NAME["lba_clients_sous_visites"]["inputSchema"]["properties"])
+        self.assertFalse(lba._is_write_tool("lba_clients_resume"))
+
+    def test_resume_accepte_une_liste_et_envoie_un_seul_appel(self):
+        appels = []
+        sauve = (lba._get, lba._auth_headers, lba._enforce_tool_tier)
+        lba._get = lambda path, params=None, *a, **k: appels.append((path, params)) or "{}"
+        lba._auth_headers = lambda *a, **k: {}
+        lba._enforce_tool_tier = lambda *a, **k: None
+        try:
+            lba._exec("lba_clients_resume", {"codes": ["1204", " 1044 "]})
+            with self.assertRaises(lba.LbaCliError):
+                lba._exec("lba_clients_resume", {"codes": []})
+        finally:
+            lba._get, lba._auth_headers, lba._enforce_tool_tier = sauve
+        self.assertEqual(appels, [("/api/bacchus/clients/resume", {"codes": "1204,1044", "days": 365})])
