@@ -412,6 +412,10 @@ def _patch(path: str, payload: dict, headers: dict | None = None) -> str:
     return _write(path, payload, "PATCH", headers)
 
 
+def _put(path: str, payload: dict, headers: dict | None = None) -> str:
+    return _write(path, payload, "PUT", headers)
+
+
 def _delete(path: str, headers: dict | None = None) -> str:
     """DELETE sans corps significatif (lba_procedure_supprimer) — l'endpoint
     backend ne déclare pas de payload, un body vide est ignoré sans risque."""
@@ -3080,9 +3084,8 @@ TOOLS = [
     {
         "name": "lba_referentiel_famille_affecter",
         "description": ("[ÉCRITURE] Affecte une famille client à un client PRISMA existant — "
-                         "PATCH /api/bacchus/referentiel/famille/{code_client}. Idempotent "
-                         "(skip si déjà affectée côté prisma-api), n'écrase/ne retire JAMAIS une "
-                         "affectation existante (multi-affectations réelles en base). TOUJOURS "
+                         "PUT /api/bacchus/referentiel/famille/{code_client}. REMPLACE toute "
+                         "affectation précédente (une seule famille par client). TOUJOURS "
                          "appeler lba_referentiel_familles_client avant — ne JAMAIS deviner "
                          "id_famille, le faire confirmer explicitement par l'utilisateur. "
                          "Confirmation utilisateur OBLIGATOIRE avant appel."),
@@ -5352,7 +5355,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "is_envoi_facture_mail": _req(args, "is_envoi_facture_mail")}, headers)
     if tool == "lba_referentiel_famille_affecter":
         code_client = _req(args, "code_client")
-        return _patch(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
+        return _put(f"/api/bacchus/referentiel/famille/{_seg(code_client)}", {
             "id_famille": _req(args, "id_famille")}, headers)
     if tool == "lba_referentiel_secteur_tournee_affecter":
         code_client = _req(args, "code_client")

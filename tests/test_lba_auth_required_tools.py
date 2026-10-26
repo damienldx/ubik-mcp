@@ -850,18 +850,18 @@ def test_lba_referentiel_tarifs_gets_expected_path(monkeypatch):
     assert captured["headers"] == {"Authorization": "Bearer fake.jwt.token"}
 
 
-def test_lba_referentiel_famille_affecter_patches_expected_path_and_payload(monkeypatch):
+def test_lba_referentiel_famille_affecter_puts_expected_path_and_payload(monkeypatch):
     lba = _load_lba()
     monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
     captured = {}
 
-    def _fake_patch(path, payload, headers=None):
+    def _fake_put(path, payload, headers=None):
         captured["path"] = path
         captured["payload"] = payload
         captured["headers"] = headers
         return "{}"
 
-    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    monkeypatch.setattr(lba, "_put", _fake_put)
     lba._exec("lba_referentiel_famille_affecter", {
         "code_client": "2590", "id_famille": 14}, "22fcf4a5-agent-1")
     assert captured["path"] == "/api/bacchus/referentiel/famille/2590"
@@ -886,16 +886,16 @@ def test_lba_referentiel_famille_affecter_requires_code_client_and_id_famille(mo
 
 def test_lba_referentiel_famille_affecter_encodes_code_client_in_path(monkeypatch):
     """Même garde-fou que _seg ailleurs (ex. e63bc22) — un code_client avec
-    un '/' ne doit pas casser le path PATCH."""
+    un '/' ne doit pas casser le path PUT."""
     lba = _load_lba()
     monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
     captured = {}
 
-    def _fake_patch(path, payload, headers=None):
+    def _fake_put(path, payload, headers=None):
         captured["path"] = path
         return "{}"
 
-    monkeypatch.setattr(lba, "_patch", _fake_patch)
+    monkeypatch.setattr(lba, "_put", _fake_put)
     lba._exec("lba_referentiel_famille_affecter", {
         "code_client": "A/B", "id_famille": 14}, "22fcf4a5-agent-1")
     assert captured["path"] == "/api/bacchus/referentiel/famille/A%2FB"
