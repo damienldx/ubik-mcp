@@ -81,6 +81,7 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     "lba_mission_request", "lba_todo_task_create", "lba_todo_task_delete",
     "lba_todo_task_due", "lba_visite_creer",
     "lba_visites_liste", "lba_visite_lire", "lba_visite_modifier",
+    "lba_visite_annuler", "lba_visite_supprimer",
     "lba_visites_kpis", "lba_visites_qualite_ciblage", "lba_visites_value_key", "lba_clients_sous_visites",
     "lba_clients_gagnes_perdus", "lba_visites_synthese", "lba_clients_inactifs", "lba_representants_agenda",
     "lba_planning_reps", "lba_planning_current",
@@ -3785,6 +3786,27 @@ TOOLS = [
             "idSocieteAffectation": {"type": "integer", "description": "optionnel — CRM_Societe.id (champ crmSocieteId de lba_recherche_client, PAS son champ id)"},
             "source": {"type": "string", "description": "optionnel — 'cr_live' UNIQUEMENT pendant la boucle d'audition automatique CR live visite, coupe la notif Teams sur @mention pour ce PATCH. Ne jamais passer cette valeur lors d'une modification normale à la demande de l'utilisateur."}}},
     },
+    {
+        "name": "lba_visite_annuler",
+        "description": ("[ÉCRITURE] ANNULE une visite CRM encore « Non traité » (état passé à « Annulé », "
+                         "la ligne et son historique restent dans PRISMA) — PATCH /api/me/evenements/{es_id}. "
+                         "Refuse toute visite déjà Traitée ou déjà Annulée. Trouver es_id avec lba_visites_liste "
+                         "(etat='Non traité'). CONFIRMATION OBLIGATOIRE de l'utilisateur AVANT l'appel : "
+                         "annonce client, date et objet de la visite, attends son accord explicite."),
+        "inputSchema": {"type": "object", "required": ["es_id"], "properties": {
+            "es_id": {"type": "integer", "description": "PK CRM_EntreeSortie — cf lba_visites_liste"}}},
+    },
+    {
+        "name": "lba_visite_supprimer",
+        "description": ("[ÉCRITURE, IRRÉVERSIBLE] SUPPRIME définitivement une visite CRM encore « Non traité » "
+                         "(la ligne disparaît de PRISMA) — DELETE /api/me/evenements/{es_id}. Refuse toute visite "
+                         "Traitée ou Annulée, et toute visite qui porte des notes, appels, rappels ou requêtes "
+                         "(409 côté backend). Préfère lba_visite_annuler si l'utilisateur dit « annuler » ou "
+                         "hésite : l'annulation garde la trace. CONFIRMATION OBLIGATOIRE de l'utilisateur AVANT "
+                         "l'appel : annonce client, date et objet, précise que c'est définitif, attends son accord."),
+        "inputSchema": {"type": "object", "required": ["es_id"], "properties": {
+            "es_id": {"type": "integer", "description": "PK CRM_EntreeSortie — cf lba_visites_liste"}}},
+    },
     # ── Q&R lecture seule Terrain & Visites / Planning (Tier 1, t_60bf1bb135,
     # 2026-08-29) : wrappers directs sur des endpoints /api/me/*/api/planning/*
     # DÉJÀ EXPOSÉS (aucune route backend nouvelle) — même famille auth que
@@ -5637,6 +5659,19 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         if source:
             path += "?" + urlencode({"source": source})
         return _patch(path, payload, headers)
+    if tool in ("lba_visite_annuler", "lba_visite_supprimer"):
+        es_id = int(_req(args, "es_id"))
+        try:
+            visite = json.loads(_get(f"/api/me/evenements/{es_id}", {}, headers))
+        except ValueError:
+            raise LbaCliError(f"visite {es_id} illisible : action refusée")
+        etat = str((visite or {}).get("etat") or "").strip().lower() if isinstance(visite, dict) else ""
+        if etat != "non traité":
+            raise LbaCliError(f"visite {es_id} en état « {(visite or {}).get('etat') or '?'} » : seules les visites « Non traité » "
+                              "peuvent être annulées ou supprimées")
+        if tool == "lba_visite_annuler":
+            return _patch(f"/api/me/evenements/{es_id}", {"etat": "Annulé"}, headers)
+        return _delete(f"/api/me/evenements/{es_id}", headers)
     if tool == "lba_visites_kpis":
         return _get("/api/me/evenements/kpis", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),

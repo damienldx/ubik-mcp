@@ -30,6 +30,7 @@ verrous « exactement 12 tools » et « un tool DATA ne touche jamais le ticket-
 """
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -1001,3 +1002,36 @@ def _run_without_pytest() -> int:
 
 if __name__ == "__main__":
     sys.exit(_run_without_pytest())
+
+
+# ── lba_visite_annuler / lba_visite_supprimer : visites « Non traité » uniquement ──
+
+def _visite_outils(monkeypatch, etat):
+    lba = _load_lba()
+    monkeypatch.setattr(lba, "_mint_cli_session_jwt", lambda agent_id: "fake.jwt.token")
+    appels = []
+    monkeypatch.setattr(lba, "_get", lambda path, params=None, headers=None: json.dumps({"es_id": 5, "etat": etat}))
+    monkeypatch.setattr(lba, "_patch", lambda path, payload, headers=None: appels.append(("PATCH", path, payload)) or "{}")
+    monkeypatch.setattr(lba, "_delete", lambda path, headers=None: appels.append(("DELETE", path)) or "{}")
+    return lba, appels
+
+
+def test_visite_annuler_non_traite_patch_etat_annule(monkeypatch):
+    lba, appels = _visite_outils(monkeypatch, "Non traité")
+    lba._exec("lba_visite_annuler", {"es_id": 5}, "22fcf4a5-agent-2")
+    assert appels == [("PATCH", "/api/me/evenements/5", {"etat": "Annulé"})]
+
+
+def test_visite_supprimer_non_traite_delete_sans_force(monkeypatch):
+    lba, appels = _visite_outils(monkeypatch, "Non traité")
+    lba._exec("lba_visite_supprimer", {"es_id": 5}, "22fcf4a5-agent-2")
+    assert appels == [("DELETE", "/api/me/evenements/5")]
+
+
+@pytest.mark.parametrize("etat", ["Traité", "Annulé", ""])
+@pytest.mark.parametrize("outil", ["lba_visite_annuler", "lba_visite_supprimer"])
+def test_visite_annuler_supprimer_refusent_hors_non_traite(monkeypatch, outil, etat):
+    lba, appels = _visite_outils(monkeypatch, etat)
+    with pytest.raises(lba.LbaCliError):
+        lba._exec(outil, {"es_id": 5}, "22fcf4a5-agent-2")
+    assert appels == []
