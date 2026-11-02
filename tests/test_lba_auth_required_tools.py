@@ -1025,7 +1025,7 @@ def test_visite_annuler_non_traite_patch_etat_annule(monkeypatch):
 def test_visite_supprimer_non_traite_delete_sans_force(monkeypatch):
     lba, appels = _visite_outils(monkeypatch, "Non traité")
     lba._exec("lba_visite_supprimer", {"es_id": 5}, "22fcf4a5-agent-2")
-    assert appels == [("DELETE", "/api/me/evenements/5")]
+    assert appels == [("DELETE", "/api/me/evenements/5?sans_repli=true")]
 
 
 @pytest.mark.parametrize("etat", ["Traité", "Annulé", ""])

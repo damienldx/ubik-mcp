@@ -5671,7 +5671,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                               "peuvent être annulées ou supprimées")
         if tool == "lba_visite_annuler":
             return _patch(f"/api/me/evenements/{es_id}", {"etat": "Annulé"}, headers)
-        return _delete(f"/api/me/evenements/{es_id}", headers)
+        return _delete(f"/api/me/evenements/{es_id}?sans_repli=true", headers)
     if tool == "lba_visites_kpis":
         return _get("/api/me/evenements/kpis", {
             "period_start": args.get("period_start"), "period_end": args.get("period_end"),
