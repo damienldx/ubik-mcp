@@ -2431,6 +2431,49 @@ TOOLS = [
             "confirm": {"type": "boolean"},
         }},
     },
+    # Ne pas contacter (2026-11-04, demande Damien) : sortir des prospects / clients des envois groupés de prospection. Cf bacchus_ne_pas_contacter_tools.py (LBA-DESKTOP).
+    {
+        "name": "lba_ne_pas_contacter_trouver",
+        "description": ("Lecture pure — RÉFLEXE quand quelqu'un demande à ne plus recevoir de messages / à être retiré de la base d'envoi (désinscription, « retirez-moi », "
+                         "« ne plus contacter ce client ») : à partir d'une ADRESSE E-MAIL (ex. l'expéditeur du mail ouvert) et/ou d'un CODE CLIENT, retrouve les lignes de "
+                         "prospection concernées — prospect, client actif, client inactif, établissement ou contact — avec leur `type` et leur `ref`, et `deja_range` si elles sont "
+                         "déjà dans « Ne pas contacter ». Présente-les (nom, type, détail) et fais choisir si plusieurs ; aucune ligne = l'adresse n'est pas dans les bases d'envoi, "
+                         "dis-le sans deviner. Enchaîne avec lba_ne_pas_contacter_ajouter. POST /api/bacchus/ne-pas-contacter/trouver."),
+        "inputSchema": {"type": "object", "properties": {
+            "email": {"type": "string", "description": "adresse e-mail de la personne (ex. l'expéditeur du mail lu)"},
+            "code_client": {"type": "string", "description": "code client PRISMA (renvoie l'établissement et tous ses contacts)"},
+        }},
+    },
+    {
+        "name": "lba_ne_pas_contacter_lister",
+        "description": ("Lecture pure — lignes actuellement rangées dans l'onglet « Ne pas contacter » (exclues des envois groupés SMS / WhatsApp / e-mail de prospection) : type, ref, "
+                         "nom, motif, rangé par / le. `type` facultatif : prospect | ancien (client inactif) | actif (client actif). GET /api/bacchus/ne-pas-contacter."),
+        "inputSchema": {"type": "object", "properties": {
+            "type": {"type": "string", "enum": ["prospect", "ancien", "actif"]}}},
+    },
+    {
+        "name": "lba_ne_pas_contacter_ajouter",
+        "description": ("ÉCRITURE locale (aucune écriture PRISMA) — range des lignes dans « Ne pas contacter » : elles ne reçoivent plus aucun SMS, WhatsApp ni e-mail de prospection, "
+                         "même cochées, dès l'envoi suivant. `lignes` = [{type, ref, nom}] repris TELS QUELS de lba_ne_pas_contacter_trouver (ou de la liste affichée) : n'invente "
+                         "jamais une `ref`. `motif` facultatif (ex. « désinscription demandée par mail »). TOUJOURS après avoir présenté les lignes et obtenu la confirmation explicite "
+                         "de l'utilisateur ; confirm=true REQUIS. Ne répond PAS à la personne : propose-le séparément. POST /api/bacchus/ne-pas-contacter/ajouter."),
+        "inputSchema": {"type": "object", "required": ["lignes", "confirm"], "properties": {
+            "lignes": {"type": "array", "items": {"type": "object", "required": ["type", "ref"], "properties": {
+                "type": {"type": "string", "enum": ["prospect", "ancien", "actif"]}, "ref": {"type": "string"}, "nom": {"type": "string"}}}},
+            "motif": {"type": "string"},
+            "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_ne_pas_contacter_retirer",
+        "description": ("ÉCRITURE locale — remet des lignes dans les envois groupés (elles redeviennent visibles et cochables dans Prospects / Clients). `lignes` = [{type, ref}] lues "
+                         "avec lba_ne_pas_contacter_lister. Confirmation explicite de l'utilisateur d'abord ; confirm=true REQUIS. POST /api/bacchus/ne-pas-contacter/retirer."),
+        "inputSchema": {"type": "object", "required": ["lignes", "confirm"], "properties": {
+            "lignes": {"type": "array", "items": {"type": "object", "required": ["type", "ref"], "properties": {
+                "type": {"type": "string", "enum": ["prospect", "ancien", "actif"]}, "ref": {"type": "string"}}}},
+            "confirm": {"type": "boolean"},
+        }},
+    },
     {
         "name": "lba_promotions_liste",
         "description": ("Lecture pure — promotions PrismaSoft (id, libellé, dates, statut, nb d'articles, nb de "
@@ -6483,6 +6526,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/appliquer", {
             "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client")),
             "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_ne_pas_contacter_trouver":
+        if not (args.get("email") or args.get("code_client")):
+            raise LbaCliError("lba_ne_pas_contacter_trouver : indiquer une adresse e-mail ou un code client")
+        return _post("/api/bacchus/ne-pas-contacter/trouver", {"email": args.get("email") or None, "code_client": str(args["code_client"]) if args.get("code_client") else None}, headers)
+    if tool == "lba_ne_pas_contacter_lister":
+        return _get("/api/bacchus/ne-pas-contacter", {"type": args.get("type") or None}, headers)
+    if tool == "lba_ne_pas_contacter_ajouter":
+        return _post("/api/bacchus/ne-pas-contacter/ajouter", {"lignes": _req(args, "lignes"), "motif": str(args.get("motif") or ""), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_ne_pas_contacter_retirer":
+        return _post("/api/bacchus/ne-pas-contacter/retirer", {"lignes": _req(args, "lignes"), "confirm": bool(_req(args, "confirm"))}, headers)
     if tool == "lba_promotions_liste":
         return _get("/api/bacchus/promotions", {"statut": args.get("statut") or "en_cours", "q": args.get("q") or None})
     if tool == "lba_promotions_synthese":
