@@ -1406,6 +1406,18 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "lba_prospection_rechercher",
+        "description": ("Lecture pure — RECHERCHE dans le portefeuille de l'artefact Prospects (sociétés sourcées, enrichies ou importées), y compris celles qui n'existent PAS ENCORE dans PRISMA, "
+                         "là où lba_recherche_client / lba_recherche_universelle ne voient que les fiches PRISMA. Critères : nom, raison sociale, contact, e-mail, téléphone (comparé sur les "
+                         "chiffres), SIRET/TVA, adresse, ville, secteur — mots 'contient', insensible casse/accents. `hors_prisma`=true = seulement les prospects sans fiche PRISMA. Retour par "
+                         "prospect : id (= `ref` pour lba_ne_pas_contacter_ajouter, type prospect), identité, contact, coordonnées, statut du tunnel et de relance, dernière relance, "
+                         "dans_prisma / tiers_code, ne_pas_contacter. À appeler AVANT de dire qu'un prospect n'existe pas. GET /api/bacchus/prospection/portefeuille/recherche."),
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {
+            "q": {"type": "string", "description": "min 2 caractères : nom, contact, e-mail, téléphone, SIRET, ville…"},
+            "hors_prisma": {"type": "boolean", "description": "true = seulement les prospects pas encore créés dans PRISMA"},
+            "limit": {"type": "integer", "description": "défaut 20, max 100"}}},
+    },
+    {
         "name": "lba_prospection_portefeuille",
         "description": ("Lecture pure — portefeuille de prospects généré par Bacchus (sourcing "
                          "lba_recherche_entreprises + enrichissement lba_dropcontact_enrichir + "
@@ -6616,6 +6628,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/pieces-vente/remises-vers-fiche/appliquer", {
             "num_piece": int(_req(args, "num_piece")), "code_client": str(_req(args, "code_client")),
             "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_prospection_rechercher":
+        return _get("/api/bacchus/prospection/portefeuille/recherche", {"q": str(_req(args, "q")), "hors_prisma": "true" if args.get("hors_prisma") else None, "limit": args.get("limit")}, headers)
     if tool == "lba_ne_pas_contacter_trouver":
         if not (args.get("email") or args.get("code_client")):
             raise LbaCliError("lba_ne_pas_contacter_trouver : indiquer une adresse e-mail ou un code client")
