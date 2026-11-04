@@ -2474,6 +2474,96 @@ TOOLS = [
             "confirm": {"type": "boolean"},
         }},
     },
+    # Modifier une pièce de vente NON facturée (2026-11-04, ordre Damien) — profils bureau et admin. Cf bacchus_piece_modif_tools.py (LBA-DESKTOP). Une livraison est
+    # clôturée en logistique : jamais renvoyée en préparation, seules ses remises (et son client) changent. Contrôles et écriture dans prisma-api (flags, confirm, total attendu).
+    {
+        "name": "lba_remises_simuler",
+        "description": ("Lecture pure — remises (0 à 100 %) par ligne d'une COMMANDE ou d'une LIVRAISON non facturée : remise avant/après de chaque ligne, total TTC avant/après estimé, "
+                         "ou les raisons du refus. `id_piece` et `id_ligne` = identifiants internes lus sur la pièce (jamais un numéro de facture) ; `remise_pct` est TOUJOURS donné "
+                         "par l'utilisateur. TOUJOURS appeler en PREMIER et présenter le résultat. Réservé bureau/admin. POST /api/bacchus/pieces-vente/remises/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "remises"], "properties": {
+            "id_piece": {"type": "integer"},
+            "remises": {"type": "array", "items": {"type": "object", "required": ["id_ligne", "remise_pct"], "properties": {
+                "id_ligne": {"type": "integer"}, "remise_pct": {"type": "number"}}}},
+        }},
+    },
+    {
+        "name": "lba_remises_appliquer",
+        "description": ("ÉCRITURE — applique les remises simulées sur la commande / livraison (PrismaSoft recalcule les totaux). N'appeler QU'APRÈS lba_remises_simuler présenté et "
+                         "confirmation explicite ; `attendu_total_ttc` = `total_ttc_avant` de la simulation (refus si la pièce a bougé) ; confirm=true REQUIS. Réservé bureau/admin. "
+                         "POST /api/bacchus/pieces-vente/remises/appliquer."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "remises", "attendu_total_ttc", "confirm"], "properties": {
+            "id_piece": {"type": "integer"},
+            "remises": {"type": "array", "items": {"type": "object", "required": ["id_ligne", "remise_pct"], "properties": {
+                "id_ligne": {"type": "integer"}, "remise_pct": {"type": "number"}}}},
+            "attendu_total_ttc": {"type": "number"}, "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_changer_client_simuler",
+        "description": ("Lecture pure — changer le client d'un DEVIS, d'une COMMANDE ou d'une LIVRAISON non facturée : client actuel / cible, effet du mode choisi, ou les raisons du refus. "
+                         "`code_client` = code du NOUVEAU client ; `mode` : « conserver_tarifs_piece » (prix et remises de la pièce gardés) ou « appliquer_tarifs_client » (tarifs du nouveau "
+                         "client) — à DEMANDER à l'utilisateur, jamais deviné. TOUJOURS en premier. Réservé bureau/admin. POST /api/bacchus/pieces-vente/changer-client/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "code_client", "mode"], "properties": {
+            "id_piece": {"type": "integer"}, "code_client": {"type": "string"},
+            "mode": {"type": "string", "enum": ["conserver_tarifs_piece", "appliquer_tarifs_client"]},
+        }},
+    },
+    {
+        "name": "lba_changer_client_appliquer",
+        "description": ("ÉCRITURE — change le client de la pièce. APRÈS lba_changer_client_simuler présenté et confirmation explicite du mode et du nouveau client ; `attendu_total_ttc` = "
+                         "`total_ttc_avant` de la simulation ; confirm=true REQUIS. Si les tarifs du client sont appliqués et que PrismaSoft ne recalcule pas, l'outil rétablit les prix d'origine : "
+                         "relis l'alerte. Sur une livraison, dis de vérifier adresse et bon de livraison. Réservé bureau/admin. POST /api/bacchus/pieces-vente/changer-client/appliquer."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "code_client", "mode", "attendu_total_ttc", "confirm"], "properties": {
+            "id_piece": {"type": "integer"}, "code_client": {"type": "string"},
+            "mode": {"type": "string", "enum": ["conserver_tarifs_piece", "appliquer_tarifs_client"]},
+            "attendu_total_ttc": {"type": "number"}, "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_commande_quantites",
+        "description": ("ÉCRITURE — quantités de lignes d'une COMMANDE (ou d'un devis) AVANT préparation ; PrismaSoft recalcule les totaux. Lire la pièce d'abord (lignes, total TTC), présenter le "
+                         "changement, puis appeler après confirmation explicite avec `attendu_total_ttc` = total TTC lu (refus 409 si la pièce a changé) ; confirm=true REQUIS. Réservé bureau/admin. "
+                         "POST /api/bacchus/pieces-vente/commande/quantites."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "modifications", "attendu_total_ttc", "confirm"], "properties": {
+            "id_piece": {"type": "integer"},
+            "modifications": {"type": "array", "items": {"type": "object", "required": ["id_ligne", "quantite"], "properties": {
+                "id_ligne": {"type": "integer"}, "quantite": {"type": "number"}}}},
+            "attendu_total_ttc": {"type": "number"}, "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_commande_dates",
+        "description": ("ÉCRITURE — date de livraison d'une COMMANDE avant préparation, après confirmation explicite de l'utilisateur ; confirm=true REQUIS. Réservé bureau/admin. "
+                         "POST /api/bacchus/pieces-vente/commande/dates."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "date_livraison", "confirm"], "properties": {
+            "id_piece": {"type": "integer"}, "date_livraison": {"type": "string", "description": "AAAA-MM-JJ"}, "confirm": {"type": "boolean"},
+        }},
+    },
+    # Remise d'une ligne de FACTURE DÉJÀ COMPTABILISÉE, en place (2026-11-03/04) — direction et backoffice seulement. Cf bacchus_remise_ligne_tools.py. À ne pas confondre avec
+    # lba_avoir_* (contre-passation) : ici la ligne de la facture elle-même est modifiée.
+    {
+        "name": "lba_remise_ligne_simuler",
+        "description": ("Lecture pure — modifier la remise (0 à 100 %) d'UNE ligne d'une facture DÉJÀ COMPTABILISÉE, en place : total TTC avant/après, ligne de TVA, lignes d'écriture comptable, "
+                         "ou chaque raison du refus (écriture lettrée/réglée, hors période, facture qui tomberait à zéro…). `id_piece` et `id_ligne` = identifiants internes lus sur la pièce ; "
+                         "`remise_pct` TOUJOURS donné par l'utilisateur (0 = supprimer la remise). TOUJOURS en premier ; ne contourne jamais un refus : propose lba_avoir_simuler. Réservé "
+                         "direction/backoffice. POST /api/bacchus/pieces-vente/remise-ligne/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "id_ligne", "code_client", "remise_pct"], "properties": {
+            "id_piece": {"type": "integer"}, "id_ligne": {"type": "integer"}, "code_client": {"type": "string"}, "remise_pct": {"type": "number"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_remise_ligne_appliquer",
+        "description": ("ÉCRITURE comptable — applique la remise cible à la ligne de la facture comptabilisée. APRÈS lba_remise_ligne_simuler présenté et confirmation explicite sur les montants "
+                         "affichés ; `attendu_total_ttc` = `total_ttc_avant` de la simulation ; confirm=true REQUIS. Réservé direction/backoffice — 403 sinon. "
+                         "POST /api/bacchus/pieces-vente/remise-ligne/appliquer."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "id_ligne", "code_client", "remise_pct", "attendu_total_ttc", "confirm"], "properties": {
+            "id_piece": {"type": "integer"}, "id_ligne": {"type": "integer"}, "code_client": {"type": "string"}, "remise_pct": {"type": "number"},
+            "attendu_total_ttc": {"type": "number"}, "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
     {
         "name": "lba_promotions_liste",
         "description": ("Lecture pure — promotions PrismaSoft (id, libellé, dates, statut, nb d'articles, nb de "
@@ -6536,6 +6626,29 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/ne-pas-contacter/ajouter", {"lignes": _req(args, "lignes"), "motif": str(args.get("motif") or ""), "confirm": bool(_req(args, "confirm"))}, headers)
     if tool == "lba_ne_pas_contacter_retirer":
         return _post("/api/bacchus/ne-pas-contacter/retirer", {"lignes": _req(args, "lignes"), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_remises_simuler":
+        return _post("/api/bacchus/pieces-vente/remises/simuler", {"id_piece": int(_req(args, "id_piece")), "remises": _req(args, "remises")}, headers)
+    if tool == "lba_remises_appliquer":
+        return _post("/api/bacchus/pieces-vente/remises/appliquer", {"id_piece": int(_req(args, "id_piece")), "remises": _req(args, "remises"),
+                     "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_changer_client_simuler":
+        return _post("/api/bacchus/pieces-vente/changer-client/simuler", {"id_piece": int(_req(args, "id_piece")), "code_client": str(_req(args, "code_client")),
+                     "mode": str(_req(args, "mode"))}, headers)
+    if tool == "lba_changer_client_appliquer":
+        return _post("/api/bacchus/pieces-vente/changer-client/appliquer", {"id_piece": int(_req(args, "id_piece")), "code_client": str(_req(args, "code_client")),
+                     "mode": str(_req(args, "mode")), "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_commande_quantites":
+        return _post("/api/bacchus/pieces-vente/commande/quantites", {"id_piece": int(_req(args, "id_piece")), "modifications": _req(args, "modifications"),
+                     "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool == "lba_commande_dates":
+        return _post("/api/bacchus/pieces-vente/commande/dates", {"id_piece": int(_req(args, "id_piece")), "date_livraison": str(_req(args, "date_livraison")),
+                     "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool in ("lba_remise_ligne_simuler", "lba_remise_ligne_appliquer"):
+        corps = {"agent_id": _resolve_agent_id(args.get("agent_id")), "id_piece": int(_req(args, "id_piece")), "id_ligne": int(_req(args, "id_ligne")),
+                 "code_client": str(_req(args, "code_client")), "remise_pct": float(_req(args, "remise_pct"))}
+        if tool == "lba_remise_ligne_appliquer":
+            corps |= {"attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}
+        return _post("/api/bacchus/pieces-vente/remise-ligne/" + ("appliquer" if tool.endswith("appliquer") else "simuler"), corps, headers)
     if tool == "lba_promotions_liste":
         return _get("/api/bacchus/promotions", {"statut": args.get("statut") or "en_cours", "q": args.get("q") or None})
     if tool == "lba_promotions_synthese":
