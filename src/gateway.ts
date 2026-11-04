@@ -66,16 +66,16 @@ interface UpstreamServer {
 // Resolve absolute paths to subprocess servers. tsx is invoked so .ts files
 // can be run without a separate compile step (matches package.json scripts).
 const SERVERS: UpstreamServer[] = [
-  { name: "skills",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "skills.ts")],    tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "skills",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "skills.ts")],    tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "system",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "system.ts")],    tools: [] },
-  { name: "crawl",     command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "crawl.ts")],     tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "crawl",     command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "crawl.ts")],     tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "review",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "review.ts")],    tools: [] },
-  { name: "formation", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "formation.ts")], tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "formation", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "formation.ts")], tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "github",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "github.ts")],    tools: [] },
-  { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
-  { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "google",    command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "google.ts")],    tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "linkedin",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "linkedin.ts")],  tools: [] },
   { name: "microsoft", command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "microsoft.ts")], tools: [] },
-  { name: "whatsapp",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "whatsapp.ts")],  tools: [] },
+  // [retire 2026-11-04, Damien : obsolète et inutilisé] { name: "whatsapp",  command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "whatsapp.ts")],  tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "lba",       command: "npx", args: ["-y", "tsx", path.join(__dirname, "servers", "lba.ts")],       tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "memory",    command: "/home/damienldx/.local/bin/ubik-memory-mcp", args: [], tools: [] },
   // [forge-ring: now in `ubik` CLI] { name: "agent",     command: "python3", args: ["/home/damienldx/.ubik-agent/mcp-ubik-local.py"], tools: [] },
