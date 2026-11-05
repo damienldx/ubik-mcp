@@ -3416,7 +3416,7 @@ TOOLS = [
             "devise": {"type": "integer"},
             "iban": {"type": "string"}, "bic": {"type": "string"}, "rib": {"type": "string"},
             "domiciliation_bancaire": {"type": "string"},
-            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO. CHANGER LE MODE DE LA FICHE FAIT AUSSI PASSER TOUTES LES FACTURES NON LETTRÉES DU CLIENT AU NOUVEAU MODE (sauf celles déjà dans un lot de prélèvements/traites, et sauf TRAITE) : la réponse dit combien dans `factures`. Prévenir l'utilisateur avant."},
+            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO. CHANGER LE MODE DE LA FICHE FAIT AUSSI PASSER TOUTES LES FACTURES NON LETTRÉES DU CLIENT AU NOUVEAU MODE (profils admin et bureau ; sauf celles déjà dans un lot de prélèvements/traites, et sauf TRAITE) : la réponse dit combien dans `factures`. Prévenir l'utilisateur avant."},
             "propager_factures": {"type": "boolean", "description": "défaut true : avec mode_reglement, passe aussi les factures non lettrées au nouveau mode. false = ne changer QUE la fiche (les factures gardent leur mode) — seulement si l'utilisateur le demande explicitement."},
             "echeance_nb_jours": {"type": "integer"},
             "echeance_le": {"type": "integer"},
@@ -3431,7 +3431,7 @@ TOOLS = [
                          "prélèvements/traites (elles ne bougeront pas) — et une `empreinte`. Présenter l'aperçu à l'utilisateur et obtenir sa confirmation EXPLICITE. "
                          "TEMPS 2 (confirm=true + l'empreinte reçue) : l'écriture est faite par prisma-api ; refusée si les factures ont bougé depuis l'aperçu (refaire l'aperçu). "
                          "mode_reglement = id : 1=CHEQUE, 2=CB, 3=ESPECES, 4=PRELEVEMENT, 5=VIREMENT, 7=PRO (6=TRAITE refusé). Pour changer AUSSI la fiche client, "
-                         "utiliser lba_client_reglement_corriger (qui propage déjà aux factures). Réservé aux interlocuteurs autorisés à écrire dans le module Financier : "
+                         "utiliser lba_client_reglement_corriger (qui propage déjà aux factures). Réservé aux profils ADMIN et BUREAU (et à l'interrupteur d'écriture financier ouvert) : "
                          "sinon le refus est explicite, ne rien contourner. Ne JAMAIS deviner le client ni le mode : résoudre le code client et faire confirmer."),
         "inputSchema": {"type": "object", "required": ["code", "mode_reglement"], "properties": {
             "code": {"type": "string", "description": "code client PRISMA"},
