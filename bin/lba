@@ -241,6 +241,10 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # aucune forme avant ce fix (ces champs n'étaient posables qu'une
     # seule fois, à la conversion prospect->client).
     "lba_client_reglement_corriger",
+    # ── lba_client_factures_mode_reglement (2026-11-05, ordre Damien) — POST /api/bacchus/client/{code}/factures/mode-reglement,
+    # Depends(current_user) réel côté bacchus_client_tools.py ; l'écriture est faite PAR prisma-api (module financier : interrupteur,
+    # acteur autorisé, empreinte de l'aperçu, confirm, audit).
+    "lba_client_factures_mode_reglement",
     # ── lba_referentiel_envoi_facture_mail_affecter (2026-09-08, gap
     # signalé par Bacchus en conversation réelle) — PATCH /api/bacchus/
     # referentiel/envoi-facture-mail/{code_client}, Depends(current_user)
@@ -3412,11 +3416,28 @@ TOOLS = [
             "devise": {"type": "integer"},
             "iban": {"type": "string"}, "bic": {"type": "string"}, "rib": {"type": "string"},
             "domiciliation_bancaire": {"type": "string"},
-            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO"},
+            "mode_reglement": {"type": "integer", "description": "id PrismaGestionCo_reglement_mode : 1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,6=TRAITE,7=PRO. CHANGER LE MODE DE LA FICHE FAIT AUSSI PASSER TOUTES LES FACTURES NON LETTRÉES DU CLIENT AU NOUVEAU MODE (profils admin et bureau ; sauf celles déjà dans un lot de prélèvements/traites, et sauf TRAITE) : la réponse dit combien dans `factures`. Prévenir l'utilisateur avant."},
+            "propager_factures": {"type": "boolean", "description": "défaut true : avec mode_reglement, passe aussi les factures non lettrées au nouveau mode. false = ne changer QUE la fiche (les factures gardent leur mode) — seulement si l'utilisateur le demande explicitement."},
             "echeance_nb_jours": {"type": "integer"},
             "echeance_le": {"type": "integer"},
             "echeance_fin_de_mois": {"type": "boolean"},
             "remise1": {"type": "number"}, "remise2": {"type": "number"}, "remise3": {"type": "number"}}},
+    },
+    {
+        "name": "lba_client_factures_mode_reglement",
+        "description": ("[ÉCRITURE en 2 temps] Met TOUTES les factures non lettrées (en cours) d'un client au mode de règlement demandé, SANS toucher à sa fiche — "
+                         "POST /api/bacchus/client/{code}/factures/mode-reglement. Exemple : « peux-tu mettre toutes les factures en cours du client X en prélèvement ? ». "
+                         "TEMPS 1 (confirm absent/false) : APERÇU en lecture seule — nombre de factures à changer, total, déjà au bon mode, déjà dans un lot de "
+                         "prélèvements/traites (elles ne bougeront pas) — et une `empreinte`. Présenter l'aperçu à l'utilisateur et obtenir sa confirmation EXPLICITE. "
+                         "TEMPS 2 (confirm=true + l'empreinte reçue) : l'écriture est faite par prisma-api ; refusée si les factures ont bougé depuis l'aperçu (refaire l'aperçu). "
+                         "mode_reglement = id : 1=CHEQUE, 2=CB, 3=ESPECES, 4=PRELEVEMENT, 5=VIREMENT, 7=PRO (6=TRAITE refusé). Pour changer AUSSI la fiche client, "
+                         "utiliser lba_client_reglement_corriger (qui propage déjà aux factures). Réservé aux profils ADMIN et BUREAU (et à l'interrupteur d'écriture financier ouvert) : "
+                         "sinon le refus est explicite, ne rien contourner. Ne JAMAIS deviner le client ni le mode : résoudre le code client et faire confirmer."),
+        "inputSchema": {"type": "object", "required": ["code", "mode_reglement"], "properties": {
+            "code": {"type": "string", "description": "code client PRISMA"},
+            "mode_reglement": {"type": "integer", "description": "1=CHEQUE,2=CB,3=ESPECES,4=PRELEVEMENT,5=VIREMENT,7=PRO"},
+            "confirm": {"type": "boolean", "description": "true seulement au temps 2, après confirmation explicite de l'utilisateur"},
+            "empreinte": {"type": "string", "description": "empreinte renvoyée par l'aperçu (obligatoire avec confirm=true)"}}},
     },
     {
         "name": "lba_prospect_activation",
@@ -5570,9 +5591,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "domiciliation_bancaire": args.get("domiciliation_bancaire"),
                "mode_reglement": args.get("mode_reglement"), "echeance_nb_jours": args.get("echeance_nb_jours"),
                "echeance_le": args.get("echeance_le"), "echeance_fin_de_mois": args.get("echeance_fin_de_mois"),
-               "remise1": args.get("remise1"), "remise2": args.get("remise2"), "remise3": args.get("remise3")}
+               "remise1": args.get("remise1"), "remise2": args.get("remise2"), "remise3": args.get("remise3"),
+               "propager_factures": args.get("propager_factures")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _patch(f"/api/bacchus/client/{code}/reglement", payload, headers)
+    if tool == "lba_client_factures_mode_reglement":
+        code = _seg(_req(args, "code"))
+        payload = {"mode_reglement": _req(args, "mode_reglement"), "confirm": args.get("confirm") is True}
+        if args.get("empreinte"):
+            payload["empreinte"] = args.get("empreinte")
+        return _post(f"/api/bacchus/client/{code}/factures/mode-reglement", payload, headers)
     if tool == "lba_referentiel_representant_affecter":
         code_client = _req(args, "code_client")
         return _patch(f"/api/bacchus/referentiel/representant/{_seg(code_client)}", {
