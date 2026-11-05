@@ -245,6 +245,9 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # Depends(current_user) réel côté bacchus_client_tools.py ; l'écriture est faite PAR prisma-api (module financier : interrupteur,
     # acteur autorisé, empreinte de l'aperçu, confirm, audit).
     "lba_client_factures_mode_reglement",
+    # ── lba_client_factures_echeance (2026-11-05, ordre Damien) — POST /api/bacchus/client/{code}/factures/echeance, même mécanisme (2 temps, empreinte,
+    # profils admin / bureau, écriture faite PAR prisma-api).
+    "lba_client_factures_echeance",
     # ── lba_referentiel_envoi_facture_mail_affecter (2026-09-08, gap
     # signalé par Bacchus en conversation réelle) — PATCH /api/bacchus/
     # referentiel/envoi-facture-mail/{code_client}, Depends(current_user)
@@ -3440,6 +3443,26 @@ TOOLS = [
             "empreinte": {"type": "string", "description": "empreinte renvoyée par l'aperçu (obligatoire avec confirm=true)"}}},
     },
     {
+        "name": "lba_client_factures_echeance",
+        "description": ("[ÉCRITURE en 2 temps] Change la DATE D'ÉCHÉANCE des factures non lettrées (en cours) d'un client — POST /api/bacchus/client/{code}/factures/echeance. "
+                         "Exemples : « décale de 15 jours l'échéance des factures en cours du client X », « mets la facture 26006396 à échéance le 15/12 ». "
+                         "Donner UNE date (`echeance`, AAAA-MM-JJ) OU un décalage en jours (`decalage_jours`, négatif = avancer), et au choix des numéros de facture "
+                         "(`pieces`) ; sans `pieces` = toutes les factures non lettrées du client. "
+                         "TEMPS 1 (confirm absent/false) : APERÇU en lecture seule — chaque facture avec son échéance avant/après, total, factures déjà dans un lot de "
+                         "prélèvements/traites (elles ne bougent pas), numéros introuvables — et une `empreinte`. Présenter l'aperçu et obtenir la confirmation EXPLICITE de "
+                         "l'utilisateur en LUI DISANT que l'échéance détermine le retard et donc le stade de relance du client. "
+                         "TEMPS 2 (confirm=true + l'empreinte reçue) : écriture par prisma-api, refusée si les factures ont bougé depuis l'aperçu (refaire l'aperçu). "
+                         "Garde-fous : nouvelle échéance au plus à 1 an, jamais avant la date de la facture. Réservé aux profils ADMIN et BUREAU : sinon le refus est explicite, "
+                         "ne rien contourner. Ne JAMAIS deviner le client, les factures ni la date : résoudre le code client et faire confirmer."),
+        "inputSchema": {"type": "object", "required": ["code"], "properties": {
+            "code": {"type": "string", "description": "code client PRISMA"},
+            "echeance": {"type": "string", "description": "nouvelle échéance AAAA-MM-JJ (absolue) — exclusif avec decalage_jours"},
+            "decalage_jours": {"type": "integer", "description": "décalage relatif en jours (négatif = avancer) — exclusif avec echeance"},
+            "pieces": {"type": "array", "items": {"type": "string"}, "description": "numéros de facture à traiter ; absent = toutes les factures non lettrées du client"},
+            "confirm": {"type": "boolean", "description": "true seulement au temps 2, après confirmation explicite de l'utilisateur"},
+            "empreinte": {"type": "string", "description": "empreinte renvoyée par l'aperçu (obligatoire avec confirm=true)"}}},
+    },
+    {
         "name": "lba_prospect_activation",
         "description": ("[ÉCRITURE] Active ou désactive un tiers (isActif), prospect OU client "
                          "indifféremment (cf est_client) — POST /api/bacchus/prospects/activation. "
@@ -5595,6 +5618,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
                "propager_factures": args.get("propager_factures")}
         payload = {k: v for k, v in raw.items() if v is not None}
         return _patch(f"/api/bacchus/client/{code}/reglement", payload, headers)
+    if tool == "lba_client_factures_echeance":
+        code = _seg(_req(args, "code"))
+        payload = {k: v for k, v in {"echeance": args.get("echeance"), "decalage_jours": args.get("decalage_jours"), "pieces": args.get("pieces")}.items() if v is not None}
+        payload["confirm"] = args.get("confirm") is True
+        if args.get("empreinte"):
+            payload["empreinte"] = args.get("empreinte")
+        return _post(f"/api/bacchus/client/{code}/factures/echeance", payload, headers)
     if tool == "lba_client_factures_mode_reglement":
         code = _seg(_req(args, "code"))
         payload = {"mode_reglement": _req(args, "mode_reglement"), "confirm": args.get("confirm") is True}
