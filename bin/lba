@@ -127,6 +127,8 @@ _AUTH_REQUIRED_TOOLS = frozenset({
     # PLUS un paramètre de ce tool.
     "lba_direction_proposition_creer",
     "lba_connaissances_rechercher", "lba_connaissances_ajouter",
+    # Référentiel des connaissances métier (2026-11-06) : lecture seule, scopée par la session (ticket-exchange) comme les tools ci-dessus.
+    "lba_connaissances_metier_index", "lba_connaissances_metier_lire", "lba_connaissances_metier_chercher",
     # lba_equipe_synthese_periode (2026-09-01, brief Damien t_112f3c2199
     # Partie 2 — "billet d'actualité équipe") — GET /periode, même scoping
     # d'accès current_user que les 2 tools connaissances ci-dessus.
@@ -5194,6 +5196,38 @@ TOOLS = [
             "origin_link": {"type": "string", "description": "optionnel — référence vers le dossier/proposition source"}}},
     },
     {
+        "name": "lba_connaissances_metier_index",
+        "description": ("LECTURE — INDEX du référentiel des CONNAISSANCES MÉTIER de LBA (rédigé et maintenu par Damien dans l'artefact "
+                         "« Outils IA > Connaissances métier ») : rubriques et fichiers avec titre, résumé, statut (référence, hérité-à-relire, "
+                         "à compléter) et version. À appeler AVANT de chercher quand tu ne sais pas où se trouve un savoir (signification d'un code "
+                         "TP/TC/VP, gamme ALEX BEER, règles de livraison…). Distinct de lba_connaissances_rechercher (notes de collaborateurs). "
+                         "GET /api/connaissances-metier/{espace}/index. Lecture seule : tu ne modifies jamais ce référentiel, tu proposes via "
+                         "lba_connaissances_ajouter et un humain publie."),
+        "inputSchema": {"type": "object", "properties": {
+            "espace": {"type": "string", "enum": ["interne", "client"], "description": "« interne » (savoir catalogue, marché, concurrence, tarifs, organisation : agents et équipes internes) ou « client » (ce que les agents de la boutique ont le droit de dire à un client). Défaut : interne."}}},
+    },
+    {
+        "name": "lba_connaissances_metier_lire",
+        "description": ("LECTURE — lit un fichier (ou UNE section) du référentiel des connaissances métier de LBA, tel que rédigé par Damien. "
+                         "Passe `section` (titre exact d'un titre Markdown, casse et accents sans importance) pour ne lire que le passage utile "
+                         "plutôt que tout le fichier (la fiche bière fait 32 Ko). La réponse contient `version` et, pour un fichier entier, des "
+                         "`avertissements` (ex. article cité qui n'est plus actif dans PRISMA). GET /api/connaissances-metier/{espace}/fichier|section."),
+        "inputSchema": {"type": "object", "required": ["chemin"], "properties": {
+            "espace": {"type": "string", "enum": ["interne", "client"], "description": "« interne » (savoir catalogue, marché, concurrence, tarifs, organisation : agents et équipes internes) ou « client » (ce que les agents de la boutique ont le droit de dire à un client). Défaut : interne."},
+            "chemin": {"type": "string", "description": "chemin relatif tel que donné par lba_connaissances_metier_index, ex. catalogue/biere.md"},
+            "section": {"type": "string", "description": "optionnel — titre d'une section du fichier, ex. 'FUT ALEX BEER'"}}},
+    },
+    {
+        "name": "lba_connaissances_metier_chercher",
+        "description": ("LECTURE — recherche plein texte (sans accents ni casse, pluriel toléré) dans le référentiel des connaissances métier : "
+                         "renvoie les SECTIONS qui contiennent tous les mots, avec un extrait et leur chemin. Plus rapide que de lire un fichier "
+                         "entier : « sanitation », « consigne verre », « alex beer abbaye ». GET /api/connaissances-metier/{espace}/chercher."),
+        "inputSchema": {"type": "object", "required": ["requete"], "properties": {
+            "espace": {"type": "string", "enum": ["interne", "client"], "description": "« interne » (savoir catalogue, marché, concurrence, tarifs, organisation : agents et équipes internes) ou « client » (ce que les agents de la boutique ont le droit de dire à un client). Défaut : interne."},
+            "requete": {"type": "string", "description": "mots à retrouver (tous)"},
+            "limite": {"type": "integer", "description": "défaut 8, 30 au plus"}}},
+    },
+    {
         "name": "lba_equipe_synthese_periode",
         "description": ("LECTURE — \"billet d'actualité équipe\" : fusionne DEUX sources sur la "
                          "période demandée — la base de connaissance PARTAGÉE (résumés écrits "
@@ -6952,6 +6986,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "sujet": _req(args, "sujet"), "contexte": args.get("contexte"),
             "client_ou_entite": args.get("client_ou_entite"), "origin_link": args.get("origin_link")},
             headers)
+    if tool in ("lba_connaissances_metier_index", "lba_connaissances_metier_lire", "lba_connaissances_metier_chercher"):
+        espace = args.get("espace") or "interne"
+        if espace not in ("interne", "client"):
+            raise LbaCliError("espace invalide : interne ou client")
+        base = f"/api/connaissances-metier/{espace}"
+        if tool == "lba_connaissances_metier_index":
+            return _get(f"{base}/index", {}, headers)
+        if tool == "lba_connaissances_metier_chercher":
+            return _get(f"{base}/chercher", {"q": _req(args, "requete"), "limit": args.get("limite", 8)}, headers)
+        if args.get("section"):
+            return _get(f"{base}/section", {"path": _req(args, "chemin"), "titre": args["section"]}, headers)
+        return _get(f"{base}/fichier", {"path": _req(args, "chemin")}, headers)
     if tool == "lba_equipe_synthese_periode":
         return _get("/api/direction/connaissances/periode", {
             "date_debut": _req(args, "date_debut"), "date_fin": _req(args, "date_fin"),
