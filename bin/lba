@@ -2173,6 +2173,53 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_articles_lies_recalculer_simuler",
+        "description": ("Lecture pure — pour une facture fournisseur NON comptabilisée, recalcule les articles liés natifs (taxes DSA, VSS, BNA, ECO, consigne…) "
+                         "par la procédure native PrismaSoft et montre ce qui serait MIS À JOUR, AJOUTÉ ou SUPPRIMÉ (clé = id_facture + article lié, aucun numéro de BL). "
+                         "À utiliser quand un article a été corrigé APRÈS l'import des articles liés (lba_achats_articles_lies_importer ne sait qu'ajouter). N'écrit rien. "
+                         "TOUJOURS appeler AVANT lba_achats_articles_lies_recalculer. POST /api/bacchus/achats/facturation/articles-lies/recalculer/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture"], "properties": {
+            "id_facture": {"type": "integer", "description": "facture fournisseur non comptabilisée"},
+            "supprimer_lignes": {"type": "array", "items": {"type": "integer"}, "description": "ids de lignes PROPOSÉES à supprimer (pour voir l'effet) ; sans cela aucune suppression"},
+        }},
+    },
+    {
+        "name": "lba_achats_articles_lies_recalculer",
+        "description": ("ÉCRITURE — applique le recalcul des articles liés d'une facture fournisseur non comptabilisée (mise à jour, ajout, suppression) en UNE transaction, "
+                         "avec trace d'audit de l'état d'origine et relecture après écriture. confirm=true REQUIS. TOUJOURS avoir appelé "
+                         "lba_achats_articles_lies_recalculer_simuler AVANT et présenté le résultat à l'utilisateur — n'appeler qu'APRÈS son accord explicite. "
+                         "POST /api/bacchus/achats/facturation/articles-lies/recalculer."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "supprimer_lignes": {"type": "array", "items": {"type": "integer"}, "description": "ids des lignes proposées par la simulation que l'utilisateur a retenues pour suppression (3 au plus, quantité positive) ; sans cela aucune suppression"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_ligne_prix_simuler",
+        "description": ("Lecture pure — effet d'un nouveau PRIX UNITAIRE sur une ligne déjà importée d'une facture fournisseur non comptabilisée (id_ligne = id de la ligne, "
+                         "visible dans la simulation de recalcul). Refuse un prix nul ou à plus de ±50 % de l'ancien. Le prix vient du document du fournisseur, jamais deviné. "
+                         "N'écrit rien. TOUJOURS appeler AVANT lba_achats_facture_ligne_prix_modifier. POST /api/bacchus/achats/facturation/ligne-prix/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne", "nouveau_prix"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "nouveau_prix": {"type": "number", "description": "prix unitaire HT, 4 décimales au plus"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_ligne_prix_modifier",
+        "description": ("ÉCRITURE — change le prix unitaire d'une ligne d'une facture fournisseur non comptabilisée (le total est recalculé par le service natif). confirm=true REQUIS, "
+                         "TOUJOURS après lba_achats_facture_ligne_prix_simuler présenté à l'utilisateur et son accord explicite. POST /api/bacchus/achats/facturation/ligne-prix."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne", "nouveau_prix", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "nouveau_prix": {"type": "number"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_achats_articles_lies_configures",
         "description": ("Lecture pure — articles liés déjà configurés (référentiel natif "
                          "PrismaSoft) pour un article principal donné, PAR CODE. N'écrit rien. "
@@ -6645,6 +6692,22 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/articles-lies/importer", {
             "id_facture": _req(args, "id_facture"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_articles_lies_recalculer_simuler":
+        return _post("/api/bacchus/achats/facturation/articles-lies/recalculer/simuler", {
+            "id_facture": _req(args, "id_facture"), "supprimer_lignes": args.get("supprimer_lignes") or []})
+    if tool == "lba_achats_articles_lies_recalculer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/articles-lies/recalculer", {
+            "id_facture": _req(args, "id_facture"), "supprimer_lignes": args.get("supprimer_lignes") or [],
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_facture_ligne_prix_simuler":
+        return _post("/api/bacchus/achats/facturation/ligne-prix/simuler", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "nouveau_prix": _req(args, "nouveau_prix")})
+    if tool == "lba_achats_facture_ligne_prix_modifier":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/ligne-prix", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "nouveau_prix": _req(args, "nouveau_prix"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_articles_lies_configures":
         return _get("/api/bacchus/achats/articles-lies-configures", {
