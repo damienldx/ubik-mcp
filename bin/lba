@@ -2004,7 +2004,9 @@ TOOLS = [
     {
         "name": "lba_achats_bl_importer_lignes",
         "description": ("ÉCRITURE — rattache des lignes BL/réception non imputées sur une "
-                         "NOUVELLE facture. `lignes_facturees` (optionnel, PAR LIGNE) : la "
+                         "NOUVELLE facture. Le numéro interne (numFacture) n'est PAS un paramètre : "
+                         "PrismaSoft l'attribue seul, la référence du fournisseur va ensuite dans "
+                         "reference_externe_fournisseur (lba_achats_bl_modifier_entete). `lignes_facturees` (optionnel, PAR LIGNE) : la "
                          "quantité/prix FACTURÉS lus sur le PDF facture — JAMAIS la quantité "
                          "réceptionnée du BL, même si différente (une facture fournisseur erronée "
                          "doit être saisie au centime près pour correspondre au relevé de compte, "
@@ -2019,7 +2021,6 @@ TOOLS = [
                          "importer-lignes."),
         "inputSchema": {"type": "object", "required": ["ids_lignes", "confirm"], "properties": {
             "ids_lignes": {"type": "array", "items": {"type": "integer"}},
-            "numero_facture": {"type": "integer", "description": "défaut: résolu via la procédure native PrismaSoft"},
             "date_facture": {"type": "string"},
             "total_ttc": {"type": "number"},
             "lignes_facturees": {"type": "array", "description": "override PAR LIGNE, une entrée par id_ligne à surcharger", "items": {
@@ -6701,7 +6702,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_achats_bl_importer_lignes":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/importer-lignes", {
-            "ids_lignes": _req(args, "ids_lignes"), "numero_facture": args.get("numero_facture"),
+            "ids_lignes": _req(args, "ids_lignes"), "numero_facture": None,   # numFacture : toujours attribué par PrismaSoft
             "date_facture": args.get("date_facture"), "total_ttc": args.get("total_ttc"),
             "lignes_facturees": args.get("lignes_facturees"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
