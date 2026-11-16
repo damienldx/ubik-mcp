@@ -2240,6 +2240,7 @@ TOOLS = [
             "id_ligne": {"type": "integer"},
             "id_tva": {"type": "integer"},
             "confirm": {"type": "boolean"},
+            "accepter_ecart_bl": {"type": "boolean", "description": "REQUIS (true) si la simulation indique lie_bl/lie_commande : le BL garde son ancien code TVA, écart assumé par l'utilisateur"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
@@ -6740,7 +6741,7 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/facturation/ligne-tva", {
             "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "id_tva": _req(args, "id_tva"),
-            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+            "confirm": bool(_req(args, "confirm")), "accepter_ecart_bl": bool(args.get("accepter_ecart_bl")), "agent_id": agent_id})
     if tool == "lba_achats_articles_lies_configures":
         return _get("/api/bacchus/achats/articles-lies-configures", {
             "code_article": _req(args, "code_article")})
