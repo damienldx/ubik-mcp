@@ -2220,6 +2220,31 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_facture_ligne_tva_simuler",
+        "description": ("Lecture pure — effet d'un autre CODE TVA (id_tva = id de prismaCompta_tva : 3 = TVA 20 %, 2 = 5,5 %, 5 = 0 %, 1 = 10 %) sur une ligne d'une facture fournisseur "
+                         "non comptabilisée. Le taux est lu dans le référentiel. Refuse un code inactif, un changement de régime (intracom / exonéré / immo) ou une paire (TVA, compte) jamais vue. "
+                         "N'écrit rien. TOUJOURS appeler AVANT lba_achats_facture_ligne_tva_modifier. POST /api/bacchus/achats/facturation/ligne-tva/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne", "id_tva"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "id_tva": {"type": "integer"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_ligne_tva_modifier",
+        "description": ("ÉCRITURE — pose le code TVA d'une ligne d'une facture fournisseur non comptabilisée (le total est recalculé par le service natif). confirm=true REQUIS. "
+                         "DOCTRINE : un taux pratiqué par le fournisseur différent du référentiel est un ÉCART MÉTIER — JAMAIS appliqué automatiquement ni en silence : TOUJOURS signaler l'écart à l'utilisateur, "
+                         "présenter la simulation et obtenir son accord explicite POUR CHAQUE CAS, comme pour un changement de prix. POST /api/bacchus/achats/facturation/ligne-tva."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne", "id_tva", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "id_tva": {"type": "integer"},
+            "confirm": {"type": "boolean"},
+            "accepter_ecart_bl": {"type": "boolean", "description": "REQUIS (true) si la simulation indique lie_bl/lie_commande : le BL garde son ancien code TVA, écart assumé par l'utilisateur"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_achats_articles_lies_configures",
         "description": ("Lecture pure — articles liés déjà configurés (référentiel natif "
                          "PrismaSoft) pour un article principal donné, PAR CODE. N'écrit rien. "
@@ -6709,6 +6734,14 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/achats/facturation/ligne-prix", {
             "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "nouveau_prix": _req(args, "nouveau_prix"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_facture_ligne_tva_simuler":
+        return _post("/api/bacchus/achats/facturation/ligne-tva/simuler", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "id_tva": _req(args, "id_tva")})
+    if tool == "lba_achats_facture_ligne_tva_modifier":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/ligne-tva", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "id_tva": _req(args, "id_tva"),
+            "confirm": bool(_req(args, "confirm")), "accepter_ecart_bl": bool(args.get("accepter_ecart_bl")), "agent_id": agent_id})
     if tool == "lba_achats_articles_lies_configures":
         return _get("/api/bacchus/achats/articles-lies-configures", {
             "code_article": _req(args, "code_article")})
