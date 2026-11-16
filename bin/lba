@@ -1012,6 +1012,20 @@ TOOLS = [
             "include_expire": {"type": "boolean", "description": "défaut false"}}},
     },
     {
+        "name": "lba_article_historique_achats",
+        "description": ("Lecture pure — historique CHRONOLOGIQUE des achats FACTURÉS d'UN article par fournisseur (équivalent de l'écran natif PrismaSoft « Fiche article > "
+                         "Historique achats fournisseurs ») : date de facture, n° de facture, fournisseur, quantité, prix d'achat unitaire NET et remises R1-R3, PR, + synthèse "
+                         "par fournisseur (prix le plus fréquent pondéré, min, max, dernier). Sert de CONTRÔLE de conformité fournisseur : comparer la facture du jour à la série réelle, "
+                         "pas seulement à achatDernierPrix (instantané, lui-même faux s'il vient d'une facture erronée). Les avoirs (quantité < 0) sont listés mais exclus de la synthèse. "
+                         "DISTINCT de lba_article_historique_ventes (ventes clients). Réservé direction / backoffice / achats. GET /api/bacchus/articles/{code}/historique-achats."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string"},
+            "fournisseur": {"type": "string", "description": "morceau du nom du fournisseur (ex. 'metro', 'duvel'), omis = tous"},
+            "du": {"type": "string", "description": "AAAA-MM-JJ, date de facture incluse"},
+            "au": {"type": "string", "description": "AAAA-MM-JJ, date de facture incluse"},
+            "limite": {"type": "integer", "description": "défaut 200, max 1000"}}},
+    },
+    {
         "name": "lba_article_historique_ventes",
         "description": ("Dernières lignes de vente RÉELLEMENT FACTURÉES (pas théorique) pour UN article, "
                          "filtrable sur UN client (code_client optionnel, omis = tous clients confondus) : "
@@ -6409,6 +6423,9 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/articles/remises-clients", {
             "code_article": args.get("code_article"), "sous_famille": args.get("sous_famille"),
             "include_expire": args.get("include_expire", False)})
+    if tool == "lba_article_historique_achats":
+        return _get(f"/api/bacchus/articles/{_req(args, 'code_article')}/historique-achats", {
+            "fournisseur": args.get("fournisseur"), "du": args.get("du"), "au": args.get("au"), "limite": args.get("limite", 200)})
     if tool == "lba_article_historique_ventes":
         return _get(f"/api/bacchus/articles/{_req(args, 'code_article')}/historique-ventes", {
             "code_client": args.get("code_client"), "limit": args.get("limit", 20)})
