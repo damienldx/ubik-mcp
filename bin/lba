@@ -1982,6 +1982,22 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_facture_rechercher",
+        "description": ("Lecture pure — RETROUVE l'id_facture d'une facture fournisseur déjà saisie à partir de son numéro interne (« FA53383 » ou 53383), de la référence "
+                         "fournisseur notée à la saisie, du fournisseur et/ou d'une fenêtre de dates. Renvoie pour chaque candidat id_facture, numero_interne, reference_fournisseur, "
+                         "date, total_ttc, fournisseur, comptabilisee. Fournisseur ambigu ou introuvable : fournisseur_candidats, aucune recherche. Plusieurs résultats : les présenter "
+                         "à l'utilisateur, ne JAMAIS en choisir un seul. À appeler AVANT lba_achats_bl_lire_entete / lba_achats_facture_ligne_prix_* / lba_achats_facture_numero_* "
+                         "quand l'id_facture n'est pas connu. N'écrit rien. GET /api/bacchus/achats/facturation/rechercher."),
+        "inputSchema": {"type": "object", "properties": {
+            "numero": {"type": "string", "description": "numéro interne (53383) ou pièce (FA53383) ; cherché aussi dans la référence fournisseur"},
+            "reference": {"type": "string", "description": "texte contenu dans la référence fournisseur saisie"},
+            "fournisseur": {"type": "string", "description": "nom du fournisseur (ex. El Alamo)"},
+            "du": {"type": "string", "description": "date de facture minimale AAAA-MM-JJ"},
+            "au": {"type": "string", "description": "date de facture maximale AAAA-MM-JJ (incluse)"},
+            "limite": {"type": "integer", "description": "défaut 25, max 100"},
+        }},
+    },
+    {
         "name": "lba_achats_bl_lignes_non_imputees",
         "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
                          "sur une facture pour un fournisseur, RÉFÉRENCE DE COMPARAISON (num BL, "
@@ -6747,6 +6763,10 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "ids": _req(args, "ids"), "plafond": args.get("plafond", 50),
             "anciennete_jours": args.get("anciennete_jours", 90),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_facture_rechercher":
+        return _get("/api/bacchus/achats/facturation/rechercher", {
+            "numero": args.get("numero"), "reference": args.get("reference"), "fournisseur": args.get("fournisseur"),
+            "du": args.get("du"), "au": args.get("au"), "limite": args.get("limite")})
     if tool == "lba_achats_bl_lignes_non_imputees":
         return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
             "fournisseur": _req(args, "fournisseur"), "code_article": args.get("code_article")})
