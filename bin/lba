@@ -2275,6 +2275,7 @@ TOOLS = [
             "id_facture": {"type": "integer"},
             "id_ligne": {"type": "integer"},
             "nouveau_prix": {"type": "number"},
+            "accepter_periode_ancienne": {"type": "boolean"},
             "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
@@ -2301,6 +2302,34 @@ TOOLS = [
             "id_tva": {"type": "integer"},
             "confirm": {"type": "boolean"},
             "accepter_ecart_bl": {"type": "boolean", "description": "REQUIS (true) si la simulation indique lie_bl/lie_commande : le BL garde son ancien code TVA, écart assumé par l'utilisateur"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_ligne_prix_comptabilisee_simuler",
+        "description": ("Lecture pure — corrige EN PLACE un PETIT écart (arrondi, ≤ 1 €) de prix d'une ligne sur une facture fournisseur DÉJÀ COMPTABILISÉE : ligne de facture, ventilation TVA, total TTC "
+                         "et lignes de l'écriture comptable (charge, TVA, fournisseur), en une transaction. Fournir ht_ligne_cible (HT cible de la ligne, le prix est déduit) OU nouveau_prix. "
+                         "Refuse : écriture lettrée/payée, ligne de clôture, écriture déséquilibrée, remise, ventilation incohérente, écart > 1 € (alors : contre-écriture par la comptabilité). "
+                         "Pour une facture NON comptabilisée, utiliser lba_achats_facture_ligne_prix_*. N'écrit rien. TOUJOURS appeler AVANT lba_achats_facture_ligne_prix_comptabilisee_modifier. "
+                         "POST /api/bacchus/achats/facturation/ligne-prix-comptabilisee/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "ht_ligne_cible": {"type": "number", "description": "HT cible de la ligne (2 décimales) — OU nouveau_prix, jamais les deux"},
+            "nouveau_prix": {"type": "number", "description": "prix unitaire (unité de vente) — OU ht_ligne_cible"},
+            "accepter_periode_ancienne": {"type": "boolean", "description": "true UNIQUEMENT si l'utilisateur a confirmé : la facture date d'un mois antérieur et sa TVA a pu être déclarée"},
+        }},
+    },
+    {
+        "name": "lba_achats_facture_ligne_prix_comptabilisee_modifier",
+        "description": ("ÉCRITURE COMPTABLE — applique la correction simulée sur une facture comptabilisée. confirm=true REQUIS, après la simulation présentée à l'utilisateur et son accord explicite POUR CE CAS. "
+                         "Trace d'audit avant écriture, relecture sur connexion neuve. POST /api/bacchus/achats/facturation/ligne-prix-comptabilisee."),
+        "inputSchema": {"type": "object", "required": ["id_facture", "id_ligne", "confirm"], "properties": {
+            "id_facture": {"type": "integer"},
+            "id_ligne": {"type": "integer"},
+            "ht_ligne_cible": {"type": "number"},
+            "nouveau_prix": {"type": "number"},
+            "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
     },
@@ -6840,6 +6869,18 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/achats/facturation/ligne-tva", {
             "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"), "id_tva": _req(args, "id_tva"),
             "confirm": bool(_req(args, "confirm")), "accepter_ecart_bl": bool(args.get("accepter_ecart_bl")), "agent_id": agent_id})
+    if tool == "lba_achats_facture_ligne_prix_comptabilisee_simuler":
+        return _post("/api/bacchus/achats/facturation/ligne-prix-comptabilisee/simuler", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"),
+            "ht_ligne_cible": args.get("ht_ligne_cible"), "nouveau_prix": args.get("nouveau_prix"),
+            "accepter_periode_ancienne": bool(args.get("accepter_periode_ancienne"))})
+    if tool == "lba_achats_facture_ligne_prix_comptabilisee_modifier":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/facturation/ligne-prix-comptabilisee", {
+            "id_facture": _req(args, "id_facture"), "id_ligne": _req(args, "id_ligne"),
+            "ht_ligne_cible": args.get("ht_ligne_cible"), "nouveau_prix": args.get("nouveau_prix"),
+            "accepter_periode_ancienne": bool(args.get("accepter_periode_ancienne")),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_facture_numero_simuler":
         return _post("/api/bacchus/achats/facturation/numero-facture/simuler", {
             "id_facture": _req(args, "id_facture"), "nouveau_numero": _req(args, "nouveau_numero")})
