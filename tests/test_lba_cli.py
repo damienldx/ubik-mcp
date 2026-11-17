@@ -649,7 +649,8 @@ class TestCliSurface(unittest.TestCase):
         # (lba_drive_* etc., jamais comptés ici) ; 284 + lba_visites_synthese = 285 ; HEAD comptait déjà 291 (retard de 6) ; + 6 lba_promotion* = 298 ; + 4 outils Bacchus équipé (lba_dossier_catalogue, lba_dossier, lba_duckdb_schema, lba_duckdb_lire) = 302 ; + lba_entreprise_verifier, lba_page_publique_lire (vérification externe) = 304 ; + lba_mail_brouillon_creer = 305 ; + lba_fichier_lire = 306 ; + lba_parcours_detail = 307 ; + lba_clients_resume = 308 ; + lba_visite_annuler, lba_visite_supprimer = 310.
         # DRIFT PRÉ-EXISTANT (2026-11-06) : la surface réelle sur HEAD était déjà 325 (assertion figée à 310) ; 325 + lba_connaissances_metier_index/
         # lire/chercher (référentiel des connaissances métier, deux espaces interne/client, lecture seule) = 328.
-        self.assertEqual(len(tools), 328)
+        # DRIFT PRÉ-EXISTANT (2026-11-17) : HEAD comptait déjà 337 (assertion figée à 328) ; 337 + lba_tarifs_grille_initialiser_(simuler|appliquer) = 339.
+        self.assertEqual(len(tools), 339)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)

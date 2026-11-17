@@ -1596,6 +1596,35 @@ TOOLS = [
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"}}},
     },
     {
+        "name": "lba_tarifs_grille_initialiser_simuler",
+        "description": ("Lecture pure — simule la PREMIÈRE grille tarifaire (T19 + R1/R2 des tarifs enfants) d'un article NEUF dont T19 est vide "
+                         "(article de remplacement/succession, ex. 1056 -> 5031). Deux modes exclusifs : source_article (recopie la grille d'un article existant) "
+                         "OU t19 + remises explicites. Montre grille avant/après, nets et marges par tarif. REFUSE si T19 est déjà renseigné, si le PAMP est vide "
+                         "(poser d'abord lba_tarifs_pamp_appliquer) ou si la famille n'a pas de grille. N'écrit rien. TOUJOURS appeler AVANT lba_tarifs_grille_initialiser_appliquer. "
+                         "POST /api/bacchus/tarifs/grille/initialiser/simuler."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string", "description": "article NEUF (ex. 5031)"},
+            "source_article": {"type": "string", "description": "mode copie : article dont la grille est recopiée (ex. 1056)"},
+            "t19": {"type": "number", "description": "mode explicite : T19 (> 0)"},
+            "remises": {"type": "object", "description": "mode explicite : {\"18\": {\"r1\": 0.15, \"r2\": 0}} — fractions 0-1, tarifs enfants 6/7/8/18/20"},
+        }},
+    },
+    {
+        "name": "lba_tarifs_grille_initialiser_appliquer",
+        "description": ("ÉCRITURE — pose la première grille (T19 + R1/R2) d'un article neuf sur TOUTES ses lignes de vente, une transaction, relecture. "
+                         "Mêmes paramètres/refus que le simuler, présenté à l'utilisateur AVANT. confirm=true REQUIS après son accord explicite POUR CE CAS. "
+                         "Ne modifie jamais une grille existante (T19 déjà renseigné = refus). Les remises clients négociées se dupliquent ensuite via lba_tarifs_client_remise_appliquer_lot. "
+                         "POST /api/bacchus/tarifs/grille/initialiser/appliquer."),
+        "inputSchema": {"type": "object", "required": ["code_article"], "properties": {
+            "code_article": {"type": "string", "description": "article NEUF (ex. 5031)"},
+            "source_article": {"type": "string", "description": "mode copie : article dont la grille est recopiée (ex. 1056)"},
+            "t19": {"type": "number", "description": "mode explicite : T19 (> 0)"},
+            "remises": {"type": "object", "description": "mode explicite : {\"18\": {\"r1\": 0.15, \"r2\": 0}} — fractions 0-1, tarifs enfants 6/7/8/18/20"},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_tarifs_pamp_appliquer",
         "description": ("ÉCRITURE — corrige DIRECTEMENT le PAMP (achatDernierPrixRevientMoyen, "
                          "ET achatDernierPrixRevient en même temps) d'UN article, quand il est "
@@ -6626,6 +6655,16 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
             "agent_id": agent_id, "code_article": _req(args, "code_article"),
             "prix": _req(args, "prix"), "fournisseur": args.get("fournisseur"),
             "date_achat": args.get("date_achat"), "confirm": bool(_req(args, "confirm"))})
+    if tool == "lba_tarifs_grille_initialiser_simuler":
+        return _post("/api/bacchus/tarifs/grille/initialiser/simuler", {
+            "code_article": _req(args, "code_article"), "source_article": args.get("source_article"),
+            "t19": args.get("t19"), "remises": args.get("remises")})
+    if tool == "lba_tarifs_grille_initialiser_appliquer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/tarifs/grille/initialiser/appliquer", {
+            "agent_id": agent_id, "code_article": _req(args, "code_article"),
+            "source_article": args.get("source_article"), "t19": args.get("t19"),
+            "remises": args.get("remises"), "confirm": bool(_req(args, "confirm"))})
     if tool == "lba_tarifs_pamp_appliquer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/tarifs/pamp/appliquer", {
