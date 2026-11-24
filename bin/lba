@@ -2746,6 +2746,43 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_exploitation_taches_lister",
+        "description": ("Lecture pure — le To Do d'EXPLOITATION d'Ivan (la brique « exploitation » : tâche, thème, priorité, responsable, deadline, statut, jours restants, couleur de la deadline). "
+                         "TOUJOURS appeler en PREMIER, avant de créer ou de modifier : pour repérer une tâche déjà présente (doublon) et lire l'`id` à modifier. Filtres facultatifs : "
+                         "`statut` (a_faire | en_cours | en_attente | fait) ; `filtre` (urgent | retard | sans_deadline). GET /api/bacchus/exploitation/taches. Aucune suppression n'existe."),
+        "inputSchema": {"type": "object", "properties": {
+            "statut": {"type": "string", "enum": ["a_faire", "en_cours", "en_attente", "fait"]},
+            "filtre": {"type": "string", "enum": ["urgent", "retard", "sans_deadline"]},
+        }},
+    },
+    {
+        "name": "lba_exploitation_taches_creer",
+        "description": ("ÉCRITURE — crée une tâche dans le To Do d'exploitation d'Ivan. N'appeler QU'APRÈS lba_exploitation_taches_lister (pas de doublon), présentation de la tâche structurée "
+                         "à l'utilisateur et sa confirmation explicite ; confirm=true REQUIS (sans lui, rien n'est envoyé). `tache` = le texte de la tâche ; `priorite` : urgent | court_terme | moyen_terme ; "
+                         "`statut` : a_faire | en_cours | en_attente | fait ; `deadline` AAAA-MM-JJ DONNÉE par l'utilisateur, jamais déduite ; champ non dit = omis (jamais inventé). "
+                         "L'identité de l'auteur vient de la session, jamais d'un argument. POST /api/bacchus/exploitation/taches."),
+        "inputSchema": {"type": "object", "required": ["tache", "confirm"], "properties": {
+            "tache": {"type": "string"}, "theme": {"type": "string"}, "responsable": {"type": "string"}, "commentaire": {"type": "string"},
+            "priorite": {"type": "string", "enum": ["urgent", "court_terme", "moyen_terme"]},
+            "statut": {"type": "string", "enum": ["a_faire", "en_cours", "en_attente", "fait"]},
+            "deadline": {"type": "string", "description": "AAAA-MM-JJ, donnée par l'utilisateur"},
+            "confirm": {"type": "boolean"},
+        }},
+    },
+    {
+        "name": "lba_exploitation_taches_modifier",
+        "description": ("ÉCRITURE — modifie une tâche du To Do d'exploitation (seuls les champs donnés changent ; un changement de `statut` est tracé dans l'historique). `id` = lu dans "
+                         "lba_exploitation_taches_lister. N'appeler QU'APRÈS la liste, présentation du changement et confirmation explicite ; confirm=true REQUIS (sans lui, rien n'est envoyé). "
+                         "Au moins un champ à modifier. PUT /api/bacchus/exploitation/taches/{id}."),
+        "inputSchema": {"type": "object", "required": ["id", "confirm"], "properties": {
+            "id": {"type": "integer"}, "tache": {"type": "string"}, "theme": {"type": "string"}, "responsable": {"type": "string"}, "commentaire": {"type": "string"},
+            "priorite": {"type": "string", "enum": ["urgent", "court_terme", "moyen_terme"]},
+            "statut": {"type": "string", "enum": ["a_faire", "en_cours", "en_attente", "fait"]},
+            "deadline": {"type": "string", "description": "AAAA-MM-JJ, donnée par l'utilisateur"},
+            "confirm": {"type": "boolean"},
+        }},
+    },
+    {
         "name": "lba_commande_quantites",
         "description": ("ÉCRITURE — quantités de lignes d'une COMMANDE (ou d'un devis) AVANT préparation ; PrismaSoft recalcule les totaux. Lire la pièce d'abord (lignes, total TTC), présenter le "
                          "changement, puis appeler après confirmation explicite avec `attendu_total_ttc` = total TTC lu (refus 409 si la pièce a changé) ; confirm=true REQUIS. Réservé bureau/admin. "
@@ -5601,6 +5638,38 @@ def _caller_agent_id() -> str | None:
     return os.environ.get("UBIK_AGENT_ID") or os.environ.get("RELAY_AGENT_ID")
 
 
+# ── To Do d'exploitation (Bacchus lit, crée, modifie) ──────────────────────
+# Les routes du hub (/api/bacchus/exploitation/taches) relaient vers AUTOMATE avec l'e-mail de la SESSION : l'identité n'est jamais un argument. Les champs inconnus sont
+# donc REFUSÉS ici aussi (avant toute requête), comme le fait le hub (extra=forbid). Aucune suppression, aucun outil coffre / tachygraphe / entretien.
+_TODO_EXPLOITATION_TOOLS = frozenset({"lba_exploitation_taches_lister", "lba_exploitation_taches_creer", "lba_exploitation_taches_modifier"})
+_TODO_EXPLOITATION_CHAMPS = ("tache", "theme", "priorite", "responsable", "deadline", "statut", "commentaire")
+_TODO_EXPLOITATION_ARGS = {
+    "lba_exploitation_taches_lister": {"statut", "filtre"},
+    "lba_exploitation_taches_creer": {*_TODO_EXPLOITATION_CHAMPS, "confirm"},
+    "lba_exploitation_taches_modifier": {"id", *_TODO_EXPLOITATION_CHAMPS, "confirm"},
+}
+
+
+def _exec_todo_exploitation(tool: str, args: dict, headers: dict):
+    inconnus = sorted(set(args) - _TODO_EXPLOITATION_ARGS[tool] - {"agent_id"})
+    if inconnus:
+        raise LbaCliError(f"{tool} refusé : argument(s) inconnu(s) {', '.join(inconnus)} (l'identité vient de la session, jamais d'un argument). Aucune requête émise.")
+    racine = "/api/bacchus/exploitation/taches"
+    if tool == "lba_exploitation_taches_lister":
+        return _get(racine, {"statut": args.get("statut"), "filtre": args.get("filtre")}, headers)
+    if args.get("confirm") is not True:
+        raise LbaCliError(f"{tool} refusé : confirm=true est requis, après présentation à l'utilisateur et sa confirmation explicite. Aucune requête émise.")
+    corps = {k: args[k] for k in _TODO_EXPLOITATION_CHAMPS if args.get(k) is not None}
+    if tool == "lba_exploitation_taches_creer":
+        if not str(corps.get("tache", "")).strip():
+            raise LbaCliError(f"{tool} refusé : `tache` (le texte de la tâche) est requis. Aucune requête émise.")
+        return _post(racine, {**corps, "confirm": True}, headers)
+    tache_id = int(_req(args, "id"))
+    if not corps:
+        raise LbaCliError(f"{tool} refusé : au moins un champ à modifier est requis. Aucune requête émise.")
+    return _put(f"{racine}/{tache_id}", {**corps, "confirm": True}, headers)
+
+
 def _enforce_tool_tier(tool: str, args: dict, agent_id: str | None) -> None:
     caller = _caller_agent_id()
     if not _is_lba_seat(caller):
@@ -7015,6 +7084,8 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         if tool.endswith("appliquer"):
             corps |= {"total_attendu": float(_req(args, "total_attendu")), "confirm": bool(_req(args, "confirm"))}
         return _post("/api/bacchus/pieces-vente/substitution-article/" + ("appliquer" if tool.endswith("appliquer") else "simuler"), corps, headers)
+    if tool in _TODO_EXPLOITATION_TOOLS:
+        return _exec_todo_exploitation(tool, args, headers)
     if tool == "lba_commande_quantites":
         return _post("/api/bacchus/pieces-vente/commande/quantites", {"id_piece": int(_req(args, "id_piece")), "modifications": _req(args, "modifications"),
                      "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
