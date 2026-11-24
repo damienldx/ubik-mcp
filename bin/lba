@@ -2724,6 +2724,28 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_substitution_article_simuler",
+        "description": ("Lecture pure — REMPLACER l'article d'une ligne d'une COMMANDE ou d'une LIVRAISON, ouverte OU facturée : prix net avant/après (le prix est le tarif PROPRE du nouvel article "
+                         "pour ce client, l'ancien prix n'est qu'affiché), mouvements de stock (retour de l'ancien article, sortie du nouveau), total TTC avant/après, ou les raisons du refus. "
+                         "`id_piece` = identifiant interne lu sur la pièce ; `ancien_code` = code de l'article à remplacer (lu sur la ligne) ; `nouveau_code` = code du nouvel article, donné par "
+                         "l'utilisateur, jamais deviné ; `id_ligne` seulement si l'ancien article est sur plusieurs lignes. Même quantité. TOUJOURS appeler en PREMIER et présenter le résultat. "
+                         "Réservé bureau/admin. POST /api/bacchus/pieces-vente/substitution-article/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "ancien_code", "nouveau_code"], "properties": {
+            "id_piece": {"type": "integer"}, "ancien_code": {"type": "string"}, "nouveau_code": {"type": "string"}, "id_ligne": {"type": "integer"},
+        }},
+    },
+    {
+        "name": "lba_substitution_article_appliquer",
+        "description": ("ÉCRITURE (ligne + stock, tout ou rien) — remplace l'article de la ligne. N'appeler QU'APRÈS lba_substitution_article_simuler présenté et confirmation explicite ; "
+                         "`total_attendu` = `totaux.apres` de la simulation (refus si la pièce a bougé) ; confirm=true REQUIS. Une pièce FACTURÉE n'est pas modifiable ici (admin et indicateur "
+                         "prisma-api requis) : proposer un avoir puis une refacturation. Une pièce à la fois, relire le résultat avant la suivante. Réservé bureau/admin. "
+                         "POST /api/bacchus/pieces-vente/substitution-article/appliquer."),
+        "inputSchema": {"type": "object", "required": ["id_piece", "ancien_code", "nouveau_code", "total_attendu", "confirm"], "properties": {
+            "id_piece": {"type": "integer"}, "ancien_code": {"type": "string"}, "nouveau_code": {"type": "string"}, "id_ligne": {"type": "integer"},
+            "total_attendu": {"type": "number"}, "confirm": {"type": "boolean"},
+        }},
+    },
+    {
         "name": "lba_commande_quantites",
         "description": ("ÉCRITURE — quantités de lignes d'une COMMANDE (ou d'un devis) AVANT préparation ; PrismaSoft recalcule les totaux. Lire la pièce d'abord (lignes, total TTC), présenter le "
                          "changement, puis appeler après confirmation explicite avec `attendu_total_ttc` = total TTC lu (refus 409 si la pièce a changé) ; confirm=true REQUIS. Réservé bureau/admin. "
@@ -6986,6 +7008,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_changer_client_appliquer":
         return _post("/api/bacchus/pieces-vente/changer-client/appliquer", {"id_piece": int(_req(args, "id_piece")), "code_client": str(_req(args, "code_client")),
                      "mode": str(_req(args, "mode")), "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
+    if tool in ("lba_substitution_article_simuler", "lba_substitution_article_appliquer"):
+        corps = {"id_piece": int(_req(args, "id_piece")), "ancien_code": str(_req(args, "ancien_code")), "nouveau_code": str(_req(args, "nouveau_code"))}
+        if args.get("id_ligne") is not None:
+            corps["id_ligne"] = int(args["id_ligne"])
+        if tool.endswith("appliquer"):
+            corps |= {"total_attendu": float(_req(args, "total_attendu")), "confirm": bool(_req(args, "confirm"))}
+        return _post("/api/bacchus/pieces-vente/substitution-article/" + ("appliquer" if tool.endswith("appliquer") else "simuler"), corps, headers)
     if tool == "lba_commande_quantites":
         return _post("/api/bacchus/pieces-vente/commande/quantites", {"id_piece": int(_req(args, "id_piece")), "modifications": _req(args, "modifications"),
                      "attendu_total_ttc": float(_req(args, "attendu_total_ttc")), "confirm": bool(_req(args, "confirm"))}, headers)
