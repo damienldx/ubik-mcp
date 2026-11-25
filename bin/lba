@@ -1790,7 +1790,8 @@ TOOLS = [
             "numero_piece": {"type": "string"},
             "date_piece": {"type": "string"},
             "fournisseur": {"type": "string", "description": "nom du fournisseur tel qu'extrait du document"},
-            "numero_bl": {"type": "string", "description": "N° du BL IMPRIMÉ sur la facture (ex: 1033300971). À toujours passer pour une facture : le garde-fou ne bloque que si CE BL est déjà dans le pool ; un autre BL du fournisseur sur les mêmes articles ne bloque pas."},
+            "numero_bl": {"type": "string", "description": "N° du BL IMPRIMÉ sur la facture (ex: 1033300971). Fourni : le garde-fou ne bloque que si CE BL est déjà dans le pool (rattachement). OMIS : contrôle plus LARGE (tout BL non imputé du fournisseur sur les mêmes articles bloque). Pour une facture SANS livraison, ne PAS inventer de faux numéro : utiliser ignorer_bl_existant=true."},
+            "ignorer_bl_existant": {"type": "boolean", "description": "true = cette facture n'est liée à AUCUNE livraison, c'est voulu (correction, facture sans réception formalisée) : le garde-fou « BL non imputé » n'est pas évalué. À n'utiliser qu'après avoir vérifié avec lba_achats_bl_lignes_non_imputees que le BL du document n'est pas déjà dans le pool."},
             "lignes": {"type": "array", "items": {"type": "object", "properties": {
                 "code_article": {"type": "string"}, "designation": {"type": "string"},
                 "quantite": {"type": "number"}, "prix_unitaire_ht": {"type": "number"},
@@ -1819,7 +1820,8 @@ TOOLS = [
             "numero_piece": {"type": "string"},
             "date_piece": {"type": "string"},
             "fournisseur": {"type": "string"},
-            "numero_bl": {"type": "string", "description": "N° du BL IMPRIMÉ sur la facture (ex: 1033300971). À toujours passer pour une facture : le garde-fou ne bloque que si CE BL est déjà dans le pool ; un autre BL du fournisseur sur les mêmes articles ne bloque pas."},
+            "numero_bl": {"type": "string", "description": "N° du BL IMPRIMÉ sur la facture (ex: 1033300971). Fourni : le garde-fou ne bloque que si CE BL est déjà dans le pool (rattachement). OMIS : contrôle plus LARGE (tout BL non imputé du fournisseur sur les mêmes articles bloque). Pour une facture SANS livraison, ne PAS inventer de faux numéro : utiliser ignorer_bl_existant=true."},
+            "ignorer_bl_existant": {"type": "boolean", "description": "true = cette facture n'est liée à AUCUNE livraison, c'est voulu (correction, facture sans réception formalisée) : le garde-fou « BL non imputé » n'est pas évalué. À n'utiliser qu'après avoir vérifié avec lba_achats_bl_lignes_non_imputees que le BL du document n'est pas déjà dans le pool."},
             "lignes": {"type": "array", "items": {"type": "object", "properties": {
                 "code_article": {"type": "string"}, "designation": {"type": "string"},
                 "quantite": {"type": "number"}, "prix_unitaire_ht": {"type": "number"},
@@ -6849,14 +6851,15 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _post("/api/bacchus/achats/reception/simuler", {
             "type_document": _req(args, "type_document"), "numero_piece": args.get("numero_piece"),
             "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
-            "lignes": _req(args, "lignes"), "numero_bl": args.get("numero_bl")})
+            "lignes": _req(args, "lignes"), "numero_bl": args.get("numero_bl"),
+            "ignorer_bl_existant": args.get("ignorer_bl_existant") is True})
     if tool == "lba_achats_reception_creer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/reception/creer", {
             "type_document": _req(args, "type_document"), "numero_piece": args.get("numero_piece"),
             "date_piece": args.get("date_piece"), "fournisseur": _req(args, "fournisseur"),
             "lignes": _req(args, "lignes"), "total_ttc": args.get("total_ttc"),
-            "numero_bl": args.get("numero_bl"),
+            "numero_bl": args.get("numero_bl"), "ignorer_bl_existant": args.get("ignorer_bl_existant") is True,
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id}, timeout=90)
     if tool == "lba_achats_reception_ligne_suppression_simuler":
         return _post("/api/bacchus/achats/reception/ligne-suppression/simuler", {
