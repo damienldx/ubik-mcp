@@ -1808,7 +1808,12 @@ TOOLS = [
                          "confirmation explicite de sa part sur les valeurs affichées (fournisseur "
                          "résolu, chaque ligne), jamais juste après une lecture de facture seule. "
                          "confirm=true REQUIS. Réservé direction/backoffice/achats-logistique — 403 "
-                         "sinon. POST /api/bacchus/achats/reception/creer."),
+                         "sinon. ⚠️ Une facture créée peut être comptabilisée très vite (cause pas encore établie, "
+                         "parfois en quelques minutes) : valider les valeurs (prix par unité de base, "
+                         "quantité) AVANT de créer, et ne JAMAIS boucler suppression/recréation. Dès que "
+                         "`comptabilisee=true`, AUCUN outil ne corrige la pièce : remonter à la comptabilité "
+                         "(contre-écriture formelle, par un humain) et prévenir l'utilisateur, sans resaisir. "
+                         "POST /api/bacchus/achats/reception/creer."),
         "inputSchema": {"type": "object", "required": ["type_document", "fournisseur", "lignes", "confirm"], "properties": {
             "type_document": {"type": "string", "enum": ["facture", "bon_livraison"]},
             "numero_piece": {"type": "string"},
