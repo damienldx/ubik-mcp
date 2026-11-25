@@ -1777,7 +1777,14 @@ TOOLS = [
                          "en particulier tout `necessite_clarification` (fournisseur ambigu, article "
                          "introuvable, conditionnement ambigu) : ne JAMAIS deviner à sa place, "
                          "demander la précision manquante. `pret_pour_ecriture=true` uniquement si "
-                         "tout est résolu sans ambiguïté. POST /api/bacchus/achats/reception/simuler."),
+                         "tout est résolu sans ambiguïté. ⚠️ `prix_unitaire_ht` est enregistré TEL QUEL "
+                         "et attendu PAR UNITÉ DE BASE (au litre), JAMAIS par fût/caisse : `unite` ne "
+                         "sert qu'à résoudre le conditionnement de la quantité. Si le document donne un "
+                         "prix par fût de 30 L, passer prix ÷ 30 (la simulation renvoie "
+                         "`avertissement_prix` avec la valeur à passer). `numero_piece` d'une FACTURE = "
+                         "référence fournisseur : elle est conservée en référence externe, le numéro "
+                         "interne PrismaSoft est attribué automatiquement. Pour une facture directe la "
+                         "quantité est écrite en « Facturé ». POST /api/bacchus/achats/reception/simuler."),
         "inputSchema": {"type": "object", "required": ["type_document", "fournisseur", "lignes"], "properties": {
             "type_document": {"type": "string", "enum": ["facture", "bon_livraison"]},
             "numero_piece": {"type": "string"},
