@@ -126,6 +126,13 @@ class HubReadOnly(unittest.TestCase):
                      "lba_capacites_rechercher", "lba_todo_tasks"):
             self.enforce("281cc61f-agent-9", tool)
 
+    def test_hub_laisse_ecrire_le_todo_d_exploitation(self):
+        for tool in ("lba_exploitation_taches_lister", "lba_exploitation_taches_creer", "lba_exploitation_taches_modifier"):
+            self.enforce("281cc61f-agent-9", tool)
+        os.environ["UBIK_AGENT_ID"] = "281cc61f-agent-9"
+        names = {t["name"] for t in lba._visible_tools()}
+        self.assertTrue({"lba_exploitation_taches_creer", "lba_exploitation_taches_modifier"} <= names)
+
     def test_portail_non_concerne(self):
         self.enforce("22fcf4a5-agent-9", "lba_todo_task_create")
 

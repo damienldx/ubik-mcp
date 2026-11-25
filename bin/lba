@@ -5711,6 +5711,8 @@ _HUB_WRITE_EXEMPT = frozenset({
     "lba_document_generer_pdf", "lba_document_generer_docx", "lba_document_generer_xlsx",
     "lba_document_generer_pptx", "lba_devis_generer", "lba_tarif_client_generer", "lba_investissement_generer",
     "lba_mail_piece_jointe_telecharger", "lba_whatsapp_piece_jointe_telecharger", "lba_memoire_save",
+    # To Do d'exploitation d'Ivan (ordre 2026-11-25) : écriture dans SA liste du Hub, sous l'identité de sa session, sans PRISMA ni Microsoft ; seul endroit où il dicte ses tâches.
+    "lba_exploitation_taches_creer", "lba_exploitation_taches_modifier",
 })
 
 
