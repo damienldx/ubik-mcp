@@ -2040,7 +2040,7 @@ TOOLS = [
                          "quantité). `necessite_clarification=true` si une ligne est ambiguë (`ambigues`, avec `candidats`) ou sans réception (`sans_candidat`) : présenter les candidats "
                          "et laisser l'utilisateur choisir, ne JAMAIS trancher. Les `ecarts` quantité/prix facturé vs réceptionné se SIGNALENT, jamais corrigés. À appeler avant "
                          "lba_achats_demat_creer_simuler. N'écrit rien. GET /api/bacchus/achats/demat/proposer."),
-        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}}},
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}, "articles_lies": {"type": "array", "items": {"type": "integer"}, "description": "n° de ligne de la facture déclarés articles liés (consigne, emballage), exclus du rapprochement"}}},
     },
     {
         "name": "lba_achats_demat_creer_simuler",
@@ -2054,6 +2054,7 @@ TOOLS = [
             "correspondances": {"type": "array", "description": "mode bl : associations VALIDÉES par l'utilisateur", "items": {
                 "type": "object", "required": ["id_ligne_demat", "id_ligne_commande"], "properties": {
                     "id_ligne_demat": {"type": "integer"}, "id_ligne_commande": {"type": "integer"}}}},
+            "lignes_articles_lies": {"type": "array", "items": {"type": "integer"}, "description": "n° de ligne de la facture déclarés ARTICLES LIÉS (consigne, emballage) par l'utilisateur : non repris par la création, à ajouter ensuite avec lba_achats_articles_lies_simuler/importer"},
         }},
     },
     {
@@ -2067,6 +2068,7 @@ TOOLS = [
             "correspondances": {"type": "array", "items": {
                 "type": "object", "required": ["id_ligne_demat", "id_ligne_commande"], "properties": {
                     "id_ligne_demat": {"type": "integer"}, "id_ligne_commande": {"type": "integer"}}}},
+            "lignes_articles_lies": {"type": "array", "items": {"type": "integer"}, "description": "n° de ligne de la facture déclarés ARTICLES LIÉS (consigne, emballage) par l'utilisateur : non repris par la création, à ajouter ensuite avec lba_achats_articles_lies_simuler/importer"},
             "confirm": {"type": "boolean"},
             "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
         }},
@@ -6987,15 +6989,17 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
     if tool == "lba_achats_demat_detail":
         return _get("/api/bacchus/achats/demat/detail", {"id_demat": _req(args, "id_demat")})
     if tool == "lba_achats_demat_proposer":
-        return _get("/api/bacchus/achats/demat/proposer", {"id_demat": _req(args, "id_demat")})
+        al = args.get("articles_lies")
+        return _get("/api/bacchus/achats/demat/proposer", {"id_demat": _req(args, "id_demat"), "articles_lies": ",".join(str(int(n)) for n in al) if al else None})
     if tool == "lba_achats_demat_creer_simuler":
         return _post("/api/bacchus/achats/demat/creer/simuler", {
-            "id_demat": _req(args, "id_demat"), "mode": args.get("mode") or "bl", "correspondances": args.get("correspondances") or []})
+            "id_demat": _req(args, "id_demat"), "mode": args.get("mode") or "bl", "correspondances": args.get("correspondances") or [],
+            "lignes_articles_lies": args.get("lignes_articles_lies") or []})
     if tool == "lba_achats_demat_creer":
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/demat/creer", {
             "id_demat": _req(args, "id_demat"), "mode": args.get("mode") or "bl", "correspondances": args.get("correspondances") or [],
-            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+            "lignes_articles_lies": args.get("lignes_articles_lies") or [], "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_demat_rapprocher_simuler":
         return _post("/api/bacchus/achats/demat/rapprocher/simuler", {"id_demat": _req(args, "id_demat"), "id_facture": args.get("id_facture")})
     if tool == "lba_achats_demat_rapprocher":
