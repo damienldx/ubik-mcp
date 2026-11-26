@@ -2014,6 +2014,79 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_demat_rechercher",
+        "description": ("Lecture pure — retrouve une FACTURE DÉMATÉRIALISÉE fournisseur (PrismaSoft : Fournisseurs > Factures dématérialisées fournisseur) par numéro, fournisseur, "
+                         "dates, ou seulement les non rapprochées. Circuit À PART : ces factures ne remontent PAS dans lba_achats_facture_rechercher. Renvoie id_demat (à passer "
+                         "aux autres tools demat), numéro, fournisseur, montants, statuts, rapprochement. Plusieurs résultats : les présenter, ne JAMAIS en choisir un seul. "
+                         "N'écrit rien. GET /api/bacchus/achats/demat/rechercher."),
+        "inputSchema": {"type": "object", "properties": {
+            "numero": {"type": "string", "description": "numéro de la facture fournisseur (ex. 260013074), recherche par fragment"},
+            "fournisseur": {"type": "string", "description": "nom du fournisseur (fragment)"},
+            "du": {"type": "string", "description": "date d'émission minimale AAAA-MM-JJ"},
+            "au": {"type": "string", "description": "date d'émission maximale AAAA-MM-JJ (incluse)"},
+            "non_rapprochees": {"type": "boolean", "description": "true = seulement celles pas encore reliées à une facture PrismaSoft"},
+            "limite": {"type": "integer", "description": "défaut 25, max 100"},
+        }},
+    },
+    {
+        "name": "lba_achats_demat_detail",
+        "description": ("Lecture pure — une facture dématérialisée avec ses lignes, les lignes de réception candidates chez ce fournisseur et les factures PrismaSoft candidates "
+                         "(mêmes procédures natives que l'écran). N'écrit rien. GET /api/bacchus/achats/demat/detail."),
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_achats_demat_proposer",
+        "description": ("Lecture pure — PROPOSE l'association de chaque ligne de la facture dématérialisée à une ligne de réception (référence fournisseur/désignation, départagée par la "
+                         "quantité). `necessite_clarification=true` si une ligne est ambiguë (`ambigues`, avec `candidats`) ou sans réception (`sans_candidat`) : présenter les candidats "
+                         "et laisser l'utilisateur choisir, ne JAMAIS trancher. Les `ecarts` quantité/prix facturé vs réceptionné se SIGNALENT, jamais corrigés. À appeler avant "
+                         "lba_achats_demat_creer_simuler. N'écrit rien. GET /api/bacchus/achats/demat/proposer."),
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_achats_demat_creer_simuler",
+        "description": ("Lecture pure, dry-run — ce que lba_achats_demat_creer écrirait : associations ligne facture ↔ ligne de réception, écarts, `bloquants` (lignes non associées…), "
+                         "`pret_pour_ecriture`. Quantités et prix retenus = ceux de la FACTURE ; la réception n'est qu'une référence de comparaison. TOUJOURS avant "
+                         "lba_achats_demat_creer ; présenter le résultat. mode `bl` (défaut) = sur lignes de réception ; `directe` = facture directe. "
+                         "POST /api/bacchus/achats/demat/creer/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {
+            "id_demat": {"type": "integer"},
+            "mode": {"type": "string", "enum": ["bl", "directe"]},
+            "correspondances": {"type": "array", "description": "mode bl : associations VALIDÉES par l'utilisateur", "items": {
+                "type": "object", "required": ["id_ligne_demat", "id_ligne_commande"], "properties": {
+                    "id_ligne_demat": {"type": "integer"}, "id_ligne_commande": {"type": "integer"}}}},
+        }},
+    },
+    {
+        "name": "lba_achats_demat_creer",
+        "description": ("ÉCRITURE — crée la facture fournisseur PrismaSoft depuis la facture dématérialisée, rattachée aux lignes de réception validées (procédure native, une seule "
+                         "transaction, tracée). confirm=true REQUIS, UNIQUEMENT après lba_achats_demat_creer_simuler présenté ET accord explicite de l'utilisateur sur le mapping et "
+                         "les valeurs. Réservé direction/backoffice/achats-logistique. POST /api/bacchus/achats/demat/creer."),
+        "inputSchema": {"type": "object", "required": ["id_demat", "confirm"], "properties": {
+            "id_demat": {"type": "integer"},
+            "mode": {"type": "string", "enum": ["bl", "directe"]},
+            "correspondances": {"type": "array", "items": {
+                "type": "object", "required": ["id_ligne_demat", "id_ligne_commande"], "properties": {
+                    "id_ligne_demat": {"type": "integer"}, "id_ligne_commande": {"type": "integer"}}}},
+            "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
+        "name": "lba_achats_demat_rapprocher_simuler",
+        "description": ("Lecture pure, dry-run — relier la facture dématérialisée à une facture PrismaSoft DÉJÀ saisie (même fournisseur, pas déjà reliée ; écart de montant signalé), "
+                         "ou la délier (id_facture absent). N'écrit rien. POST /api/bacchus/achats/demat/rapprocher/simuler."),
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}, "id_facture": {"type": "integer", "description": "absent = délier"}}},
+    },
+    {
+        "name": "lba_achats_demat_rapprocher",
+        "description": ("ÉCRITURE — relie (ou délie) la facture dématérialisée à une facture PrismaSoft existante. confirm=true REQUIS après lba_achats_demat_rapprocher_simuler présenté. "
+                         "POST /api/bacchus/achats/demat/rapprocher."),
+        "inputSchema": {"type": "object", "required": ["id_demat", "confirm"], "properties": {
+            "id_demat": {"type": "integer"}, "id_facture": {"type": "integer"}, "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_achats_bl_lignes_non_imputees",
         "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
                          "sur une facture pour un fournisseur, RÉFÉRENCE DE COMPARAISON (num BL, "
@@ -6907,6 +6980,29 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         return _get("/api/bacchus/achats/facturation/rechercher", {
             "numero": args.get("numero"), "reference": args.get("reference"), "fournisseur": args.get("fournisseur"),
             "du": args.get("du"), "au": args.get("au"), "limite": args.get("limite")})
+    if tool == "lba_achats_demat_rechercher":
+        return _get("/api/bacchus/achats/demat/rechercher", {
+            "numero": args.get("numero"), "fournisseur": args.get("fournisseur"), "du": args.get("du"), "au": args.get("au"),
+            "non_rapprochees": bool(args.get("non_rapprochees")) or None, "limite": args.get("limite")})
+    if tool == "lba_achats_demat_detail":
+        return _get("/api/bacchus/achats/demat/detail", {"id_demat": _req(args, "id_demat")})
+    if tool == "lba_achats_demat_proposer":
+        return _get("/api/bacchus/achats/demat/proposer", {"id_demat": _req(args, "id_demat")})
+    if tool == "lba_achats_demat_creer_simuler":
+        return _post("/api/bacchus/achats/demat/creer/simuler", {
+            "id_demat": _req(args, "id_demat"), "mode": args.get("mode") or "bl", "correspondances": args.get("correspondances") or []})
+    if tool == "lba_achats_demat_creer":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/demat/creer", {
+            "id_demat": _req(args, "id_demat"), "mode": args.get("mode") or "bl", "correspondances": args.get("correspondances") or [],
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_demat_rapprocher_simuler":
+        return _post("/api/bacchus/achats/demat/rapprocher/simuler", {"id_demat": _req(args, "id_demat"), "id_facture": args.get("id_facture")})
+    if tool == "lba_achats_demat_rapprocher":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/demat/rapprocher", {
+            "id_demat": _req(args, "id_demat"), "id_facture": args.get("id_facture"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lignes_non_imputees":
         return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
             "fournisseur": _req(args, "fournisseur"), "code_article": args.get("code_article")})

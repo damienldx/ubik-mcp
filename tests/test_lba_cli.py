@@ -650,7 +650,8 @@ class TestCliSurface(unittest.TestCase):
         # DRIFT PRÉ-EXISTANT (2026-11-06) : la surface réelle sur HEAD était déjà 325 (assertion figée à 310) ; 325 + lba_connaissances_metier_index/
         # lire/chercher (référentiel des connaissances métier, deux espaces interne/client, lecture seule) = 328.
         # DRIFT PRÉ-EXISTANT (2026-11-17) : HEAD comptait déjà 337 (assertion figée à 328) ; 337 + lba_tarifs_grille_initialiser_(simuler|appliquer) = 339.
-        self.assertEqual(len(tools), 339)
+        # 347 (baseline réelle mesurée 2026-11-26) + 7 tools factures dématérialisées fournisseur (lba_achats_demat_*, demande Ivan) = 354.
+        self.assertEqual(len(tools), 354)
         names = {t["name"] for t in tools}
         self.assertIn("lba_client_fiche", names)
         self.assertIn("lba_rep_codes", names)
@@ -667,6 +668,13 @@ class TestCliSurface(unittest.TestCase):
         self.assertIn("lba_achats_bl_modifier_entete", names)
         self.assertIn("lba_achats_bl_lire_entete", names)
         self.assertIn("lba_achats_bl_deduire_taxes_calculees", names)
+        self.assertIn("lba_achats_demat_rechercher", names)
+        self.assertIn("lba_achats_demat_detail", names)
+        self.assertIn("lba_achats_demat_proposer", names)
+        self.assertIn("lba_achats_demat_creer_simuler", names)
+        self.assertIn("lba_achats_demat_creer", names)
+        self.assertIn("lba_achats_demat_rapprocher_simuler", names)
+        self.assertIn("lba_achats_demat_rapprocher", names)
 
     def test_schema_prints_valid_json_schema(self):
         out = subprocess.run(
