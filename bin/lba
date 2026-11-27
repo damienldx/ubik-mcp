@@ -2061,7 +2061,7 @@ TOOLS = [
         "name": "lba_achats_demat_creer",
         "description": ("ÉCRITURE — crée la facture fournisseur PrismaSoft depuis la facture dématérialisée, rattachée aux lignes de réception validées (procédure native, une seule "
                          "transaction, tracée). confirm=true REQUIS, UNIQUEMENT après lba_achats_demat_creer_simuler présenté ET accord explicite de l'utilisateur sur le mapping et "
-                         "les valeurs. Réservé direction/backoffice/achats-logistique. POST /api/bacchus/achats/demat/creer."),
+                         "les valeurs. Le PDF natif de la demat est attaché automatiquement à la facture créée (piece_jointe_pdf dans la réponse). Réservé direction/backoffice/achats-logistique. POST /api/bacchus/achats/demat/creer."),
         "inputSchema": {"type": "object", "required": ["id_demat", "confirm"], "properties": {
             "id_demat": {"type": "integer"},
             "mode": {"type": "string", "enum": ["bl", "directe"]},
