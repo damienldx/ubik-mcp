@@ -2089,6 +2089,23 @@ TOOLS = [
         }},
     },
     {
+        "name": "lba_achats_demat_pdf",
+        "description": ("Lecture pure — où se trouve le PDF natif d'une facture dématérialisée (colonne PDF de l'écran « Factures dématérialisées fournisseur »). Il est dans la GED PrismaSoft "
+                         "rattachée à la ligne demat ; urlPDF reste null. Ne renvoie pas le contenu. GET /api/bacchus/achats/demat/pdf."),
+        "inputSchema": {"type": "object", "required": ["id_demat"], "properties": {"id_demat": {"type": "integer"}}},
+    },
+    {
+        "name": "lba_achats_demat_pdf_attacher",
+        "description": ("ÉCRITURE — attache à la facture fournisseur PrismaSoft le PDF natif de la facture dématérialisée (copie côté serveur, le fichier ne transite pas par le chat ; Visualiseur PrismaSoft). "
+                         "Sans id_facture : la facture déjà créée/rapprochée. Idempotent (ne duplique pas). confirm=true REQUIS après accord de l'utilisateur. "
+                         "POST /api/bacchus/achats/demat/pdf/attacher."),
+        "inputSchema": {"type": "object", "required": ["id_demat", "confirm"], "properties": {
+            "id_demat": {"type": "integer"}, "id_facture": {"type": "integer", "description": "défaut : facture liée à la demat"},
+            "source": {"type": "string", "description": "ex. ged:69505 ; défaut : le PDF le plus récent"}, "confirm": {"type": "boolean"},
+            "agent_id": {"type": "string", "description": "défaut UBIK_AGENT_ID/RELAY_AGENT_ID"},
+        }},
+    },
+    {
         "name": "lba_achats_bl_lignes_non_imputees",
         "description": ("Lecture pure — liste les lignes de réception (BL) NON encore imputées "
                          "sur une facture pour un fournisseur, RÉFÉRENCE DE COMPARAISON (num BL, "
@@ -7006,6 +7023,13 @@ def _exec(tool: str, args: dict, agent_id: str | None = None):
         agent_id = _resolve_agent_id(args.get("agent_id"))
         return _post("/api/bacchus/achats/demat/rapprocher", {
             "id_demat": _req(args, "id_demat"), "id_facture": args.get("id_facture"),
+            "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
+    if tool == "lba_achats_demat_pdf":
+        return _get("/api/bacchus/achats/demat/pdf", {"id_demat": _req(args, "id_demat")})
+    if tool == "lba_achats_demat_pdf_attacher":
+        agent_id = _resolve_agent_id(args.get("agent_id"))
+        return _post("/api/bacchus/achats/demat/pdf/attacher", {
+            "id_demat": _req(args, "id_demat"), "id_facture": args.get("id_facture"), "source": args.get("source"),
             "confirm": bool(_req(args, "confirm")), "agent_id": agent_id})
     if tool == "lba_achats_bl_lignes_non_imputees":
         return _get("/api/bacchus/achats/facturation/lignes-non-imputees", {
